@@ -1,3 +1,5 @@
+[![Build Status](https://badge.buildkite.com/9e0e6c88972a3248a0908506d6946624da84e4e18c0870c4d0.svg)](https://buildkite.com/rust-vmm/vm-virtio-ci)
+
 # vm-virtio
 
 The vm-virtio crate provides a [virtio](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=virtio)
