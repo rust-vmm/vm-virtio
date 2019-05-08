@@ -285,6 +285,12 @@ impl Queue {
         min(self.size, self.max_size)
     }
 
+    /// Reset the queue to a state that is acceptable for a device reset
+    pub fn reset(&mut self) {
+        self.ready = false;
+        self.size = self.max_size;
+    }
+
     /// Check if the virtio queue configuration is valid.
     pub fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = self.actual_size() as usize;
@@ -845,5 +851,18 @@ pub(crate) mod tests {
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
         assert_eq!(x.len, 0x1000);
+    }
+
+    #[test]
+    fn test_reset_queue() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue();
+        q.size = 8;
+        q.ready = true;
+        q.reset();
+        assert_eq!(q.size, 16);
+        assert_eq!(q.ready, false);
     }
 }
