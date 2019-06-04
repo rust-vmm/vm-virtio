@@ -1,0 +1,21 @@
+[package]
+name = "vm-virtio"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+description = "virtio specification implementation"
+repository = "https://github.com/rust-vmm/vm-virtio"
+keywords = ["virtio"]
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+byteorder = "=1.2.1"
+epoll = "=4.0.1"
+libc = ">=0.2.39"
+log = "=0.4.6"
+vm-memory = { git = "https://github.com/rust-vmm/vm-memory" }
+vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util" }
+
+[dev-dependencies.vm-memory]
+git = "https://github.com/rust-vmm/vm-memory"
+features = ["backend-mmap"]
