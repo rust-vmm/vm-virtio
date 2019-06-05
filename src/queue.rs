@@ -416,7 +416,7 @@ pub(crate) mod tests {
     use std::marker::PhantomData;
 
     pub use super::*;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemoryMmap, VolatileMemory, VolatileRef, VolatileSlice};
 
     // Represents a location in GuestMemoryMmap which holds a given type.
     pub struct SomeplaceInMemory<'a, T> {
@@ -471,42 +471,52 @@ pub(crate) mod tests {
 
     // Represents a virtio descriptor in guest memory.
     pub struct VirtqDesc<'a> {
-        pub addr: SomeplaceInMemory<'a, u64>,
-        pub len: SomeplaceInMemory<'a, u32>,
-        pub flags: SomeplaceInMemory<'a, u16>,
-        pub next: SomeplaceInMemory<'a, u16>,
+        desc: VolatileSlice<'a>,
+        start: GuestAddress,
+    }
+
+    macro_rules! offset_of {
+        ($ty:ty, $field:ident) => {
+            unsafe { &(*(0 as *const $ty)).$field as *const _ as usize }
+        };
     }
 
     impl<'a> VirtqDesc<'a> {
         fn new(start: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
-            assert_eq!(start.0 & 0xf, 0);
-
-            let addr = SomeplaceInMemory::new(start, mem);
-            let len = addr.next_place();
-            let flags = len.next_place();
-            let next = flags.next_place();
-
-            VirtqDesc {
-                addr,
-                len,
-                flags,
-                next,
-            }
+            let (region, addr) = mem.to_region_addr(start).unwrap();
+            let desc = region.get_slice(addr.raw_value() as usize, 16).unwrap();
+            VirtqDesc { desc, start }
         }
 
-        fn start(&self) -> GuestAddress {
-            self.addr.location
+        pub fn start(&self) -> GuestAddress {
+            self.start
         }
 
-        fn end(&self) -> GuestAddress {
-            self.next.end()
+        pub fn end(&self) -> GuestAddress {
+            self.start.unchecked_add(self.desc.len() as u64)
+        }
+
+        pub fn addr(&self) -> VolatileRef<u64> {
+            self.desc.get_ref(offset_of!(Descriptor, addr)).unwrap()
+        }
+
+        pub fn len(&self) -> VolatileRef<u32> {
+            self.desc.get_ref(offset_of!(Descriptor, len)).unwrap()
+        }
+
+        pub fn flags(&self) -> VolatileRef<u16> {
+            self.desc.get_ref(offset_of!(Descriptor, flags)).unwrap()
+        }
+
+        pub fn next(&self) -> VolatileRef<u16> {
+            self.desc.get_ref(offset_of!(Descriptor, next)).unwrap()
         }
 
         pub fn set(&self, addr: u64, len: u32, flags: u16, next: u16) {
-            self.addr.set(addr);
-            self.len.set(len);
-            self.flags.set(flags);
-            self.next.set(next);
+            self.addr().store(addr);
+            self.len().store(len);
+            self.flags().store(flags);
+            self.next().store(next);
         }
     }
 
@@ -653,6 +663,14 @@ pub(crate) mod tests {
     }
 
     #[test]
+    pub fn test_offset() {
+        assert_eq!(offset_of!(Descriptor, addr), 0);
+        assert_eq!(offset_of!(Descriptor, len), 8);
+        assert_eq!(offset_of!(Descriptor, flags), 12);
+        assert_eq!(offset_of!(Descriptor, next), 14);
+    }
+
+    #[test]
     fn test_checked_new_descriptor_chain() {
         let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
@@ -666,25 +684,25 @@ pub(crate) mod tests {
         assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
 
         // the addr field of the descriptor is way off
-        vq.dtable[0].addr.set(0x0fff_ffff_ffff);
+        vq.dtable[0].addr().store(0x0fff_ffff_ffff);
         assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
 
         // let's create some invalid chains
 
         {
             // the addr field of the desc is ok now
-            vq.dtable[0].addr.set(0x1000);
+            vq.dtable[0].addr().store(0x1000);
             // ...but the length is too large
-            vq.dtable[0].len.set(0xffff_ffff);
+            vq.dtable[0].len().store(0xffff_ffff);
             assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
         }
 
         {
             // the first desc has a normal len now, and the next_descriptor flag is set
-            vq.dtable[0].len.set(0x1000);
-            vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[0].len().store(0x1000);
+            vq.dtable[0].flags().store(VIRTQ_DESC_F_NEXT);
             //..but the the index of the next descriptor is too large
-            vq.dtable[0].next.set(16);
+            vq.dtable[0].next().store(16);
 
             assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
         }
@@ -692,7 +710,7 @@ pub(crate) mod tests {
         // finally, let's test an ok chain
 
         {
-            vq.dtable[0].next.set(1);
+            vq.dtable[0].next().store(1);
             vq.dtable[1].set(0x2000, 0x1000, 0, 0);
 
             let c = DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
@@ -783,8 +801,8 @@ pub(crate) mod tests {
             }
 
             // the chains are (0, 1) and (2, 3, 4)
-            vq.dtable[1].flags.set(0);
-            vq.dtable[4].flags.set(0);
+            vq.dtable[1].flags().store(0);
+            vq.dtable[4].flags().store(0);
             vq.avail.ring[0].set(0);
             vq.avail.ring[1].set(2);
             vq.avail.idx.set(2);
