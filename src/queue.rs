@@ -46,11 +46,45 @@ const VIRTQ_AVAIL_RING_META_SIZE: usize = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
 /// A virtio descriptor constraints with C representation
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
-struct Descriptor {
+pub struct Descriptor {
     addr: u64,
+
+    /// Length of device specific data
     len: u32,
+
+    /// Includes next, write, and indirect bits
     flags: u16,
+
+    /// Index into the descriptor table of the next descriptor if flags has
+    /// the next bit set
     next: u16,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl Descriptor {
+    /// Return the guest physical address of descriptor buffer
+    pub fn addr(&self) -> GuestAddress {
+        GuestAddress(self.addr)
+    }
+
+    /// Return the length of descriptor buffer
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    /// Return the flags for this descriptor, including next, write and indirect
+    /// bits
+    pub fn flags(&self) -> u16 {
+        self.flags
+    }
+
+    /// Checks if the driver designated this as a write only descriptor.
+    ///
+    /// If this is false, this descriptor is read only.
+    /// Write only means the the emulated device can write and the driver can read.
+    pub fn is_write_only(&self) -> bool {
+        self.flags & VIRTQ_DESC_F_WRITE != 0
+    }
 }
 
 unsafe impl ByteValued for Descriptor {}
@@ -62,18 +96,8 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
 
-    /// Guest physical address of device specific data
-    pub addr: GuestAddress,
-
-    /// Length of device specific data
-    pub len: u32,
-
-    /// Includes next, write, and indirect bits
-    pub flags: u16,
-
-    /// Index into the descriptor table of the next descriptor if flags has
-    /// the next bit set
-    pub next: u16,
+    /// This particular descriptor
+    pub desc: Descriptor,
 }
 
 impl<M: GuestAddressSpace> DescriptorChain<M> {
@@ -91,7 +115,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         let desc_table_size = size_of::<Descriptor>() * queue_size as usize;
         let slice = mem.get_slice(desc_table, desc_table_size).ok()?;
         let desc = slice
-            .get_array_ref::<Descriptor>(0, queue_size as usize)
+            .get_array_ref(0, queue_size as usize)
             .ok()?
             .load(index as usize);
         let chain = DescriptorChain {
@@ -99,10 +123,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             desc_table,
             queue_size,
             ttl,
-            addr: GuestAddress(desc.addr),
-            len: desc.len,
-            flags: desc.flags,
-            next: desc.next,
+            desc,
         };
 
         if chain.is_valid() {
@@ -122,24 +143,15 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     fn is_valid(&self) -> bool {
-        !(self
-            .mem
-            .checked_offset(self.addr, self.len as usize)
-            .is_none()
-            || (self.has_next() && self.next >= self.queue_size))
+        self.mem
+            .checked_offset(self.desc.addr(), self.desc.len as usize)
+            .filter(|_| !self.has_next() || self.desc.next < self.queue_size)
+            .is_some()
     }
 
     /// Checks if this descriptor chain has another descriptor chain linked after it.
     pub fn has_next(&self) -> bool {
-        self.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
-    }
-
-    /// Checks if the driver designated this as a write only descriptor.
-    ///
-    /// If this is false, this descriptor is read only.
-    /// Write only means the the emulated device can write and the driver can read.
-    pub fn is_write_only(&self) -> bool {
-        self.flags & VIRTQ_DESC_F_WRITE != 0
+        self.desc.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
     }
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
@@ -154,7 +166,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
                 self.desc_table,
                 self.ttl - 1,
                 self.queue_size,
-                self.next,
+                self.desc.next,
             )
         } else {
             None
@@ -716,10 +728,11 @@ pub(crate) mod tests {
             assert_eq!(c.desc_table, vq.dtable_start());
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
-            assert_eq!(c.addr, GuestAddress(0x1000));
-            assert_eq!(c.len, 0x1000);
-            assert_eq!(c.flags, VIRTQ_DESC_F_NEXT);
-            assert_eq!(c.next, 1);
+            let desc = c.desc;
+            assert_eq!(desc.addr(), GuestAddress(0x1000));
+            assert_eq!(desc.len(), 0x1000);
+            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+            assert_eq!(desc.next, 1);
 
             assert!(c.next_descriptor().unwrap().next_descriptor().is_none());
         }
