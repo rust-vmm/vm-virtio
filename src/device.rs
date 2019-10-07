@@ -8,7 +8,7 @@ use super::*;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use vm_memory::GuestMemory;
-use vmm_sys_util::EventFd;
+use vmm_sys_util::eventfd::EventFd;
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
