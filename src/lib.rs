@@ -11,6 +11,7 @@
 extern crate epoll;
 #[macro_use]
 extern crate log;
+extern crate vm_device;
 extern crate vm_memory;
 extern crate vmm_sys_util;
 
@@ -31,4 +32,4 @@ pub enum ActivateError {
 }
 
 /// Virtio device activation result type.
-pub type ActivateResult = std::result::Result<(), ActivateError>;
+pub type ActivateResult<T> = std::result::Result<(), (ActivateError, T)>;

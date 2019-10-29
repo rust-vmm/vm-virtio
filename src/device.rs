@@ -4,11 +4,85 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use super::queue::Queue;
 use super::*;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use vm_device::interrupt::{InterruptIndex, InterruptSourceGroup, InterruptSourceType};
+use vm_device::resources::DeviceResourceRequest;
 use vm_memory::GuestMemory;
 use vmm_sys_util::eventfd::EventFd;
+
+/// Data struct to manage an virtio queue.
+pub struct VirtioQueueConfig<'a, M: GuestMemory> {
+    /// A virtque.
+    pub queue: Queue<'a, M>,
+
+    /// And associated event notification fd.
+    pub queue_evt: EventFd,
+}
+
+/// Configuration information for an virtio device.
+///
+/// The ownership of an virtio device configuration object will be moved into the VirtioDevice
+/// object when VirtioDevice::activate() method gets called, and it should be returned back
+/// if VirtioDevice::activate() fails or when VirtioDevice::reset() gets called.
+pub struct VirtioDeviceConfig<'a, M: GuestMemory> {
+    /// Memory object to access the guest memory.
+    pub mem: M,
+
+    /// Virtqueues of the virtio device.
+    pub queues: Vec<VirtioQueueConfig<'a, M>>,
+
+    /// A group of interrupts to notify the guest for queue events.
+    pub intr_group: Arc<Box<dyn InterruptSourceGroup>>,
+}
+
+impl<'a, M> VirtioDeviceConfig<'a, M>
+where
+    M: GuestMemory,
+{
+    /// Constructs an virtio device configuration object.
+    pub fn new(
+        mem: M,
+        queues: Vec<VirtioQueueConfig<'a, M>>,
+        intr_group: Arc<Box<dyn InterruptSourceGroup>>,
+    ) -> Self {
+        VirtioDeviceConfig {
+            mem,
+            queues,
+            intr_group,
+        }
+    }
+
+    /// Trigger an interrupt for a specific event source.
+    pub fn trigger(&self, index: u32, flags: u32) -> Result<(), std::io::Error> {
+        match self.intr_group.get_type() {
+            InterruptSourceType::LegacyIrq => self.intr_group.trigger(0, flags),
+            InterruptSourceType::MsiIrq | InterruptSourceType::VfioMsiIrq(_, _) => {
+                self.intr_group.trigger(index, 0)
+            }
+        }
+    }
+
+    /// Get all irqfds associated with vritio queues.
+    pub fn get_vring_irqfds(&self) -> Vec<&EventFd> {
+        match self.intr_group.get_type() {
+            InterruptSourceType::LegacyIrq => {
+                let irqfd = self.intr_group.get_irqfd(0).unwrap();
+                vec![irqfd; 1]
+            }
+            InterruptSourceType::MsiIrq | InterruptSourceType::VfioMsiIrq(_, _) => {
+                //Skip the first irqfd which is for device configuration change events.
+                let intr_len = self.intr_group.len() as usize;
+                let mut irqfds = Vec::with_capacity(intr_len - 1);
+                for index in 1..intr_len {
+                    irqfds.push(self.intr_group.get_irqfd(index as InterruptIndex).unwrap());
+                }
+                irqfds
+            }
+        }
+    }
+}
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
@@ -18,7 +92,7 @@ use vmm_sys_util::eventfd::EventFd;
 /// called and all the events, memory, and queues for device operation will be moved into the
 /// device. Optionally, a virtio device can implement device reset in which it returns said
 /// resources and resets its internal state.
-pub trait VirtioDevice: Send {
+pub trait VirtioDevice<M: GuestMemory>: Send {
     /// Associated guest memory
     type M: GuestMemory;
 
@@ -43,19 +117,17 @@ pub trait VirtioDevice: Send {
     /// Writes to this device configuration space at `offset`.
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
-    /// Activates this device for real usage.
-    fn activate<M: GuestMemory>(
-        &mut self,
-        mem: Self::M,
-        interrupt_evt: EventFd,
-        status: Arc<AtomicUsize>,
-        queues: Vec<Queue<M>>,
-        queue_evts: Vec<EventFd>,
-    ) -> ActivateResult;
+    /// Returns the resource requirements of the virtio device.
+    fn get_resource_requirements(&self, requests: &mut Vec<DeviceResourceRequest>);
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
+    /// Activates this device for real usage.
+    /// The ownership of the VirtioDeviceConfig object moves into the VirtioDevice object if
+    /// activate succeeds, otherwise it should return the ownership back.
+    fn activate(&mut self, config: VirtioDeviceConfig<M>) -> ActivateResult<VirtioDeviceConfig<M>>;
+
+    /// Optional method to deactivate the device and return ownership of the VirtioDeviceConfig
+    /// object.
+    fn reset(&mut self) -> Option<VirtioDeviceConfig<M>> {
         None
     }
 }
