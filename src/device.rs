@@ -46,7 +46,7 @@ pub trait VirtioDevice<A: GuestAddressSpace>: Send {
         mem: A,
         interrupt_evt: EventFd,
         status: Arc<AtomicUsize>,
-        queues: Vec<Queue<A::M>>,
+        queues: Vec<Queue>,
         queue_evts: Vec<EventFd>,
     ) -> ActivateResult;
 
