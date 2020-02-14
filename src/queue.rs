@@ -505,14 +505,61 @@ impl Queue {
         }
     }
 
+    /// Update avail_event on the used ring with the last index in the avail ring.
+    pub fn update_avail_event<M: GuestMemory>(&mut self, mem: &M) {
+        let index_addr = match mem.checked_offset(self.avail_ring, 2) {
+            Some(ret) => ret,
+            None => {
+                // TODO log address
+                warn!("Invalid offset");
+                return;
+            }
+        };
+        // Note that last_index has no invalid values
+        let last_index: u16 = match mem.read_obj::<u16>(index_addr) {
+            Ok(ret) => ret,
+            Err(_) => return,
+        };
+
+        match mem.checked_offset(self.used_ring, (4 + self.actual_size() * 8) as usize) {
+            Some(a) => {
+                mem.write_obj(last_index, a).unwrap();
+            }
+            None => warn!("Can't update avail_event"),
+        }
+
+        // This fence ensures the guest sees the value we've just written.
+        fence(Ordering::Release);
+    }
+
+    /// Return the value present in the used_event field of the avail ring.
+    pub fn get_used_event<M: GuestMemory>(&self, mem: &M) -> Option<Wrapping<u16>> {
+        let avail_ring = self.avail_ring;
+        let used_event_addr =
+            match mem.checked_offset(avail_ring, (4 + self.actual_size() * 2) as usize) {
+                Some(a) => a,
+                None => {
+                    warn!("Invalid offset looking for used_event");
+                    return None;
+                }
+            };
+
+        // This fence ensures we're seeing the latest update from the guest.
+        fence(Ordering::SeqCst);
+        match mem.read_obj::<u16>(used_event_addr) {
+            Ok(ret) => Some(Wrapping(ret)),
+            Err(_) => None,
+        }
+    }
+
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used<M: GuestMemory>(&mut self, mem: &M, desc_index: u16, len: u32) {
+    pub fn add_used<M: GuestMemory>(&mut self, mem: &M, desc_index: u16, len: u32) -> Option<u16> {
         if desc_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 desc_index
             );
-            return;
+            return None;
         }
 
         let used_ring = self.used_ring;
@@ -532,6 +579,8 @@ impl Queue {
         // We are guaranteed to be within the used ring, this write can't fail.
         mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
+
+        Some(self.next_used.0)
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -1092,11 +1141,11 @@ pub(crate) mod tests {
         assert_eq!(vq.used.idx().load(), 0);
 
         //index too large
-        q.add_used(m, 16, 0x1000);
+        assert!(q.add_used(m, 16, 0x1000).is_none());
         assert_eq!(vq.used.idx().load(), 0);
 
         //should be ok
-        q.add_used(m, 1, 0x1000);
+        assert_eq!(q.add_used(m, 1, 0x1000).unwrap(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
