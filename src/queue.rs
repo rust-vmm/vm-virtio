@@ -11,7 +11,9 @@ use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize, VolatileMemory,
+};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -78,31 +80,21 @@ pub struct DescriptorChain<'a, M: GuestMemory> {
 
 impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     fn checked_new(
-        mem: &M,
+        mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,
         index: u16,
-    ) -> Option<DescriptorChain<M>> {
+    ) -> Option<Self> {
         if index >= queue_size {
             return None;
         }
 
-        let desc_size = size_of::<Descriptor>();
-        let desc_head = match mem.checked_offset(desc_table, (index as usize) * desc_size) {
-            Some(a) => a,
-            None => return None,
-        };
-        mem.checked_offset(desc_head, desc_size)?;
-
-        // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
+        let desc_table_size = size_of::<Descriptor>() * queue_size as usize;
+        let slice = mem.get_slice(desc_table, desc_table_size).ok()?;
+        let desc = slice
+            .get_array_ref::<Descriptor>(0, queue_size as usize)
+            .ok()?
+            .load(index as usize);
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -417,7 +409,10 @@ pub(crate) mod tests {
     use std::mem;
 
     pub use super::*;
-    use vm_memory::{GuestAddress, GuestMemoryMmap, VolatileMemory, VolatileRef, VolatileSlice};
+    use vm_memory::{
+        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, VolatileMemory, VolatileRef,
+        VolatileSlice,
+    };
 
     // Represents a virtio descriptor in guest memory.
     pub struct VirtqDesc<'a> {
@@ -489,7 +484,7 @@ pub(crate) mod tests {
 
             let (region, addr) = mem.to_region_addr(start).unwrap();
             let size = Self::ring_len(qsize);
-            let ring = region.get_slice(addr.raw_value() as usize, size).unwrap();
+            let ring = region.get_slice(addr, size).unwrap();
 
             let result = VirtqRing {
                 ring,
@@ -574,7 +569,7 @@ pub(crate) mod tests {
 
             let (region, addr) = mem.to_region_addr(start).unwrap();
             let dtable = region
-                .get_slice(addr.raw_value() as usize, VirtqDesc::dtable_len(qsize))
+                .get_slice(addr, VirtqDesc::dtable_len(qsize))
                 .unwrap();
 
             const AVAIL_ALIGN: GuestUsize = 2;
