@@ -7,7 +7,7 @@
 use super::*;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use vm_memory::GuestMemory;
+use vm_memory::GuestAddressSpace;
 use vmm_sys_util::eventfd::EventFd;
 
 /// Trait for virtio devices to be driven by a virtio transport.
@@ -18,10 +18,7 @@ use vmm_sys_util::eventfd::EventFd;
 /// called and all the events, memory, and queues for device operation will be moved into the
 /// device. Optionally, a virtio device can implement device reset in which it returns said
 /// resources and resets its internal state.
-pub trait VirtioDevice: Send {
-    /// Associated guest memory
-    type M: GuestMemory;
-
+pub trait VirtioDevice<M: GuestAddressSpace>: Send {
     /// The virtio device type.
     fn device_type(&self) -> u32;
 
@@ -44,9 +41,9 @@ pub trait VirtioDevice: Send {
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
     /// Activates this device for real usage.
-    fn activate<M: GuestMemory>(
+    fn activate(
         &mut self,
-        mem: Self::M,
+        mem: M,
         interrupt_evt: EventFd,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue<M>>,
