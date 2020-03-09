@@ -13,9 +13,9 @@ byteorder = "=1.2.1"
 epoll = "=4.0.1"
 libc = ">=0.2.39"
 log = "=0.4.6"
-vm-memory = ">=0.1.0"
+vm-memory = ">=0.2.0"
 vmm-sys-util = { git = "https://github.com/rust-vmm/vmm-sys-util" }
 
 [dev-dependencies.vm-memory]
-version = ">=0.1.0"
+version = ">=0.2.0"
 features = ["backend-mmap"]
