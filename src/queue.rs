@@ -80,10 +80,11 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
 }
 
 impl<M: GuestAddressSpace> DescriptorChain<M> {
-    fn checked_new(
+    fn read_new(
         mem: M::T,
         desc_table: GuestAddress,
         queue_size: u16,
+        ttl: u16,
         index: u16,
     ) -> Option<Self> {
         if index >= queue_size {
@@ -100,7 +101,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             mem,
             desc_table,
             queue_size,
-            ttl: queue_size,
+            ttl,
             index,
             addr: GuestAddress(desc.addr),
             len: desc.len,
@@ -113,6 +114,15 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         } else {
             None
         }
+    }
+
+    fn checked_new(
+        mem: M::T,
+        dtable_addr: GuestAddress,
+        queue_size: u16,
+        index: u16,
+    ) -> Option<Self> {
+        Self::read_new(mem, dtable_addr, queue_size, queue_size, index)
     }
 
     fn is_valid(&self) -> bool {
@@ -143,16 +153,13 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     /// _available_ descriptor chain.
     pub fn next_descriptor(&self) -> Option<DescriptorChain<M>> {
         if self.has_next() {
-            DescriptorChain::checked_new(
+            Self::read_new(
                 self.mem.clone(),
                 self.desc_table,
+                self.ttl - 1,
                 self.queue_size,
                 self.next,
             )
-            .map(|mut desc| {
-                desc.ttl = self.ttl - 1;
-                desc
-            })
         } else {
             None
         }
