@@ -649,7 +649,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -708,7 +708,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_queue_and_iterator() {
-        let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue(m);
@@ -813,7 +813,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue(m);
