@@ -96,8 +96,8 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
 
-    /// This particular descriptor
-    pub desc: Descriptor,
+    /// The current descriptor
+    desc: Descriptor,
 }
 
 impl<M: GuestAddressSpace> DescriptorChain<M> {
@@ -153,24 +153,35 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     pub fn has_next(&self) -> bool {
         self.desc.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
     }
+}
+
+impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
+    type Item = Descriptor;
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
     ///
     /// Note that this is distinct from the next descriptor chain returned by
     /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
     /// _available_ descriptor chain.
-    pub fn next_descriptor(&self) -> Option<DescriptorChain<M>> {
-        if self.has_next() {
-            Self::read_new(
-                self.mem.clone(),
-                self.desc_table,
-                self.ttl - 1,
-                self.queue_size,
-                self.desc.next,
-            )
-        } else {
-            None
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ttl == 0 {
+            return None;
         }
+
+        let curr = self.desc;
+        if !self.has_next() {
+            self.ttl = 0
+        } else {
+            let index = self.desc.next;
+            let desc_table_size = size_of::<Descriptor>() * self.queue_size as usize;
+            let slice = self.mem.get_slice(self.desc_table, desc_table_size).ok()?;
+            self.desc = slice
+                .get_array_ref(0, self.queue_size as usize)
+                .ok()?
+                .load(index as usize);
+            self.ttl -= 1;
+        }
+        Some(curr)
     }
 }
 
@@ -722,19 +733,21 @@ pub(crate) mod tests {
             vq.dtable(0).next().store(1);
             vq.dtable(1).set(0x2000, 0x1000, 0, 0);
 
-            let c = DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).unwrap();
+            let mut c =
+                DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).unwrap();
 
             assert_eq!(c.mem as *const GuestMemoryMmap, m as *const GuestMemoryMmap);
             assert_eq!(c.desc_table, vq.dtable_start());
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
-            let desc = c.desc;
+            let desc = c.next().unwrap();
             assert_eq!(desc.addr(), GuestAddress(0x1000));
             assert_eq!(desc.len(), 0x1000);
             assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
             assert_eq!(desc.next, 1);
 
-            assert!(c.next_descriptor().unwrap().next_descriptor().is_none());
+            assert!(c.next().is_some());
+            assert!(c.next().is_none());
         }
     }
 
@@ -820,15 +833,19 @@ pub(crate) mod tests {
 
             {
                 let mut c = i.next().unwrap();
-                c = c.next_descriptor().unwrap();
+                c.next().unwrap();
                 assert!(!c.has_next());
+                assert!(c.next().is_some());
+                assert!(c.next().is_none());
             }
 
             {
                 let mut c = i.next().unwrap();
-                c = c.next_descriptor().unwrap();
-                c = c.next_descriptor().unwrap();
+                c.next().unwrap();
+                c.next().unwrap();
+                c.next().unwrap();
                 assert!(!c.has_next());
+                assert!(c.next().is_none());
             }
         }
 
@@ -837,9 +854,11 @@ pub(crate) mod tests {
             assert!(q.iter().next().is_none());
             q.go_to_previous_position();
             let mut c = q.iter().next().unwrap();
-            c = c.next_descriptor().unwrap();
-            c = c.next_descriptor().unwrap();
+            c.next().unwrap();
+            c.next().unwrap();
+            c.next().unwrap();
             assert!(!c.has_next());
+            assert!(c.next().is_none());
         }
     }
 
