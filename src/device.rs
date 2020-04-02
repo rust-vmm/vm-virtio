@@ -18,7 +18,7 @@ use vmm_sys_util::eventfd::EventFd;
 /// called and all the events, memory, and queues for device operation will be moved into the
 /// device. Optionally, a virtio device can implement device reset in which it returns said
 /// resources and resets its internal state.
-pub trait VirtioDevice<M: GuestAddressSpace>: Send {
+pub trait VirtioDevice<A: GuestAddressSpace>: Send {
     /// The virtio device type.
     fn device_type(&self) -> u32;
 
@@ -43,10 +43,10 @@ pub trait VirtioDevice<M: GuestAddressSpace>: Send {
     /// Activates this device for real usage.
     fn activate(
         &mut self,
-        mem: M,
+        mem: A,
         interrupt_evt: EventFd,
         status: Arc<AtomicUsize>,
-        queues: Vec<Queue<M>>,
+        queues: Vec<Queue<A::M>>,
         queue_evts: Vec<EventFd>,
     ) -> ActivateResult;
 

@@ -12,8 +12,7 @@ use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
 use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
-    VolatileMemory,
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize, VolatileMemory,
 };
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -56,8 +55,8 @@ struct Descriptor {
 unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
-pub struct DescriptorChain<M: GuestAddressSpace> {
-    mem: M::T,
+pub struct DescriptorChain<'a, M: GuestMemory> {
+    mem: &'a M,
     desc_table: GuestAddress,
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
@@ -79,9 +78,9 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     pub next: u16,
 }
 
-impl<M: GuestAddressSpace> DescriptorChain<M> {
+impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     fn read_new(
-        mem: M::T,
+        mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,
         ttl: u16,
@@ -117,7 +116,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     fn checked_new(
-        mem: M::T,
+        mem: &'a M,
         dtable_addr: GuestAddress,
         queue_size: u16,
         index: u16,
@@ -151,10 +150,10 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     /// Note that this is distinct from the next descriptor chain returned by
     /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
     /// _available_ descriptor chain.
-    pub fn next_descriptor(&self) -> Option<DescriptorChain<M>> {
+    pub fn next_descriptor(&self) -> Option<DescriptorChain<'a, M>> {
         if self.has_next() {
             Self::read_new(
-                self.mem.clone(),
+                self.mem,
                 self.desc_table,
                 self.ttl - 1,
                 self.queue_size,
@@ -167,8 +166,8 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 }
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'b, M: GuestAddressSpace> {
-    mem: M::T,
+pub struct AvailIter<'a, 'b, M: GuestMemory> {
+    mem: &'a M,
     desc_table: GuestAddress,
     avail_ring: GuestAddress,
     next_index: Wrapping<u16>,
@@ -177,9 +176,9 @@ pub struct AvailIter<'b, M: GuestAddressSpace> {
     next_avail: &'b mut Wrapping<u16>,
 }
 
-impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
+impl<'a, 'b, M: GuestMemory> AvailIter<'a, 'b, M> {
     /// Constructs an empty descriptor iterator.
-    pub fn new(mem: M::T, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'b, M> {
+    pub fn new(mem: &'a M, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'a, 'b, M> {
         AvailIter {
             mem,
             desc_table: GuestAddress(0),
@@ -192,8 +191,8 @@ impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
     }
 }
 
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
-    type Item = DescriptorChain<M>;
+impl<'a, 'b, M: GuestMemory> Iterator for AvailIter<'a, 'b, M> {
+    type Item = DescriptorChain<'a, M>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.next_index == self.last_index {
@@ -219,12 +218,8 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
 
         self.next_index += Wrapping(1);
 
-        let desc = DescriptorChain::checked_new(
-            self.mem.clone(),
-            self.desc_table,
-            self.queue_size,
-            desc_index,
-        );
+        let desc =
+            DescriptorChain::checked_new(self.mem, self.desc_table, self.queue_size, desc_index);
         if desc.is_some() {
             *self.next_avail += Wrapping(1);
         }
@@ -234,8 +229,8 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
 
 #[derive(Clone)]
 /// A virtio queue's parameters.
-pub struct Queue<M: GuestAddressSpace> {
-    mem: M,
+pub struct Queue<'a, M: GuestMemory> {
+    mem: &'a M,
 
     /// The maximal size in elements offered by the device
     max_size: u16,
@@ -259,9 +254,9 @@ pub struct Queue<M: GuestAddressSpace> {
     pub used_ring: GuestAddress,
 }
 
-impl<M: GuestAddressSpace> Queue<M> {
+impl<'a, M: GuestMemory> Queue<'a, M> {
     /// Constructs an empty virtio queue with the given `max_size`.
-    pub fn new(mem: M, max_size: u16) -> Queue<M> {
+    pub fn new(mem: &M, max_size: u16) -> Queue<M> {
         Queue {
             mem,
             max_size,
@@ -288,7 +283,6 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     /// Check if the virtio queue configuration is valid.
     pub fn is_valid(&self) -> bool {
-        let snapshot = self.mem.memory();
         let queue_size = self.actual_size() as usize;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() * queue_size;
@@ -305,7 +299,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if desc_table
             .checked_add(desc_table_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !self.mem.address_in_range(v))
         {
             error!(
                 "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -315,7 +309,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if avail_ring
             .checked_add(avail_ring_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !self.mem.address_in_range(v))
         {
             error!(
                 "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -325,7 +319,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if used_ring
             .checked_add(used_ring_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !self.mem.address_in_range(v))
         {
             error!(
                 "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -348,27 +342,26 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> AvailIter<'_, M> {
+    pub fn iter<'b>(&'b mut self) -> AvailIter<'a, 'b, M> {
         let queue_size = self.actual_size();
         let avail_ring = self.avail_ring;
 
-        let snapshot = self.mem.memory();
-        let index_addr = match snapshot.checked_offset(avail_ring, 2) {
+        let index_addr = match self.mem.checked_offset(avail_ring, 2) {
             Some(ret) => ret,
             None => {
                 // TODO log address
                 warn!("Invalid offset");
-                return AvailIter::new(snapshot, &mut self.next_avail);
+                return AvailIter::new(self.mem, &mut self.next_avail);
             }
         };
         // Note that last_index has no invalid values
-        let last_index: u16 = match snapshot.read_obj::<u16>(index_addr) {
+        let last_index: u16 = match self.mem.read_obj::<u16>(index_addr) {
             Ok(ret) => ret,
-            Err(_) => return AvailIter::new(snapshot, &mut self.next_avail),
+            Err(_) => return AvailIter::new(self.mem, &mut self.next_avail),
         };
 
         AvailIter {
-            mem: snapshot,
+            mem: self.mem,
             desc_table: self.desc_table,
             avail_ring,
             next_index: self.next_avail,
@@ -388,16 +381,15 @@ impl<M: GuestAddressSpace> Queue<M> {
             return;
         }
 
-        let snapshot = self.mem.memory();
         let used_ring = self.used_ring;
         let next_used = u64::from(self.next_used.0 % self.actual_size());
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        snapshot
+        self.mem
             .write_obj(u32::from(desc_index), used_elem)
             .unwrap();
-        snapshot
+        self.mem
             .write_obj(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 
@@ -407,7 +399,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         fence(Ordering::Release);
 
         // We are guaranteed to be within the used ring, this write can't fail.
-        snapshot
+        self.mem
             .write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
     }
@@ -632,7 +624,7 @@ pub(crate) mod tests {
         }
 
         // Creates a new Queue, using the underlying memory regions represented by the VirtQueue.
-        pub fn create_queue(&self, mem: &'a GuestMemoryMmap) -> Queue<&'a GuestMemoryMmap> {
+        pub fn create_queue(&self, mem: &'a GuestMemoryMmap) -> Queue<GuestMemoryMmap> {
             let mut q = Queue::new(mem, self.size());
 
             q.size = self.size();
@@ -669,20 +661,14 @@ pub(crate) mod tests {
         assert!(vq.end().0 < 0x1000);
 
         // index >= queue_size
-        assert!(DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 16).is_none());
+        assert!(DescriptorChain::checked_new(m, vq.start(), 16, 16).is_none());
 
         // desc_table address is way off
-        assert!(DescriptorChain::<&GuestMemoryMmap>::checked_new(
-            m,
-            GuestAddress(0x00ff_ffff_ffff),
-            16,
-            0
-        )
-        .is_none());
+        assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
 
         // the addr field of the descriptor is way off
         vq.dtable(0).addr().store(0x0fff_ffff_ffff);
-        assert!(DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).is_none());
+        assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
 
         // let's create some invalid chains
 
@@ -691,9 +677,7 @@ pub(crate) mod tests {
             vq.dtable(0).addr().store(0x1000);
             // ...but the length is too large
             vq.dtable(0).len().store(0xffff_ffff);
-            assert!(
-                DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).is_none()
-            );
+            assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
         }
 
         {
@@ -703,9 +687,7 @@ pub(crate) mod tests {
             //..but the the index of the next descriptor is too large
             vq.dtable(0).next().store(16);
 
-            assert!(
-                DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).is_none()
-            );
+            assert!(DescriptorChain::checked_new(m, vq.start(), 16, 0).is_none());
         }
 
         // finally, let's test an ok chain
@@ -714,7 +696,7 @@ pub(crate) mod tests {
             vq.dtable(0).next().store(1);
             vq.dtable(1).set(0x2000, 0x1000, 0, 0);
 
-            let c = DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).unwrap();
+            let c = DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
 
             assert_eq!(c.mem as *const GuestMemoryMmap, m as *const GuestMemoryMmap);
             assert_eq!(c.desc_table, vq.dtable_start());
