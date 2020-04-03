@@ -11,9 +11,7 @@ use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize, VolatileMemory,
-};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -90,12 +88,21 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
             return None;
         }
 
-        let desc_table_size = size_of::<Descriptor>() * queue_size as usize;
-        let slice = mem.get_slice(desc_table, desc_table_size).ok()?;
-        let desc = slice
-            .get_array_ref::<Descriptor>(0, queue_size as usize)
-            .ok()?
-            .load(index as usize);
+        let desc_size = size_of::<Descriptor>();
+        let desc_head = match mem.checked_offset(desc_table, (index as usize) * desc_size) {
+            Some(a) => a,
+            None => return None,
+        };
+        // These reads can't fail unless Guest memory is hopelessly broken.
+        let desc = match mem.read_obj::<Descriptor>(desc_head) {
+            Ok(ret) => ret,
+            Err(_) => {
+                // TODO log address
+                error!("Failed to read from memory");
+                return None;
+            }
+        };
+
         let chain = DescriptorChain {
             mem,
             desc_table,
