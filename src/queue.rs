@@ -122,18 +122,13 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
         }
 
         let desc_size = size_of::<Descriptor>();
-        let desc_head = match mem.checked_offset(desc_table, (index as usize) * desc_size) {
+        let desc_head = match desc_table.checked_add((index as u64) * (desc_size as u64)) {
             Some(a) => a,
             None => return None,
         };
-        // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = match mem.read_obj::<Descriptor>(desc_head) {
             Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
+            Err(_) => return None,
         };
 
         let chain = DescriptorChain {
@@ -181,9 +176,6 @@ impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
         {
             return Err(Error::InvalidIndirectDescriptor);
         }
-        self.mem
-            .checked_offset(desc_head, VIRTQ_DESCRIPTOR_SIZE)
-            .ok_or(Error::GuestMemoryError)?;
 
         // These reads can't fail unless Guest memory is hopelessly broken.
         let desc = self
@@ -333,7 +325,7 @@ impl<'a, 'b, M: GuestMemory> Iterator for AvailIter<'a, 'b, M> {
         let offset = (VIRTQ_AVAIL_RING_HEADER_SIZE as u16
             + (self.next_index.0 % self.table_size) * VIRTQ_AVAIL_ELEMENT_SIZE as u16)
             as usize;
-        let avail_addr = match self.mem.checked_offset(self.avail_ring, offset) {
+        let avail_addr = match self.avail_ring.checked_add(offset as u64) {
             Some(a) => a,
             None => return None,
         };
@@ -341,8 +333,7 @@ impl<'a, 'b, M: GuestMemory> Iterator for AvailIter<'a, 'b, M> {
         let desc_index: u16 = match self.mem.read_obj(avail_addr) {
             Ok(ret) => ret,
             Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
+                error!("Failed to read from memory {:x}", avail_addr.raw_value());
                 return None;
             }
         };
@@ -480,13 +471,9 @@ impl Queue {
         let table_size = self.actual_size();
         let avail_ring = self.avail_ring;
 
-        let index_addr = match mem.checked_offset(avail_ring, 2) {
+        let index_addr = match avail_ring.checked_add(2) {
             Some(ret) => ret,
-            None => {
-                // TODO log address
-                warn!("Invalid offset");
-                return AvailIter::new(mem, &mut self.next_avail);
-            }
+            None => return AvailIter::new(mem, &mut self.next_avail),
         };
         // Note that last_index has no invalid values
         let last_index: u16 = match mem.read_obj::<u16>(index_addr) {
@@ -507,13 +494,9 @@ impl Queue {
 
     /// Update avail_event on the used ring with the last index in the avail ring.
     pub fn update_avail_event<M: GuestMemory>(&mut self, mem: &M) {
-        let index_addr = match mem.checked_offset(self.avail_ring, 2) {
+        let index_addr = match self.avail_ring.checked_add(2) {
             Some(ret) => ret,
-            None => {
-                // TODO log address
-                warn!("Invalid offset");
-                return;
-            }
+            None => return,
         };
         // Note that last_index has no invalid values
         let last_index: u16 = match mem.read_obj::<u16>(index_addr) {
@@ -521,9 +504,18 @@ impl Queue {
             Err(_) => return,
         };
 
-        match mem.checked_offset(self.used_ring, (4 + self.actual_size() * 8) as usize) {
+        let offset =
+            VIRTQ_USED_RING_HEADER_SIZE + (self.actual_size() as usize) * VIRTQ_USED_ELEMENT_SIZE;
+        match self.used_ring.checked_add(offset as u64) {
             Some(a) => {
-                mem.write_obj(last_index, a).unwrap();
+                if let Err(e) = mem.write_obj(last_index, a) {
+                    warn!(
+                        "Failed to update avail_event at {:x} to value {:x}, {}",
+                        a.raw_value(),
+                        last_index,
+                        e
+                    );
+                }
             }
             None => warn!("Can't update avail_event"),
         }
@@ -535,14 +527,12 @@ impl Queue {
     /// Return the value present in the used_event field of the avail ring.
     pub fn get_used_event<M: GuestMemory>(&self, mem: &M) -> Option<Wrapping<u16>> {
         let avail_ring = self.avail_ring;
-        let used_event_addr =
-            match mem.checked_offset(avail_ring, (4 + self.actual_size() * 2) as usize) {
-                Some(a) => a,
-                None => {
-                    warn!("Invalid offset looking for used_event");
-                    return None;
-                }
-            };
+        let offset =
+            VIRTQ_AVAIL_RING_HEADER_SIZE + (self.actual_size() as usize) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let used_event_addr = match avail_ring.checked_add(offset as u64) {
+            Some(a) => a,
+            None => return None,
+        };
 
         // This fence ensures we're seeing the latest update from the guest.
         fence(Ordering::SeqCst);
@@ -564,21 +554,40 @@ impl Queue {
 
         let used_ring = self.used_ring;
         let next_used = u64::from(self.next_used.0 % self.actual_size());
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
+        let offset =
+            (VIRTQ_USED_RING_HEADER_SIZE as u64) + next_used * (VIRTQ_AVAIL_ELEMENT_SIZE as u64);
+        let used_elem = used_ring.unchecked_add(offset);
 
-        // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj(u32::from(desc_index), used_elem).unwrap();
-        mem.write_obj(len as u32, used_elem.unchecked_add(4))
-            .unwrap();
+        if let Err(e) = mem.write_obj(u32::from(desc_index), used_elem) {
+            error!(
+                "failed to write used_vring at {:x}, {}",
+                used_elem.raw_value(),
+                e
+            );
+            return None;
+        }
+        if let Err(e) = mem.write_obj(len as u32, used_elem.unchecked_add(4)) {
+            error!(
+                "failed to write used_vring at {:x}, {}",
+                used_elem.raw_value(),
+                e
+            );
+            return None;
+        }
 
         self.next_used += Wrapping(1);
 
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        // We are guaranteed to be within the used ring, this write can't fail.
-        mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
-            .unwrap();
+        if let Err(e) = mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2)) {
+            error!(
+                "failed to write used idx at {:x}, {}",
+                used_ring.raw_value() + 2,
+                e
+            );
+            return None;
+        }
 
         Some(self.next_used.0)
     }
