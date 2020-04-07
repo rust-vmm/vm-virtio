@@ -153,6 +153,12 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     pub fn has_next(&self) -> bool {
         self.desc.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
     }
+
+    /// Return a `GuestMemory` object that can be used to access the buffers
+    /// pointed to by the descriptor chain.
+    pub fn memory(&self) -> &M::M {
+        &*self.mem
+    }
 }
 
 impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
@@ -736,7 +742,10 @@ pub(crate) mod tests {
             let mut c =
                 DescriptorChain::<&GuestMemoryMmap>::checked_new(m, vq.start(), 16, 0).unwrap();
 
-            assert_eq!(c.mem as *const GuestMemoryMmap, m as *const GuestMemoryMmap);
+            assert_eq!(
+                c.memory() as *const GuestMemoryMmap,
+                m as *const GuestMemoryMmap
+            );
             assert_eq!(c.desc_table, vq.dtable_start());
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
