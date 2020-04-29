@@ -62,9 +62,6 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     queue_size: u16,
     ttl: u16, // used to prevent infinite chain cycles
 
-    /// Index into the descriptor table
-    pub index: u16,
-
     /// Guest physical address of device specific data
     pub addr: GuestAddress,
 
@@ -102,7 +99,6 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             desc_table,
             queue_size,
             ttl,
-            index,
             addr: GuestAddress(desc.addr),
             len: desc.len,
             flags: desc.flags,
@@ -720,7 +716,6 @@ pub(crate) mod tests {
             assert_eq!(c.desc_table, vq.dtable_start());
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
-            assert_eq!(c.index, 0);
             assert_eq!(c.addr, GuestAddress(0x1000));
             assert_eq!(c.len, 0x1000);
             assert_eq!(c.flags, VIRTQ_DESC_F_NEXT);
