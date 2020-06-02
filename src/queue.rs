@@ -156,6 +156,22 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     pub fn memory(&self) -> &M::M {
         &*self.mem
     }
+
+    /// Returns an iterator that only yields the readable descriptors in the chain.
+    pub fn readable(self) -> DescriptorChainRwIter<M> {
+        DescriptorChainRwIter {
+            chain: self,
+            writable: false,
+        }
+    }
+
+    /// Returns an iterator that only yields the writable descriptors in the chain.
+    pub fn writable(self) -> DescriptorChainRwIter<M> {
+        DescriptorChainRwIter {
+            chain: self,
+            writable: true,
+        }
+    }
 }
 
 impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
@@ -185,6 +201,34 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
             self.ttl -= 1;
         }
         Some(curr)
+    }
+}
+
+/// An iterator for readable or writable descriptors.
+pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
+    chain: DescriptorChain<M>,
+    writable: bool,
+}
+
+impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
+    type Item = Descriptor;
+
+    /// Returns the next descriptor in this descriptor chain, if there is one.
+    ///
+    /// Note that this is distinct from the next descriptor chain returned by
+    /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
+    /// _available_ descriptor chain.
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.chain.next() {
+                Some(v) => {
+                    if v.is_write_only() == self.writable {
+                        return Some(v);
+                    }
+                }
+                None => return None,
+            }
+        }
     }
 }
 
@@ -890,6 +934,69 @@ pub(crate) mod tests {
             c.next().unwrap();
             assert!(!c.has_next());
             assert!(c.next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_descriptor_and_iterator() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue(m);
+
+        // q is currently valid
+        assert!(q.is_valid());
+
+        for j in 0..7 {
+            vq.dtable(j).set(
+                0x1000 * (j + 1) as u64,
+                0x1000,
+                VIRTQ_DESC_F_NEXT,
+                (j + 1) as u16,
+            );
+        }
+
+        // the chains are (0, 1), (2, 3, 4) and (5, 6)
+        vq.dtable(1).flags().store(0);
+        vq.dtable(2)
+            .flags()
+            .store(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        vq.dtable(4).flags().store(VIRTQ_DESC_F_WRITE);
+        vq.dtable(5)
+            .flags()
+            .store(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        vq.dtable(6).flags().store(0);
+        vq.avail.ring(0).store(0);
+        vq.avail.ring(1).store(2);
+        vq.avail.ring(2).store(5);
+        vq.avail.idx().store(3);
+
+        let mut i = q.iter();
+
+        {
+            let c = i.next().unwrap();
+            let mut iter = c.into_iter();
+            assert!(iter.next().is_some());
+            assert!(iter.next().is_some());
+            assert!(iter.next().is_none());
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let c = i.next().unwrap();
+            let mut iter = c.writable();
+            assert!(iter.next().is_some());
+            assert!(iter.next().is_some());
+            assert!(iter.next().is_none());
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let c = i.next().unwrap();
+            let mut iter = c.readable();
+            assert!(iter.next().is_some());
+            assert!(iter.next().is_none());
+            assert!(iter.next().is_none());
         }
     }
 
