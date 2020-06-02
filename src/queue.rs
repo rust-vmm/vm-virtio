@@ -4,9 +4,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE-BSD-3-Clause file.
 //
+// Copyright © 2019 Intel Corporation
+//
+// Copyright (C) 2020 Alibaba Cloud. All rights reserved.
+//
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::cmp::min;
+use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
@@ -18,6 +23,7 @@ use vm_memory::{
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 const VIRTQ_USED_ELEMENT_SIZE: usize = 8;
 // Used ring header: flags (u16) + idx (u16)
@@ -42,6 +48,32 @@ const VIRTQ_AVAIL_RING_META_SIZE: usize = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
 //
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 // which fulfills the explicit constraint of GuestMemory::read_obj().
+const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
+
+/// Virtio Queue related errors.
+#[derive(Debug)]
+pub enum Error {
+    /// Failed to access guest memory.
+    GuestMemoryError,
+    /// Invalid indirect descriptor.
+    InvalidIndirectDescriptor,
+    /// Invalid descriptor chain.
+    InvalidChain,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+
+        match self {
+            GuestMemoryError => write!(f, "error accessing guest memory"),
+            InvalidChain => write!(f, "invalid descriptor chain"),
+            InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// A virtio descriptor constraints with C representation
 #[repr(C)]
@@ -130,6 +162,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         }
     }
 
+    /// Create a new DescriptorChain instance.
     fn checked_new(
         mem: M::T,
         dtable_addr: GuestAddress,
@@ -137,6 +170,50 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         index: u16,
     ) -> Option<Self> {
         Self::read_new(mem, dtable_addr, queue_size, queue_size, index)
+    }
+
+    /// Create a `DescriptorChain` from the indirect target descriptor table.
+    pub fn new_from_indirect(&self) -> Result<DescriptorChain<M>, Error> {
+        if !self.is_indirect() {
+            return Err(Error::InvalidIndirectDescriptor);
+        }
+
+        let desc_head = self.desc.addr;
+        let desc_len = self.desc.len as usize;
+        // Check the target indirect descriptor table is correctly aligned.
+        if desc_head & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
+            || desc_len & (VIRTQ_DESCRIPTOR_SIZE - 1) != 0
+            || desc_len < VIRTQ_DESCRIPTOR_SIZE
+            || desc_len / VIRTQ_DESCRIPTOR_SIZE > std::u16::MAX as usize
+        {
+            return Err(Error::InvalidIndirectDescriptor);
+        }
+
+        // These reads can't fail unless Guest memory is hopelessly broken.
+        let desc: Descriptor = self
+            .mem
+            .get_slice(GuestAddress(desc_head), size_of::<Descriptor>())
+            .map(|s| s.get_ref(0).unwrap().load())
+            .map_err(|_| Error::GuestMemoryError)?;
+
+        let chain = DescriptorChain {
+            mem: self.mem.clone(),
+            desc_table: GuestAddress(desc_head),
+            queue_size: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
+            ttl: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
+            desc: Descriptor {
+                addr: desc.addr,
+                len: desc.len,
+                flags: desc.flags,
+                next: desc.next,
+            },
+        };
+
+        if !chain.is_valid() {
+            return Err(Error::InvalidChain);
+        }
+
+        Ok(chain)
     }
 
     fn is_valid(&self) -> bool {
@@ -149,6 +226,11 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     /// Checks if this descriptor chain has another descriptor chain linked after it.
     pub fn has_next(&self) -> bool {
         self.desc.flags & VIRTQ_DESC_F_NEXT != 0 && self.ttl > 1
+    }
+
+    /// Checks if the descriptor is an indirect descriptor.
+    pub fn is_indirect(&self) -> bool {
+        self.desc.flags & VIRTQ_DESC_F_INDIRECT != 0
     }
 
     /// Return a `GuestMemory` object that can be used to access the buffers
@@ -506,8 +588,8 @@ pub(crate) mod tests {
 
     pub use super::*;
     use vm_memory::{
-        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, VolatileMemory, VolatileRef,
-        VolatileSlice,
+        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, MemoryRegionAddress, VolatileMemory,
+        VolatileRef, VolatileSlice,
     };
 
     // Represents a virtio descriptor in guest memory.
@@ -824,6 +906,73 @@ pub(crate) mod tests {
         assert!(
             DescriptorChain::<&GuestMemoryMmap>::checked_new(m, GuestAddress(0), 512, 1).is_some()
         );
+    }
+
+    #[test]
+    fn test_new_from_indirect_descriptor() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        // create a chain with a descriptor pointing to an indirect table
+        let desc = vq.dtable(0);
+        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+
+        let c: DescriptorChain<&GuestMemoryMmap> =
+            DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
+        assert!(c.is_indirect());
+
+        let region = m.find_region(GuestAddress(0)).unwrap();
+        let dtable = region
+            .get_slice(MemoryRegionAddress(0x1000u64), VirtqDesc::dtable_len(4))
+            .unwrap();
+        // create an indirect table with 4 chained descriptors
+        let mut indirect_table = Vec::with_capacity(4 as usize);
+        for j in 0..4 {
+            let desc = VirtqDesc::new(&dtable, j);
+            desc.set(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, (j + 1) as u16);
+            indirect_table.push(desc);
+        }
+
+        // try to iterate through the indirect table descriptors
+        let mut i = c.new_from_indirect().unwrap();
+        for j in 0..4 {
+            let desc = i.next().unwrap();
+            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+            assert_eq!(desc.next, j + 1);
+        }
+    }
+
+    #[test]
+    fn test_new_from_indirect_descriptor_err() {
+        {
+            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+            // create a chain with a descriptor pointing to an indirect table
+            let desc = vq.dtable(0);
+            desc.set(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+
+            let c: DescriptorChain<&GuestMemoryMmap> =
+                DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
+            assert!(c.is_indirect());
+
+            assert!(c.new_from_indirect().is_err());
+        }
+
+        {
+            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+            // create a chain with a descriptor pointing to an indirect table
+            let desc = vq.dtable(0);
+            desc.set(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
+
+            let c: DescriptorChain<&GuestMemoryMmap> =
+                DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
+            assert!(c.is_indirect());
+
+            assert!(c.new_from_indirect().is_err());
+        }
     }
 
     #[test]
