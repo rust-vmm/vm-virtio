@@ -14,7 +14,7 @@ byteorder = "=1.2.1"
 epoll = "=4.0.1"
 libc = ">=0.2.39"
 log = "=0.4.6"
-vm-memory = ">=0.2.0"
+vm-memory = {version = ">=0.2.0", features = ["integer-atomics"] }
 vmm-sys-util = ">=0.4.0"
 
 [dev-dependencies.vm-memory]
