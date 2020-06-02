@@ -37,7 +37,7 @@ const VIRTQ_AVAIL_RING_META_SIZE: usize = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
 
 // GuestMemory::read_obj() will be used to fetch the descriptor,
 // which has an explicit constraint that the entire descriptor doesn't
-// cross the page boundary. Otherwise the descriptor may be splitted into
+// cross the page boundary. Otherwise the descriptor may be split into
 // two mmap regions which causes failure of GuestMemory::read_obj().
 //
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
@@ -112,12 +112,9 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             return None;
         }
 
-        let desc_table_size = size_of::<Descriptor>() * queue_size as usize;
-        let slice = mem.get_slice(desc_table, desc_table_size).ok()?;
-        let desc = slice
-            .get_array_ref(0, queue_size as usize)
-            .ok()?
-            .load(index as usize);
+        let desc_size = size_of::<Descriptor>();
+        let desc_addr = desc_table.checked_add(desc_size as u64 * index as u64)?;
+        let desc = mem.read_obj(desc_addr).ok()?;
         let chain = DescriptorChain {
             mem,
             desc_table,
@@ -758,6 +755,20 @@ pub(crate) mod tests {
             assert!(c.next().is_some());
             assert!(c.next().is_none());
         }
+    }
+
+    #[test]
+    fn test_checked_new_descriptor_chain_cross_mem_region() {
+        let m = &GuestMemoryMmap::from_ranges(&[
+            (GuestAddress(0), 0x1000),
+            (GuestAddress(0x1000), 0x1000),
+        ])
+        .unwrap();
+
+        // The whole descriptor table crosses guest memory boundary, it should ok.
+        assert!(
+            DescriptorChain::<&GuestMemoryMmap>::checked_new(m, GuestAddress(0), 512, 1).is_some()
+        );
     }
 
     #[test]
