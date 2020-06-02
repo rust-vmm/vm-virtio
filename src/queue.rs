@@ -14,7 +14,7 @@ use std::cmp::min;
 use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{fence, AtomicU16, Ordering};
 
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
@@ -32,6 +32,8 @@ const VIRTQ_USED_RING_HEADER_SIZE: usize = 4;
 // The total size of the used ring is:
 // VIRTQ_USED_RING_HMETA_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size
 const VIRTQ_USED_RING_META_SIZE: usize = VIRTQ_USED_RING_HEADER_SIZE + 2;
+// Used flags
+const VIRTQ_USED_F_NO_NOTIFY: u16 = 0x1;
 
 const VIRTQ_AVAIL_ELEMENT_SIZE: usize = 2;
 // Avail ring header: flags(u16) + idx(u16)
@@ -59,6 +61,8 @@ pub enum Error {
     InvalidIndirectDescriptor,
     /// Invalid descriptor chain.
     InvalidChain,
+    /// Invalid descriptor index.
+    InvalidDescriptorIndex,
 }
 
 impl Display for Error {
@@ -69,6 +73,7 @@ impl Display for Error {
             GuestMemoryError => write!(f, "error accessing guest memory"),
             InvalidChain => write!(f, "invalid descriptor chain"),
             InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),
+            InvalidDescriptorIndex => write!(f, "invalid descriptor index"),
         }
     }
 }
@@ -430,6 +435,15 @@ pub struct Queue<M: GuestAddressSpace> {
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
 
+    /// Notification from driver is enabled.
+    event_notification_enabled: bool,
+
+    /// VIRTIO_F_RING_EVENT_IDX negotiated
+    event_idx_enabled: bool,
+
+    /// The last used value when using EVENT_IDX
+    signalled_used: Option<Wrapping<u16>>,
+
     /// The queue size in elements the driver selected
     pub size: u16,
 
@@ -459,6 +473,9 @@ impl<M: GuestAddressSpace> Queue<M> {
             used_ring: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
+            event_notification_enabled: true,
+            event_idx_enabled: false,
+            signalled_used: None,
         }
     }
 
@@ -482,6 +499,16 @@ impl<M: GuestAddressSpace> Queue<M> {
         self.used_ring = GuestAddress(0);
         self.next_avail = Wrapping(0);
         self.next_used = Wrapping(0);
+        self.signalled_used = None;
+        self.event_notification_enabled = false;
+        self.event_idx_enabled = false;
+    }
+
+    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
+    pub fn set_event_idx(&mut self, enabled: bool) {
+        /* Also reset the last signalled event */
+        self.signalled_used = None;
+        self.event_idx_enabled = enabled;
     }
 
     /// Check if the virtio queue configuration is valid.
@@ -577,13 +604,13 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, desc_index: u16, len: u32) {
+    pub fn add_used(&mut self, desc_index: u16, len: u32) -> Result<u16, Error> {
         if desc_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 desc_index
             );
-            return;
+            return Err(Error::InvalidDescriptorIndex);
         }
 
         let snapshot = self.mem.memory();
@@ -608,6 +635,147 @@ impl<M: GuestAddressSpace> Queue<M> {
         snapshot
             .write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
+        if !self.event_idx_enabled {
+            // Ensure visibility of virtq_used.idx before sending notification to guest
+            // when the EVENT_IDX feature is disabled, otherwise used_event() will ensure
+            // visibility of virtq_used.idx.
+            fence(Ordering::Release);
+        }
+
+        Ok(self.next_used.0)
+    }
+
+    /// Update avail_event on the used ring with the last index in the avail ring.
+    ///
+    /// The device can suppress notifications in a manner analogous to the way drivers can suppress
+    /// interrupts. The device manipulates flags or avail_event in the used ring the same way the
+    /// driver manipulates flags or used_event in the available ring.
+    ///
+    /// The device MAY use avail_event to advise the driver that notifications are unnecessary until
+    /// the driver writes entry with an index specified by avail_event into the available ring
+    /// (equivalently, until idx in the available ring will reach the value avail_event + 1).
+    fn update_avail_event(&mut self) {
+        // Safe because we have validated the queue and access guest memory through GuestMemory
+        // interfaces.
+        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
+        // boundary and get_slice() shouldn't fail.
+        let mem = self.mem.memory();
+        let index_addr = self.avail_ring.unchecked_add(2);
+        match mem.get_slice(index_addr, size_of::<u16>()).map(|s| {
+            s.get_atomic_ref::<AtomicU16>(0)
+                .unwrap()
+                .load(Ordering::Relaxed)
+        }) {
+            Ok(index) => {
+                let offset = (4 + self.actual_size() * 8) as u64;
+                let avail_event_addr = self.used_ring.unchecked_add(offset);
+                if let Ok(avail_event_slice) = mem.get_slice(avail_event_addr, size_of::<u16>()) {
+                    avail_event_slice
+                        .get_atomic_ref::<AtomicU16>(0)
+                        .unwrap()
+                        .store(index, Ordering::Relaxed);
+                } else {
+                    warn!("Can't update avail_event");
+                }
+            }
+            Err(e) => warn!("Invalid offset, {}", e),
+        }
+    }
+
+    fn update_used_flag(&mut self, set: u16, clr: u16) {
+        // Safe because we have validated the queue and access guest memory through GuestMemory
+        // interfaces.
+        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
+        // boundary and get_slice() shouldn't fail.
+        let mem = self.mem.memory();
+        let slice = mem
+            .get_slice(self.used_ring, size_of::<u16>())
+            .expect("invalid address for virtq_used.flags");
+        let flag = slice.get_atomic_ref::<AtomicU16>(0).unwrap();
+        let v = flag.load(Ordering::Relaxed);
+
+        flag.store((v & !clr) | set, Ordering::Relaxed);
+    }
+
+    fn set_notification(&mut self, enable: bool) {
+        self.event_notification_enabled = enable;
+        if self.event_notification_enabled {
+            if self.event_idx_enabled {
+                self.update_avail_event();
+            } else {
+                self.update_used_flag(0, VIRTQ_USED_F_NO_NOTIFY);
+            }
+
+            // This fence ensures that we observe the latest of virtq_avail once we publish
+            // virtq_used.avail_event/virtq_used.flags.
+            fence(Ordering::SeqCst);
+        } else if !self.event_idx_enabled {
+            self.update_used_flag(VIRTQ_USED_F_NO_NOTIFY, 0);
+        }
+    }
+
+    /// Enable notification events from the guest driver.
+    #[inline]
+    pub fn enable_notification(&mut self) {
+        self.set_notification(true);
+    }
+
+    /// Disable notification events from the guest driver.
+    #[inline]
+    pub fn disable_notification(&mut self) {
+        self.set_notification(false);
+    }
+
+    /// Return the value present in the used_event field of the avail ring.
+    ///
+    /// If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
+    /// ring offers a crude mechanism for the driver to inform the device that it doesn’t want
+    /// interrupts when buffers are used. Otherwise virtq_avail.used_event is a more performant
+    /// alternative where the driver specifies how far the device can progress before interrupting.
+    ///
+    /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
+    /// with the device, but they serve as useful optimizations. So we only ensure access to the
+    /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
+    fn used_event(&self) -> Result<Wrapping<u16>, Error> {
+        // Safe because we have validated the queue and access guest memory through GuestMemory
+        // interfaces.
+        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
+        // boundary and get_slice() shouldn't fail.
+        let mem = self.mem.memory();
+        let used_event_addr = self
+            .avail_ring
+            .unchecked_add((4 + self.actual_size() * 2) as u64);
+
+        // Complete all the writes in add_used() before reading the event.
+        fence(Ordering::SeqCst);
+        mem.get_slice(used_event_addr, size_of::<u16>())
+            .map(|s| {
+                Wrapping(
+                    s.get_atomic_ref::<AtomicU16>(0)
+                        .unwrap()
+                        .load(Ordering::Relaxed),
+                )
+            })
+            .map_err(|_| Error::GuestMemoryError)
+    }
+
+    /// Check whether a notification to the guest is needed.
+    pub fn needs_notification(&mut self, used_idx: Wrapping<u16>) -> bool {
+        let mut notify = true;
+
+        // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
+        if self.event_idx_enabled {
+            if let Some(old_idx) = self.signalled_used.replace(used_idx) {
+                // Silently ignore errors and let the caller send the notification.
+                if let Ok(used_event) = self.used_event() {
+                    if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
+                        notify = false;
+                    }
+                }
+            }
+        }
+
+        notify
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -1223,11 +1391,11 @@ pub(crate) mod tests {
         assert_eq!(vq.used.idx().load(), 0);
 
         //index too large
-        q.add_used(16, 0x1000);
+        assert!(q.add_used(16, 0x1000).is_err());
         assert_eq!(vq.used.idx().load(), 0);
 
         //should be ok
-        q.add_used(1, 0x1000);
+        assert_eq!(q.add_used(1, 0x1000).unwrap(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
@@ -1245,5 +1413,87 @@ pub(crate) mod tests {
         q.reset();
         assert_eq!(q.size, 16);
         assert_eq!(q.ready, false);
+    }
+
+    #[test]
+    fn test_needs_notification() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue(&m);
+        let avail_addr = vq.avail_start();
+
+        // It should always return true when EVENT_IDX isn't enabled.
+        assert_eq!(q.needs_notification(Wrapping(1)), true);
+        assert_eq!(q.needs_notification(Wrapping(2)), true);
+        assert_eq!(q.needs_notification(Wrapping(3)), true);
+        assert_eq!(q.needs_notification(Wrapping(4)), true);
+        assert_eq!(q.needs_notification(Wrapping(5)), true);
+
+        m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + 16 * 2))
+            .unwrap();
+        q.set_event_idx(true);
+        assert_eq!(q.needs_notification(Wrapping(1)), true);
+        assert_eq!(q.needs_notification(Wrapping(2)), false);
+        assert_eq!(q.needs_notification(Wrapping(3)), false);
+        assert_eq!(q.needs_notification(Wrapping(4)), false);
+        assert_eq!(q.needs_notification(Wrapping(5)), true);
+        assert_eq!(q.needs_notification(Wrapping(6)), false);
+        assert_eq!(q.needs_notification(Wrapping(7)), false);
+
+        m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + 16 * 2))
+            .unwrap();
+        assert_eq!(q.needs_notification(Wrapping(11)), true);
+        assert_eq!(q.needs_notification(Wrapping(12)), false);
+
+        m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + 16 * 2))
+            .unwrap();
+        assert_eq!(q.needs_notification(Wrapping(0)), true);
+        assert_eq!(q.needs_notification(Wrapping(14)), false);
+    }
+
+    #[test]
+    fn test_enable_disable_notification() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue(&m);
+        let used_addr = vq.used_start();
+
+        assert_eq!(q.event_notification_enabled, true);
+        assert_eq!(q.event_idx_enabled, false);
+
+        q.enable_notification();
+        let v = m.read_obj::<u16>(used_addr).unwrap();
+        assert_eq!(v, 0);
+
+        q.disable_notification();
+        let v = m.read_obj::<u16>(used_addr).unwrap();
+        assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
+
+        q.enable_notification();
+        let v = m.read_obj::<u16>(used_addr).unwrap();
+        assert_eq!(v, 0);
+
+        q.set_event_idx(true);
+        let avail_addr = vq.avail_start();
+        m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
+
+        q.enable_notification();
+        let v = m
+            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
+            .unwrap();
+        assert_eq!(v, 2);
+
+        q.disable_notification();
+        let v = m
+            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
+            .unwrap();
+        assert_eq!(v, 2);
+
+        m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
+        q.enable_notification();
+        let v = m
+            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
+            .unwrap();
+        assert_eq!(v, 8);
     }
 }
