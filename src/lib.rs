@@ -8,7 +8,7 @@
 #![deny(missing_docs)]
 
 //! Implements virtio devices, queues, and transport mechanisms.
-extern crate epoll;
+
 #[macro_use]
 extern crate log;
 extern crate vm_memory;
