@@ -395,19 +395,13 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
         let offset = (VIRTQ_AVAIL_RING_HEADER_SIZE as u16
             + (self.next_index.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE as u16)
             as usize;
-        let avail_addr = match self.mem.checked_offset(self.avail_ring, offset) {
-            Some(a) => a,
-            None => return None,
-        };
+        let avail_addr = self.avail_ring.checked_add(offset as u64)?;
         // This index is checked below in checked_new
-        let desc_index: u16 = match self.mem.read_obj(avail_addr) {
-            Ok(ret) => ret,
-            Err(_) => {
-                // TODO log address
-                error!("Failed to read from memory");
-                return None;
-            }
-        };
+        let desc_index: u16 = self
+            .mem
+            .read_obj(avail_addr)
+            .map_err(|_e| error!("Failed to read from memory {:x}", avail_addr.raw_value()))
+            .ok()?;
 
         self.next_index += Wrapping(1);
 
@@ -513,7 +507,7 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     /// Check if the virtio queue configuration is valid.
     pub fn is_valid(&self) -> bool {
-        let snapshot = self.mem.memory();
+        let mem = self.mem.memory();
         let queue_size = self.actual_size() as usize;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() * queue_size;
@@ -530,7 +524,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if desc_table
             .checked_add(desc_table_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
                 "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -540,7 +534,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if avail_ring
             .checked_add(avail_ring_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
                 "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -550,7 +544,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             false
         } else if used_ring
             .checked_add(used_ring_size as GuestUsize)
-            .map_or(true, |v| !snapshot.address_in_range(v))
+            .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
                 "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
@@ -577,23 +571,22 @@ impl<M: GuestAddressSpace> Queue<M> {
         let queue_size = self.actual_size();
         let avail_ring = self.avail_ring;
 
-        let snapshot = self.mem.memory();
-        let index_addr = match snapshot.checked_offset(avail_ring, 2) {
+        let mem = self.mem.memory();
+        let index_addr = match avail_ring.checked_add(2) {
             Some(ret) => ret,
             None => {
-                // TODO log address
-                warn!("Invalid offset");
-                return AvailIter::new(snapshot, &mut self.next_avail);
+                warn!("Invalid offset {}", avail_ring.raw_value());
+                return AvailIter::new(mem, &mut self.next_avail);
             }
         };
         // Note that last_index has no invalid values
-        let last_index: u16 = match snapshot.read_obj::<u16>(index_addr) {
+        let last_index: u16 = match mem.read_obj::<u16>(index_addr) {
             Ok(ret) => ret,
-            Err(_) => return AvailIter::new(snapshot, &mut self.next_avail),
+            Err(_) => return AvailIter::new(mem, &mut self.next_avail),
         };
 
         AvailIter {
-            mem: snapshot,
+            mem,
             desc_table: self.desc_table,
             avail_ring,
             next_index: self.next_avail,
@@ -613,17 +606,14 @@ impl<M: GuestAddressSpace> Queue<M> {
             return Err(Error::InvalidDescriptorIndex);
         }
 
-        let snapshot = self.mem.memory();
+        let mem = self.mem.memory();
         let used_ring = self.used_ring;
         let next_used = u64::from(self.next_used.0 % self.actual_size());
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        snapshot
-            .write_obj(u32::from(desc_index), used_elem)
-            .unwrap();
-        snapshot
-            .write_obj(len as u32, used_elem.unchecked_add(4))
+        mem.write_obj(u32::from(desc_index), used_elem).unwrap();
+        mem.write_obj(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 
         self.next_used += Wrapping(1);
@@ -632,8 +622,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         fence(Ordering::Release);
 
         // We are guaranteed to be within the used ring, this write can't fail.
-        snapshot
-            .write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
+        mem.write_obj(self.next_used.0, used_ring.unchecked_add(2))
             .unwrap();
         if !self.event_idx_enabled {
             // Ensure visibility of virtq_used.idx before sending notification to guest
