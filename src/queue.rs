@@ -624,12 +624,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         // We are guaranteed to be within the used ring, this write can't fail.
         mem.write_obj(self.next_used.0, used_ring.unchecked_add(2))
             .unwrap();
-        if !self.event_idx_enabled {
-            // Ensure visibility of virtq_used.idx before sending notification to guest
-            // when the EVENT_IDX feature is disabled, otherwise used_event() will ensure
-            // visibility of virtq_used.idx.
-            fence(Ordering::Release);
-        }
 
         Ok(self.next_used.0)
     }
