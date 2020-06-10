@@ -130,6 +130,8 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
 
     /// The current descriptor
     desc: Descriptor,
+    curr_indirect: Option<Box<DescriptorChain<M>>>,
+    is_master: bool,
 }
 
 impl<M: GuestAddressSpace> DescriptorChain<M> {
@@ -153,6 +155,8 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             queue_size,
             ttl,
             desc,
+            curr_indirect: None,
+            is_master: true,
         };
 
         if chain.is_valid() {
@@ -189,24 +193,20 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             return Err(Error::InvalidIndirectDescriptor);
         }
 
+        let mem = self.mem.clone();
+        let desc_table = GuestAddress(desc_head);
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc: Descriptor = self
-            .mem
-            .get_slice(GuestAddress(desc_head), size_of::<Descriptor>())
-            .map(|s| s.get_ref(0).unwrap().load())
+        let desc: Descriptor = mem
+            .read_obj(desc_table)
             .map_err(|_| Error::GuestMemoryError)?;
-
         let chain = DescriptorChain {
-            mem: self.mem.clone(),
-            desc_table: GuestAddress(desc_head),
+            mem,
+            desc_table,
             queue_size: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
             ttl: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
-            desc: Descriptor {
-                addr: desc.addr,
-                len: desc.len,
-                flags: desc.flags,
-                next: desc.next,
-            },
+            desc,
+            curr_indirect: None,
+            is_master: false,
         };
 
         if !chain.is_valid() {
@@ -269,20 +269,59 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
             return None;
         }
 
-        let curr = self.desc;
-        if !self.has_next() {
-            self.ttl = 0
+        // Special handling for indirect descriptor table
+        if self.is_indirect() {
+            // An indirect descriptor can not refer to another indirect descriptor table
+            if !self.is_master {
+                return None;
+            }
+            if self.curr_indirect.is_none() {
+                let indirect_chain = self.new_from_indirect().ok()?;
+                self.curr_indirect = Some(Box::new(indirect_chain));
+            }
+            // Above code ensures that it's safe to unwrap().
+            let indirect = self.curr_indirect.as_mut().unwrap();
+
+            match indirect.next() {
+                // return the next descriptor from the indirect chain
+                Some(d) => Some(d),
+                // current indirect chain hs reached the end, return to the master chain.
+                None => {
+                    self.curr_indirect = None;
+                    if !self.has_next() {
+                        // the main descriptor has reached the end too.
+                        self.ttl = 0;
+                        None
+                    } else {
+                        // read next descriptor from the main descriptor chain.
+                        let index = self.desc.next;
+                        let offset = index as u64 * VIRTQ_DESCRIPTOR_SIZE as u64;
+                        let addr = self.desc_table.unchecked_add(offset);
+                        let slice = self.mem.get_slice(addr, VIRTQ_DESCRIPTOR_SIZE).ok()?;
+
+                        self.desc = slice.get_ref(0).ok()?.load();
+                        self.ttl -= 1;
+                        self.next()
+                    }
+                }
+            }
         } else {
-            let index = self.desc.next;
-            let desc_table_size = size_of::<Descriptor>() * self.queue_size as usize;
-            let slice = self.mem.get_slice(self.desc_table, desc_table_size).ok()?;
-            self.desc = slice
-                .get_array_ref(0, self.queue_size as usize)
-                .ok()?
-                .load(index as usize);
-            self.ttl -= 1;
+            let curr = self.desc;
+            if !self.has_next() {
+                self.ttl = 0
+            } else {
+                let index = self.desc.next;
+                let desc_table_size = VIRTQ_DESCRIPTOR_SIZE * self.queue_size as usize;
+                let slice = self.mem.get_slice(self.desc_table, desc_table_size).ok()?;
+                self.desc = slice
+                    .get_array_ref(0, self.queue_size as usize)
+                    .ok()?
+                    .load(index as usize);
+                self.ttl -= 1;
+            }
+
+            Some(curr)
         }
-        Some(curr)
     }
 }
 
@@ -913,11 +952,15 @@ pub(crate) mod tests {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
-        // create a chain with a descriptor pointing to an indirect table
+        // create a chain with two descriptor pointing to an indirect tables
         let desc = vq.dtable(0);
-        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 1);
+        let desc = vq.dtable(1);
+        desc.set(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
+        let desc = vq.dtable(2);
+        desc.set(0x3000, 0x1000, 0, 0);
 
-        let c: DescriptorChain<&GuestMemoryMmap> =
+        let mut c: DescriptorChain<&GuestMemoryMmap> =
             DescriptorChain::checked_new(m, vq.start(), 16, 0).unwrap();
         assert!(c.is_indirect());
 
@@ -929,17 +972,39 @@ pub(crate) mod tests {
         let mut indirect_table = Vec::with_capacity(4 as usize);
         for j in 0..4 {
             let desc = VirtqDesc::new(&dtable, j);
-            desc.set(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, (j + 1) as u16);
+            if j < 3 {
+                desc.set(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, (j + 1) as u16);
+            } else {
+                desc.set(0x1000, 0x1000, 0, 0 as u16);
+            }
             indirect_table.push(desc);
         }
 
-        // try to iterate through the indirect table descriptors
-        let mut i = c.new_from_indirect().unwrap();
+        let dtable2 = region
+            .get_slice(MemoryRegionAddress(0x2000u64), VirtqDesc::dtable_len(1))
+            .unwrap();
+        let desc2 = VirtqDesc::new(&dtable2, 0);
+        desc2.set(0x8000, 0x1000, 0, 0);
+
+        // try to iterate through the first indirect descriptor chain
         for j in 0..4 {
-            let desc = i.next().unwrap();
-            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-            assert_eq!(desc.next, j + 1);
+            let desc = c.next().unwrap();
+            if j < 3 {
+                assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+                assert_eq!(desc.next, j + 1);
+            }
         }
+
+        // try to iterate through the second indirect descriptor chain
+        let desc = c.next().unwrap();
+        assert_eq!(desc.addr(), GuestAddress(0x8000));
+
+        // back to the main descriptor chain
+        let desc = c.next().unwrap();
+        assert_eq!(desc.addr(), GuestAddress(0x3000));
+
+        assert!(c.next().is_none());
+        assert!(c.next().is_none());
     }
 
     #[test]
