@@ -84,6 +84,7 @@ impl std::error::Error for Error {}
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 pub struct Descriptor {
+    /// Guest physical address of device specific data
     addr: u64,
 
     /// Length of device specific data
@@ -131,7 +132,8 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     mem: M::T,
     desc_table: GuestAddress,
     queue_size: u16,
-    ttl: u16, // used to prevent infinite chain cycles
+    ttl: u16,        // used to prevent infinite chain cycles
+    head_index: u16, // descriptor index of the chain header
 
     /// The current descriptor
     desc: Descriptor,
@@ -145,20 +147,21 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         desc_table: GuestAddress,
         queue_size: u16,
         ttl: u16,
-        index: u16,
+        head_index: u16,
     ) -> Option<Self> {
-        if index >= queue_size {
+        if head_index >= queue_size {
             return None;
         }
 
         let desc_size = size_of::<Descriptor>();
-        let desc_addr = desc_table.checked_add(desc_size as u64 * index as u64)?;
+        let desc_addr = desc_table.checked_add(desc_size as u64 * head_index as u64)?;
         let desc = mem.read_obj(desc_addr).ok()?;
         let chain = DescriptorChain {
             mem,
             desc_table,
             queue_size,
             ttl,
+            head_index,
             desc,
             curr_indirect: None,
             is_master: true,
@@ -176,9 +179,9 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         mem: M::T,
         dtable_addr: GuestAddress,
         queue_size: u16,
-        index: u16,
+        head_index: u16,
     ) -> Option<Self> {
-        Self::read_new(mem, dtable_addr, queue_size, queue_size, index)
+        Self::read_new(mem, dtable_addr, queue_size, queue_size, head_index)
     }
 
     /// Create a `DescriptorChain` from the indirect target descriptor table.
@@ -209,6 +212,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             desc_table,
             queue_size: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
             ttl: (desc_len / VIRTQ_DESCRIPTOR_SIZE) as u16,
+            head_index: self.head_index,
             desc,
             curr_indirect: None,
             is_master: false,
@@ -226,6 +230,11 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             .checked_offset(self.desc.addr(), self.desc.len as usize)
             .filter(|_| !self.has_next() || self.desc.next < self.queue_size)
             .is_some()
+    }
+
+    /// Get the descriptor index of the chain header
+    pub fn head_index(&self) -> u16 {
+        self.head_index
     }
 
     /// Checks if this descriptor chain has another descriptor chain linked after it.
@@ -1137,6 +1146,7 @@ pub(crate) mod tests {
         let desc2 = VirtqDesc::new(&dtable2, 0);
         desc2.set(0x8000, 0x1000, 0, 0);
 
+        assert_eq!(c.head_index(), 0);
         // try to iterate through the first indirect descriptor chain
         for j in 0..4 {
             let desc = c.next().unwrap();
@@ -1273,19 +1283,25 @@ pub(crate) mod tests {
 
             {
                 let mut c = i.next().unwrap();
+                assert_eq!(c.head_index(), 0);
+
                 c.next().unwrap();
                 assert!(!c.has_next());
                 assert!(c.next().is_some());
                 assert!(c.next().is_none());
+                assert_eq!(c.head_index(), 0);
             }
 
             {
                 let mut c = i.next().unwrap();
+                assert_eq!(c.head_index(), 2);
+
                 c.next().unwrap();
                 c.next().unwrap();
                 c.next().unwrap();
                 assert!(!c.has_next());
                 assert!(c.next().is_none());
+                assert_eq!(c.head_index(), 2);
             }
         }
 
@@ -1340,6 +1356,8 @@ pub(crate) mod tests {
 
         {
             let c = i.next().unwrap();
+            assert_eq!(c.head_index(), 0);
+
             let mut iter = c.into_iter();
             assert!(iter.next().is_some());
             assert!(iter.next().is_some());
@@ -1349,6 +1367,8 @@ pub(crate) mod tests {
 
         {
             let c = i.next().unwrap();
+            assert_eq!(c.head_index(), 2);
+
             let mut iter = c.writable();
             assert!(iter.next().is_some());
             assert!(iter.next().is_some());
@@ -1358,6 +1378,8 @@ pub(crate) mod tests {
 
         {
             let c = i.next().unwrap();
+            assert_eq!(c.head_index(), 5);
+
             let mut iter = c.readable();
             assert!(iter.next().is_some());
             assert!(iter.next().is_none());
