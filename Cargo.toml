@@ -10,12 +10,20 @@ license = "Apache-2.0 OR MIT"
 edition = "2018"
 
 [dependencies]
-byteorder = "=1.2.1"
+byteorder = ">=1.2.1"
 libc = ">=0.2.39"
 log = "=0.4.6"
-vm-memory = {version = ">=0.2.0", features = ["integer-atomics"] }
+vm-memory = {version = ">=0.2.2", features = ["integer-atomics"] }
 vmm-sys-util = ">=0.4.0"
 
-[dev-dependencies.vm-memory]
-version = ">=0.2.0"
-features = ["backend-mmap"]
+[dev-dependencies]
+criterion = "0.3.0"
+vm-memory = { version = ">=0.2.2", features = ["backend-mmap", "backend-atomic" ] }
+
+[[bench]]
+name = "main"
+harness = false
+
+[profile.bench]
+lto = true
+codegen-units = 1
