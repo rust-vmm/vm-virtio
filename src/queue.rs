@@ -148,6 +148,7 @@ impl Descriptor {
 unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
+#[derive(Clone)]
 pub struct DescriptorChain<M: GuestAddressSpace> {
     mem: M::T,
     desc_table: GuestAddress,
