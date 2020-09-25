@@ -707,6 +707,16 @@ impl<M: GuestAddressSpace> Queue<M> {
     pub fn go_to_previous_position(&mut self) {
         self.next_avail -= Wrapping(1);
     }
+
+    /// Returns the index for the next descriptor in the available ring.
+    pub fn next_avail(&self) -> u16 {
+        self.next_avail.0
+    }
+
+    /// Sets the index for the next descriptor in the available ring.
+    pub fn set_next_avail(&mut self, next_avail: u16) {
+        self.next_avail = Wrapping(next_avail);
+    }
 }
 
 #[cfg(test)]
