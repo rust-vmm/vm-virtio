@@ -14,11 +14,11 @@ use std::cmp::min;
 use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, AtomicU16, Ordering};
+use std::sync::atomic::{fence, Ordering};
 
 use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
-    VolatileMemory,
+    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
+    GuestUsize,
 };
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -43,11 +43,6 @@ const VIRTQ_AVAIL_RING_HEADER_SIZE: usize = 4;
 // VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size
 const VIRTQ_AVAIL_RING_META_SIZE: usize = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
 
-// GuestMemory::read_obj() will be used to fetch the descriptor,
-// which has an explicit constraint that the entire descriptor doesn't
-// cross the page boundary. Otherwise the descriptor may be split into
-// two mmap regions which causes failure of GuestMemory::read_obj().
-//
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 // which fulfills the explicit constraint of GuestMemory::read_obj().
 const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
@@ -56,7 +51,7 @@ const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
 #[derive(Debug)]
 pub enum Error {
     /// Failed to access guest memory.
-    GuestMemoryError,
+    GuestMemory(GuestMemoryError),
     /// Invalid indirect descriptor.
     InvalidIndirectDescriptor,
     /// Invalid indirect descriptor table.
@@ -72,7 +67,7 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            GuestMemoryError => write!(f, "error accessing guest memory"),
+            GuestMemory(_) => write!(f, "error accessing guest memory"),
             InvalidChain => write!(f, "invalid descriptor chain"),
             InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),
             InvalidIndirectDescriptorTable => write!(f, "invalid indirect descriptor table"),
@@ -249,12 +244,15 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
             return None;
         }
 
-        let desc_table_size = VIRTQ_DESCRIPTOR_SIZE * self.queue_size as usize;
-        let slice = self.mem.get_slice(self.desc_table, desc_table_size).ok()?;
-        let desc = slice
-            .get_array_ref::<Descriptor>(0, self.queue_size as usize)
-            .ok()?
-            .load(self.next_index as usize);
+        // It's ok to use `unchecked_add` here because we previously verify the index does not
+        // exceed the queue size, and the descriptor table location is expected to have been
+        // validate before (for example, before activating a device). Moreover, this cannot
+        // lead to unsafety because the actual memory accesses are always checked.
+        let desc_addr = self
+            .desc_table
+            .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
+
+        let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
 
         if desc.is_indirect() {
             self.process_indirect_descriptor(desc).ok()?;
@@ -559,12 +557,12 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         self.next_used += Wrapping(1);
 
-        // This fence ensures all descriptor writes are visible before the index update is.
-        fence(Ordering::Release);
-
-        // We are guaranteed to be within the used ring, this write can't fail.
-        mem.write_obj(self.next_used.0, used_ring.unchecked_add(2))
-            .unwrap();
+        mem.store(
+            self.next_used.0,
+            used_ring.unchecked_add(2),
+            Ordering::Release,
+        )
+        .map_err(Error::GuestMemory)?;
 
         Ok(self.next_used.0)
     }
@@ -585,20 +583,14 @@ impl<M: GuestAddressSpace> Queue<M> {
         // boundary and get_slice() shouldn't fail.
         let mem = self.mem.memory();
         let index_addr = self.avail_ring.unchecked_add(2);
-        match mem.get_slice(index_addr, size_of::<u16>()).map(|s| {
-            s.get_atomic_ref::<AtomicU16>(0)
-                .unwrap()
-                .load(Ordering::Relaxed)
-        }) {
+        match mem.load::<u16>(index_addr, Ordering::Relaxed) {
             Ok(index) => {
                 let offset = (4 + self.actual_size() * 8) as u64;
                 let avail_event_addr = self.used_ring.unchecked_add(offset);
-                if let Ok(avail_event_slice) = mem.get_slice(avail_event_addr, size_of::<u16>()) {
-                    avail_event_slice
-                        .get_atomic_ref::<AtomicU16>(0)
-                        .unwrap()
-                        .store(index, Ordering::Relaxed);
-                } else {
+                if mem
+                    .store(index, avail_event_addr, Ordering::Relaxed)
+                    .is_err()
+                {
                     warn!("Can't update avail_event");
                 }
             }
@@ -607,18 +599,12 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     fn update_used_flag(&mut self, set: u16, clr: u16) {
-        // Safe because we have validated the queue and access guest memory through GuestMemory
-        // interfaces.
-        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
-        // boundary and get_slice() shouldn't fail.
         let mem = self.mem.memory();
-        let slice = mem
-            .get_slice(self.used_ring, size_of::<u16>())
+        let v = mem
+            .load::<u16>(self.used_ring, Ordering::Relaxed)
             .expect("invalid address for virtq_used.flags");
-        let flag = slice.get_atomic_ref::<AtomicU16>(0).unwrap();
-        let v = flag.load(Ordering::Relaxed);
-
-        flag.store((v & !clr) | set, Ordering::Relaxed);
+        mem.store((v & !clr) | set, self.used_ring, Ordering::Relaxed)
+            .expect("invalid address for virtq_used.flags");
     }
 
     fn set_notification(&mut self, enable: bool) {
@@ -672,15 +658,10 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         // Complete all the writes in add_used() before reading the event.
         fence(Ordering::SeqCst);
-        mem.get_slice(used_event_addr, size_of::<u16>())
-            .map(|s| {
-                Wrapping(
-                    s.get_atomic_ref::<AtomicU16>(0)
-                        .unwrap()
-                        .load(Ordering::Relaxed),
-                )
-            })
-            .map_err(|_| Error::GuestMemoryError)
+
+        mem.load(used_event_addr, Ordering::Relaxed)
+            .map(Wrapping)
+            .map_err(Error::GuestMemory)
     }
 
     /// Check whether a notification to the guest is needed.
