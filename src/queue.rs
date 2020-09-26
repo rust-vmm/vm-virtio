@@ -18,30 +18,29 @@ use std::sync::atomic::{fence, Ordering};
 
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
-    GuestUsize,
 };
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
-const VIRTQ_USED_ELEMENT_SIZE: usize = 8;
+const VIRTQ_USED_ELEMENT_SIZE: u64 = 8;
 // Used ring header: flags (u16) + idx (u16)
-const VIRTQ_USED_RING_HEADER_SIZE: usize = 4;
+const VIRTQ_USED_RING_HEADER_SIZE: u64 = 4;
 // This is the size of the used ring metadata: header + used_event (u16).
 // The total size of the used ring is:
 // VIRTQ_USED_RING_HMETA_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size
-const VIRTQ_USED_RING_META_SIZE: usize = VIRTQ_USED_RING_HEADER_SIZE + 2;
+const VIRTQ_USED_RING_META_SIZE: u64 = VIRTQ_USED_RING_HEADER_SIZE + 2;
 // Used flags
 const VIRTQ_USED_F_NO_NOTIFY: u16 = 0x1;
 
-const VIRTQ_AVAIL_ELEMENT_SIZE: usize = 2;
+const VIRTQ_AVAIL_ELEMENT_SIZE: u64 = 2;
 // Avail ring header: flags(u16) + idx(u16)
-const VIRTQ_AVAIL_RING_HEADER_SIZE: usize = 4;
+const VIRTQ_AVAIL_RING_HEADER_SIZE: u64 = 4;
 // This is the size of the available ring metadata: header + avail_event (u16).
 // The total size of the available ring is:
 // VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size
-const VIRTQ_AVAIL_RING_META_SIZE: usize = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
+const VIRTQ_AVAIL_RING_META_SIZE: u64 = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
 
 // The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 // which fulfills the explicit constraint of GuestMemory::read_obj().
@@ -305,57 +304,67 @@ pub struct AvailIter<'b, M: GuestAddressSpace> {
     mem: M::T,
     desc_table: GuestAddress,
     avail_ring: GuestAddress,
-    next_index: Wrapping<u16>,
     last_index: Wrapping<u16>,
     queue_size: u16,
     next_avail: &'b mut Wrapping<u16>,
-}
-
-impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
-    /// Constructs an empty descriptor iterator.
-    pub fn new(mem: M::T, q_next_avail: &'b mut Wrapping<u16>) -> AvailIter<'b, M> {
-        AvailIter {
-            mem,
-            desc_table: GuestAddress(0),
-            avail_ring: GuestAddress(0),
-            next_index: Wrapping(0),
-            last_index: Wrapping(0),
-            queue_size: 0,
-            next_avail: q_next_avail,
-        }
-    }
 }
 
 impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
     type Item = DescriptorChain<M>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next_index == self.last_index {
+        if *self.next_avail == self.last_index {
             return None;
         }
 
-        let offset = (VIRTQ_AVAIL_RING_HEADER_SIZE as u16
-            + (self.next_index.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE as u16)
-            as usize;
-        let avail_addr = self.avail_ring.checked_add(offset as u64)?;
-        // This index is checked below in checked_new
-        let desc_index: u16 = self
+        // This computation cannot overflow because all the values involved are actually
+        // `u16`s cast to `u64`.
+        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE
+            + (self.next_avail.0 % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
+
+        // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
+        // as the index is within bounds. We do not currently enforce that a queue is only used
+        // after checking `is_valid`, but rather expect the device implementations to do so
+        // before activation. The standard also forbids drivers to change queue parameters
+        // while the device is "running". A warp-around cannot lead to unsafe memory accesses
+        // because the memory model performs its own validations.
+        let addr = self.avail_ring.unchecked_add(offset);
+        let head_index: u16 = self
             .mem
-            .read_obj(avail_addr)
-            .map_err(|_e| error!("Failed to read from memory {:x}", avail_addr.raw_value()))
+            .read_obj(addr)
+            .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
             .ok()?;
 
-        self.next_index += Wrapping(1);
         *self.next_avail += Wrapping(1);
 
         Some(DescriptorChain::new(
             self.mem.clone(),
             self.desc_table,
             self.queue_size,
-            desc_index,
+            head_index,
         ))
     }
 }
+
+/// Represents the contents of an element from the used virtqueue ring.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct VirtqUsedElem {
+    id: u32,
+    len: u32,
+}
+
+impl VirtqUsedElem {
+    /// Create a new `VirtqUsedElem` instance.
+    pub fn new(id: u16, len: u32) -> Self {
+        VirtqUsedElem {
+            id: u32::from(id),
+            len,
+        }
+    }
+}
+
+unsafe impl ByteValued for VirtqUsedElem {}
 
 #[derive(Clone)]
 /// A virtio queue's parameters.
@@ -447,9 +456,9 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// Check if the virtio queue configuration is valid.
     pub fn is_valid(&self) -> bool {
         let mem = self.mem.memory();
-        let queue_size = self.actual_size() as usize;
+        let queue_size = self.actual_size() as u64;
         let desc_table = self.desc_table;
-        let desc_table_size = size_of::<Descriptor>() * queue_size;
+        let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
         let avail_ring = self.avail_ring;
         let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
         let used_ring = self.used_ring;
@@ -462,7 +471,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             error!("virtio queue with invalid size: {}", self.size);
             false
         } else if desc_table
-            .checked_add(desc_table_size as GuestUsize)
+            .checked_add(desc_table_size)
             .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
@@ -472,7 +481,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             );
             false
         } else if avail_ring
-            .checked_add(avail_ring_size as GuestUsize)
+            .checked_add(avail_ring_size)
             .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
@@ -482,7 +491,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             );
             false
         } else if used_ring
-            .checked_add(used_ring_size as GuestUsize)
+            .checked_add(used_ring_size)
             .map_or(true, |v| !mem.address_in_range(v))
         {
             error!(
@@ -505,61 +514,49 @@ impl<M: GuestAddressSpace> Queue<M> {
         }
     }
 
+    /// Reads the `idx` field from the available ring.
+    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        let addr = self.avail_ring.unchecked_add(2);
+        self.mem
+            .memory()
+            .load(addr, order)
+            .map(Wrapping)
+            .map_err(Error::GuestMemory)
+    }
+
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> AvailIter<'_, M> {
-        let queue_size = self.actual_size();
-        let avail_ring = self.avail_ring;
-
-        let mem = self.mem.memory();
-        let index_addr = match avail_ring.checked_add(2) {
-            Some(ret) => ret,
-            None => {
-                warn!("Invalid offset {}", avail_ring.raw_value());
-                return AvailIter::new(mem, &mut self.next_avail);
-            }
-        };
-        // Note that last_index has no invalid values
-        let last_index: u16 = match mem.read_obj::<u16>(index_addr) {
-            Ok(ret) => ret,
-            Err(_) => return AvailIter::new(mem, &mut self.next_avail),
-        };
-
-        AvailIter {
-            mem,
+    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
+        self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
+            mem: self.mem.memory(),
             desc_table: self.desc_table,
-            avail_ring,
-            next_index: self.next_avail,
-            last_index: Wrapping(last_index),
-            queue_size,
+            avail_ring: self.avail_ring,
+            last_index: idx,
+            queue_size: self.actual_size(),
             next_avail: &mut self.next_avail,
-        }
+        })
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, desc_index: u16, len: u32) -> Result<u16, Error> {
-        if desc_index >= self.actual_size() {
+    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<u16, Error> {
+        if head_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
-                desc_index
+                head_index
             );
             return Err(Error::InvalidDescriptorIndex);
         }
 
         let mem = self.mem.memory();
-        let used_ring = self.used_ring;
-        let next_used = u64::from(self.next_used.0 % self.actual_size());
-        let used_elem = used_ring.unchecked_add(4 + next_used * 8);
-
-        // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj(u32::from(desc_index), used_elem).unwrap();
-        mem.write_obj(len as u32, used_elem.unchecked_add(4))
-            .unwrap();
+        let next_used_index = u64::from(self.next_used.0 % self.actual_size());
+        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+            .map_err(Error::GuestMemory)?;
 
         self.next_used += Wrapping(1);
 
         mem.store(
             self.next_used.0,
-            used_ring.unchecked_add(2),
+            self.used_ring.unchecked_add(2),
             Ordering::Release,
         )
         .map_err(Error::GuestMemory)?;
@@ -579,8 +576,6 @@ impl<M: GuestAddressSpace> Queue<M> {
     fn update_avail_event(&mut self) {
         // Safe because we have validated the queue and access guest memory through GuestMemory
         // interfaces.
-        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
-        // boundary and get_slice() shouldn't fail.
         let mem = self.mem.memory();
         let index_addr = self.avail_ring.unchecked_add(2);
         match mem.load::<u16>(index_addr, Ordering::Relaxed) {
@@ -703,15 +698,14 @@ impl<M: GuestAddressSpace> Queue<M> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    extern crate vm_memory;
+    use super::*;
 
     use std::marker::PhantomData;
     use std::mem;
 
-    pub use super::*;
     use vm_memory::{
-        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, MemoryRegionAddress, VolatileMemory,
-        VolatileRef, VolatileSlice,
+        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
+        VolatileMemory, VolatileRef, VolatileSlice,
     };
 
     // Represents a virtio descriptor in guest memory.
@@ -832,15 +826,6 @@ pub(crate) mod tests {
             Self::ring_offset(qsize) + 2
         }
     }
-
-    #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    pub struct VirtqUsedElem {
-        pub id: u32,
-        pub len: u32,
-    }
-
-    unsafe impl vm_memory::ByteValued for VirtqUsedElem {}
 
     pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
     pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
@@ -1137,7 +1122,7 @@ pub(crate) mod tests {
         {
             // an invalid queue should return an iterator with no next
             q.ready = false;
-            let mut i = q.iter();
+            let mut i = q.iter().unwrap();
             assert!(i.next().is_none());
         }
 
@@ -1162,7 +1147,7 @@ pub(crate) mod tests {
             vq.avail.ring(1).store(2);
             vq.avail.idx().store(2);
 
-            let mut i = q.iter();
+            let mut i = q.iter().unwrap();
 
             {
                 let mut c = i.next().unwrap();
@@ -1188,9 +1173,9 @@ pub(crate) mod tests {
 
         // also test go_to_previous_position() works as expected
         {
-            assert!(q.iter().next().is_none());
+            assert!(q.iter().unwrap().next().is_none());
             q.go_to_previous_position();
-            let mut c = q.iter().next().unwrap();
+            let mut c = q.iter().unwrap().next().unwrap();
             c.next().unwrap();
             c.next().unwrap();
             c.next().unwrap();
@@ -1232,7 +1217,7 @@ pub(crate) mod tests {
         vq.avail.ring(2).store(5);
         vq.avail.idx().store(3);
 
-        let mut i = q.iter();
+        let mut i = q.iter().unwrap();
 
         {
             let c = i.next().unwrap();

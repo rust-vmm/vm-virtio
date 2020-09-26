@@ -14,7 +14,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
         let mut num_chains = 0;
         let mut num_descriptors = 0;
 
-        q.iter().for_each(|chain| {
+        q.iter().unwrap().for_each(|chain| {
             num_chains += 1;
             chain.for_each(|_| num_descriptors += 1);
         });
