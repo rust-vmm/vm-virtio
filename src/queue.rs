@@ -373,9 +373,6 @@ pub struct Queue<M: GuestAddressSpace> {
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
 
-    /// Notification from driver is enabled.
-    event_notification_enabled: bool,
-
     /// VIRTIO_F_RING_EVENT_IDX negotiated
     event_idx_enabled: bool,
 
@@ -411,7 +408,6 @@ impl<M: GuestAddressSpace> Queue<M> {
             used_ring: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
-            event_notification_enabled: true,
             event_idx_enabled: false,
             signalled_used: None,
         }
@@ -438,7 +434,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         self.next_avail = Wrapping(0);
         self.next_used = Wrapping(0);
         self.signalled_used = None;
-        self.event_notification_enabled = false;
         self.event_idx_enabled = false;
     }
 
@@ -560,71 +555,91 @@ impl<M: GuestAddressSpace> Queue<M> {
         Ok(self.next_used.0)
     }
 
-    /// Update avail_event on the used ring with the last index in the avail ring.
-    ///
-    /// The device can suppress notifications in a manner analogous to the way drivers can suppress
-    /// interrupts. The device manipulates flags or avail_event in the used ring the same way the
-    /// driver manipulates flags or used_event in the available ring.
-    ///
-    /// The device MAY use avail_event to advise the driver that notifications are unnecessary until
-    /// the driver writes entry with an index specified by avail_event into the available ring
-    /// (equivalently, until idx in the available ring will reach the value avail_event + 1).
-    fn update_avail_event(&mut self) {
-        // Safe because we have validated the queue and access guest memory through GuestMemory
-        // interfaces.
-        let mem = self.mem.memory();
-        let index_addr = self.avail_ring.unchecked_add(2);
-        match mem.load::<u16>(index_addr, Ordering::Relaxed) {
-            Ok(index) => {
-                let offset = (4 + self.actual_size() * 8) as u64;
-                let avail_event_addr = self.used_ring.unchecked_add(offset);
-                if mem
-                    .store(index, avail_event_addr, Ordering::Relaxed)
-                    .is_err()
-                {
-                    warn!("Can't update avail_event");
-                }
-            }
-            Err(e) => warn!("Invalid offset, {}", e),
-        }
+    // Helper method that writes `val` to the `avail_event` field of the used ring, using
+    // the provided ordering.
+    fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
+        let offset = (4 + self.actual_size() * 8) as u64;
+        let addr = self.used_ring.unchecked_add(offset);
+        self.mem
+            .memory()
+            .store(val, addr, order)
+            .map_err(Error::GuestMemory)
     }
 
-    fn update_used_flag(&mut self, set: u16, clr: u16) {
-        let mem = self.mem.memory();
-        let v = mem
-            .load::<u16>(self.used_ring, Ordering::Relaxed)
-            .expect("invalid address for virtq_used.flags");
-        mem.store((v & !clr) | set, self.used_ring, Ordering::Relaxed)
-            .expect("invalid address for virtq_used.flags");
+    // Set the value of the `flags` field of the used ring, applying the specified ordering.
+    fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
+        self.mem
+            .memory()
+            .store(val, self.used_ring, order)
+            .map_err(Error::GuestMemory)
     }
 
-    fn set_notification(&mut self, enable: bool) {
-        self.event_notification_enabled = enable;
-        if self.event_notification_enabled {
+    // Write the appropriate values to enable or disable notifications from the driver. Every
+    // access in this method uses `Relaxed` ordering because a fence is added by the caller
+    // when appropriate.
+    fn set_notification(&mut self, enable: bool) -> Result<(), Error> {
+        if enable {
             if self.event_idx_enabled {
-                self.update_avail_event();
+                // We call `set_avail_event` using the `next_avail` value, instead of reading
+                // and using the current `avail_idx` to avoid missing notifications. More
+                // details in `enable_notification`.
+                self.set_avail_event(self.next_avail.0, Ordering::Relaxed)?;
             } else {
-                self.update_used_flag(0, VIRTQ_USED_F_NO_NOTIFY);
+                self.set_used_flags(0, Ordering::Relaxed)?;
             }
-
-            // This fence ensures that we observe the latest of virtq_avail once we publish
-            // virtq_used.avail_event/virtq_used.flags.
-            fence(Ordering::SeqCst);
-        } else if !self.event_idx_enabled {
-            self.update_used_flag(VIRTQ_USED_F_NO_NOTIFY, 0);
         }
+        // Notifications are effectively disabled by default after triggering once when
+        // `VIRTIO_F_EVENT_IDX` is negotiated, so we don't do anything in that case.
+        else if !self.event_idx_enabled {
+            self.set_used_flags(VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)?;
+        }
+        Ok(())
     }
 
-    /// Enable notification events from the guest driver.
+    /// Enable notification events from the guest driver. Returns true if one or more descriptors
+    /// can be consumed from the available ring after notifications were enabled (and thus it's
+    /// possible there will be no corresponding notification).
+
+    // TODO: Turn this into a doc comment/example.
+    // With the current implementation, a common way of consuming entries from the available ring
+    // while also leveraging notification suppression is to use a loop, for example:
+    //
+    // loop {
+    //     // We have to explicitly disable notifications if `VIRTIO_F_EVENT_IDX` has not been
+    //     // negotiated.
+    //     self.disable_notification()?;
+    //
+    //     for chain in self.iter()? {
+    //         // Do something with each chain ...
+    //         // Let's assume we process all available chains here.
+    //     }
+    //
+    //     // If `enable_notification` returns `true`, the driver has added more entries to the
+    //     // available ring.
+    //     if !self.enable_notification()? {
+    //         break;
+    //     }
+    // }
     #[inline]
-    pub fn enable_notification(&mut self) {
-        self.set_notification(true);
+    pub fn enable_notification(&mut self) -> Result<bool, Error> {
+        self.set_notification(true)?;
+        // Ensures the following read is not reordered before any previous write operation.
+        fence(Ordering::SeqCst);
+
+        // We double check here to avoid the situation where the available ring has been updated
+        // just before we re-enabled notifications, and it's possible to miss one. We compare the
+        // current `avail_idx` value to `self.next_avail` because it's where we stopped processing
+        // entries. There are situations where we intentionally avoid processing everything in the
+        // available ring (which will cause this method to return `true`), but in that case we'll
+        // probably not re-enable notifications as we already know there are pending entries.
+        self.avail_idx(Ordering::Relaxed)
+            .map(|idx| idx != self.next_avail)
     }
 
     /// Disable notification events from the guest driver.
     #[inline]
-    pub fn disable_notification(&mut self) {
-        self.set_notification(false);
+    pub fn disable_notification(&mut self) -> Result<(), Error> {
+        self.set_notification(false)
     }
 
     /// Return the value present in the used_event field of the avail ring.
@@ -1324,18 +1339,17 @@ pub(crate) mod tests {
         let mut q = vq.create_queue(&m);
         let used_addr = vq.used_start();
 
-        assert_eq!(q.event_notification_enabled, true);
         assert_eq!(q.event_idx_enabled, false);
 
-        q.enable_notification();
+        q.enable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).unwrap();
         assert_eq!(v, 0);
 
-        q.disable_notification();
+        q.disable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).unwrap();
         assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
 
-        q.enable_notification();
+        q.enable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).unwrap();
         assert_eq!(v, 0);
 
@@ -1343,23 +1357,14 @@ pub(crate) mod tests {
         let avail_addr = vq.avail_start();
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
-        q.enable_notification();
-        let v = m
-            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
-            .unwrap();
-        assert_eq!(v, 2);
-
-        q.disable_notification();
-        let v = m
-            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
-            .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(q.enable_notification().unwrap(), true);
+        q.next_avail = Wrapping(2);
+        assert_eq!(q.enable_notification().unwrap(), false);
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
-        q.enable_notification();
-        let v = m
-            .read_obj::<u16>(used_addr.unchecked_add(4 + 8 * 16))
-            .unwrap();
-        assert_eq!(v, 8);
+
+        assert_eq!(q.enable_notification().unwrap(), true);
+        q.next_avail = Wrapping(8);
+        assert_eq!(q.enable_notification().unwrap(), false);
     }
 }
