@@ -9,6 +9,7 @@
 //! A module that offers building blocks for virtio devices.
 
 mod mmio;
+mod virtio_config;
 
 use vm_memory::GuestAddressSpace;
 
@@ -19,6 +20,7 @@ use std::sync::Arc;
 use crate::Queue;
 
 pub use mmio::VirtioMmioDevice;
+pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};
 
 /// When the driver initializes the device, it lets the device know about the completed stages
 /// using the Device Status field.
