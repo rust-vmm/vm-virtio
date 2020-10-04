@@ -2,57 +2,230 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE-BSD-3-Clause file.
 //
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+//
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-use super::*;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use vm_memory::GuestAddressSpace;
-use vmm_sys_util::eventfd::EventFd;
+//! A module that offers building blocks for virtio devices.
 
-/// Trait for virtio devices to be driven by a virtio transport.
+use vm_memory::GuestAddressSpace;
+
+use std::result;
+use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
+
+use crate::Queue;
+
+/// When the driver initializes the device, it lets the device know about the completed stages
+/// using the Device Status field.
 ///
-/// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query
-/// the device. Once the guest driver has configured the device,
-/// `[VirtioDevice::activate`](trait.VirtioDevice.html#method.activate)` will be
-/// called and all the events, memory, and queues for device operation will be moved into the
-/// device. Optionally, a virtio device can implement device reset in which it returns said
-/// resources and resets its internal state.
-pub trait VirtioDevice<M: GuestAddressSpace>: Send {
+/// These following consts are defined in the order in which the bits would typically be set by
+/// the driver. `RESET` -> `ACKNOWLEDGE` -> `DRIVER` and so on. This module is a 1:1 mapping for
+/// the Device Status field in the virtio 1.1 specification, section 2.1 (except for the `RESET`
+/// value, which is not explicitly named there as such). The status flag descriptions (except
+/// `RESET`) are taken from the standard.
+pub mod status {
+    /// The initial status of the device.
+    pub const RESET: u8 = 0;
+    /// Indicates that the guest OS has found the device and recognized it as a valid
+    /// virtio device.
+    pub const ACKNOWLEDGE: u8 = 1;
+    /// Indicates that the guest OS knows how to drive the device.
+    pub const DRIVER: u8 = 2;
+    /// Indicates that something went wrong in the guest, and it has given up on the device.
+    /// This could be an internal error, or the driver didn’t like the device for some reason,
+    /// or even a fatal error during device operation.
+    pub const FAILED: u8 = 128;
+    /// Indicates that the driver has acknowledged all the features it understands, and feature
+    /// negotiation is complete.
+    pub const FEATURES_OK: u8 = 8;
+    /// Indicates that the driver is set up and ready to drive the device.
+    pub const DRIVER_OK: u8 = 4;
+    /// Indicates that the device has experienced an error from which it can’t recover.
+    pub const DEVICE_NEEDS_RESET: u8 = 64;
+}
+
+// Adding a `M: GuestAddressSpace` generic type parameter here as well until we sort out the
+// current discussion about how a memory object/reference gets passed to a queue.
+// We might end up with the queue type as an associated type here in the future, if it makes
+// sense to define an interface for queues which abstracts away whether they are split or packed.
+// On the other hand, if we split the queue into a config/state part and a live part, then we'd
+// only need to work with the configuration here, and there's no need for generic type parameters
+// or associated types related to that.
+
+// We're currently relying on macros from the `log` crate to output messages (as do other modules
+// from `vm-virtio`). This is temporary solution until we agree on a better alternative going
+// forward since different customers most likely have different expectation around levels,
+// messages, formatting, etc.
+
+/// A common interface for Virtio devices, shared by all transports. The methods present here
+/// are mainly concerned with enabling the initial discovery/configuration and related interactions
+/// between a device and the driver over the transport protocol. Once a device is activated, queue
+/// handling is generally implementation specific, based on the features and notification
+/// mechanisms established during the configuration phase.
+pub trait VirtioDevice<M: GuestAddressSpace> {
+    /// Error type for operations such as `activate` and `reset`.
+    type E;
+
     /// The virtio device type.
     fn device_type(&self) -> u32;
 
-    /// The maximum size of each queue that this device supports.
-    fn queue_max_sizes(&self) -> &[u16];
+    /// The maximum number of queues supported by the device.
+    fn num_queues(&self) -> u16;
 
-    /// The set of feature bits shifted by `page * 32`.
-    fn features(&self, page: u32) -> u32 {
-        let _ = page;
-        0
+    /// Return a reference to the queue currently selected by the driver, or `None` for an
+    /// invalid selection.
+    fn queue(&self, index: u16) -> Option<&Queue<M>>;
+
+    /// Return a mutable reference to the queue currently selected by the driver, or `None`
+    /// for an invalid selection.
+    fn queue_mut(&mut self, index: u16) -> Option<&mut Queue<M>>;
+
+    /// Return the features advertised by the device.
+    ///
+    /// Using `u64` for the entire feature set because it's wide enough for the entire feature
+    /// set specified by the standard (and we can later switch to `u128` if necessary).
+    fn device_features(&self) -> u64;
+
+    /// Return the features bits written by the driver.
+    fn driver_features(&self) -> u64;
+
+    /// Set the specified page of features written by the driver.
+    fn set_driver_features(&mut self, page: u32, value: u32);
+
+    /// Return the current device status flags.
+    fn device_status(&self) -> u8;
+
+    /// Validate the current device status with respect to a group of flags that must be set,
+    /// and another group that must be cleared.
+    fn check_device_status(&self, set: u8, cleared: u8) -> bool {
+        self.device_status() & (set | cleared) == set
     }
 
-    /// Acknowledges that this set of features should be enabled.
-    fn ack_features(&mut self, page: u32, value: u32);
+    /// Set the value of the device status flags. This is just a simple accessor method, and
+    /// `ack_device_status` must be used to process a status update coming from the driver.
+    fn set_device_status(&mut self, status: u8);
 
-    /// Reads this device configuration space at `offset`.
-    fn read_config(&self, offset: u64, data: &mut [u8]);
+    /// Acknowledge a status update from the driver, based on the provided value. This method
+    /// is not just a simple accessor, but rather is expected to handle virtio device status
+    /// transitions (which may involve things such as calling activation or reset logic).
+    fn ack_device_status(&mut self, status: u8) {
+        use status::*;
+        let current_status = self.device_status();
 
-    /// Writes to this device configuration space at `offset`.
-    fn write_config(&mut self, offset: u64, data: &[u8]);
+        // Match changed bits.
+        match !current_status & status {
+            ACKNOWLEDGE if current_status == RESET => {
+                self.set_device_status(status);
+            }
+            DRIVER if current_status == ACKNOWLEDGE => {
+                self.set_device_status(status);
+            }
+            FEATURES_OK if current_status == (ACKNOWLEDGE | DRIVER) => {
+                // Ensure the driver did not ack a feature that wasn't actually offered. If that
+                // happens, the standard specifies devices should not actually accept/set the
+                // `FEATURES_OK` status bit.
+                if !self.device_features() & self.driver_features() != 0 {
+                    warn!("driver accepted invalid feature bits");
+                    return;
+                }
 
-    /// Activates this device for real usage.
-    fn activate(
-        &mut self,
-        mem: M,
-        interrupt_evt: EventFd,
-        status: Arc<AtomicUsize>,
-        queues: Vec<Queue<M>>,
-        queue_evts: Vec<EventFd>,
-    ) -> ActivateResult;
+                // TODO: Bring this (and other feature definitions) to the vm-virtio crate proper.
+                // Using a local const temporarily until then.
+                const VIRTIO_F_RING_EVENT_IDX: u64 = 29;
 
-    /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
-    /// event, and queue events.
-    fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
-        None
+                // Set the appropriate configuration flag for all queues if we offered the
+                //`VIRTIO_F_RING_EVENT_IDX` feature and the driver acknowledged it.
+                if self.driver_features() & (1 << VIRTIO_F_RING_EVENT_IDX) != 0 {
+                    for i in 0..self.num_queues() {
+                        // The unwrap is ok to use here because we're requesting mutable
+                        // references for queues at valid indices only.
+                        self.queue_mut(i).unwrap().set_event_idx(true);
+                    }
+                }
+
+                self.set_device_status(status);
+            }
+            DRIVER_OK if current_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
+                if self.activate().is_ok() {
+                    self.set_device_status(status);
+                } else {
+                    warn!("activation error");
+                }
+            }
+            _ if (status & FAILED) != 0 => {
+                self.set_device_status(current_status | FAILED);
+            }
+            // The driver writes a zero to the status register to request a device reset.
+            _ if status == 0 => {
+                if self.reset().is_err() {
+                    warn!("reset error");
+                }
+            }
+            _ => {
+                warn!(
+                    "invalid virtio driver status transition: 0x{:x} -> 0x{:x}",
+                    self.device_status(),
+                    status
+                );
+            }
+        }
     }
+
+    /// Invoke implementation specific device activation logic.
+    fn activate(&mut self) -> result::Result<(), Self::E>;
+
+    /// Invoke implementation specific device reset logic.
+    fn reset(&mut self) -> result::Result<(), Self::E>;
+
+    /// Borrow the handle to the interrupt status of the device.
+    ///
+    /// This is currently represented as an `Arc<AtomicU8>` because it often needs to be shared
+    /// between multiple threads that are running different parts of device-specific functionality.
+    fn interrupt_status(&self) -> &Arc<AtomicU8>;
+
+    /// Return the current config generation value.
+    fn config_generation(&self) -> u8;
+
+    /// Read from the configuration space associated with the device into `data`,
+    /// starting at `offset`.
+    fn read_config(&self, offset: usize, data: &mut [u8]);
+
+    /// Write to the configuration space associated with the device at `offset`, using
+    /// input from `data`.
+    fn write_config(&mut self, offset: usize, data: &[u8]);
+}
+
+/// Virtio transports such as MMIO and PCI use a two step mechanism to read or write various parts
+/// of device configuration, by first selecting a queue or features page and then performing the
+/// actual access. `WithDriverSelect` provides common abstractions for this pattern on top of the
+/// `VirtioDevice` interface.
+pub trait WithDriverSelect<M: GuestAddressSpace>: VirtioDevice<M> {
+    /// Return the index of the currently selected queue.
+    fn queue_select(&self) -> u16;
+
+    /// Set the index of the queue currently selected by the driver.
+    fn set_queue_select(&mut self, value: u16);
+
+    /// Return a handle to the currently selected queue, or `None` for an invalid selection.
+    fn selected_queue(&self) -> Option<&Queue<M>> {
+        self.queue(self.queue_select())
+    }
+
+    /// Return a mutable handle to the currently selected queue, or `None` for an invalid selection.
+    fn selected_queue_mut(&mut self) -> Option<&mut Queue<M>> {
+        self.queue_mut(self.queue_select())
+    }
+
+    /// Return the device features page currently selected by the driver.
+    fn device_features_select(&self) -> u32;
+
+    /// Set the index of the currently selected device features page.
+    fn set_device_features_select(&mut self, value: u32);
+
+    /// Return the currently selected driver features page.
+    fn driver_features_select(&self) -> u32;
+
+    /// Set the index of the currently selected page for driver features acknowledgement.
+    fn set_driver_features_select(&mut self, value: u32);
 }
