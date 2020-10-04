@@ -8,6 +8,8 @@
 
 //! A module that offers building blocks for virtio devices.
 
+mod mmio;
+
 use vm_memory::GuestAddressSpace;
 
 use std::result;
@@ -15,6 +17,8 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use crate::Queue;
+
+pub use mmio::VirtioMmioDevice;
 
 /// When the driver initializes the device, it lets the device know about the completed stages
 /// using the Device Status field.
