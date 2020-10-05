@@ -443,7 +443,6 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
     pub fn set_event_idx(&mut self, enabled: bool) {
-        /* Also reset the last signalled event */
         self.signalled_used = None;
         self.event_idx_enabled = enabled;
     }
@@ -532,7 +531,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<u16, Error> {
+    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
         if head_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
@@ -554,9 +553,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             self.used_ring.unchecked_add(2),
             Ordering::Release,
         )
-        .map_err(Error::GuestMemory)?;
-
-        Ok(self.next_used.0)
+        .map_err(Error::GuestMemory)
     }
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
@@ -656,41 +653,47 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
     /// with the device, but they serve as useful optimizations. So we only ensure access to the
     /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
-    fn used_event(&self) -> Result<Wrapping<u16>, Error> {
+    fn used_event(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // Safe because we have validated the queue and access guest memory through GuestMemory
         // interfaces.
-        // And the `used_index` is a two-byte naturally aligned field, so it won't cross the region
-        // boundary and get_slice() shouldn't fail.
         let mem = self.mem.memory();
         let used_event_addr = self
             .avail_ring
             .unchecked_add((4 + self.actual_size() * 2) as u64);
 
-        // Complete all the writes in add_used() before reading the event.
-        fence(Ordering::SeqCst);
-
-        mem.load(used_event_addr, Ordering::Relaxed)
+        mem.load(used_event_addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
 
     /// Check whether a notification to the guest is needed.
-    pub fn needs_notification(&mut self, used_idx: Wrapping<u16>) -> bool {
-        let mut notify = true;
+    ///
+    /// Please note this method has side effects: once it returns `true`, it considers the
+    /// driver will actually be notified, remember the associated index in the used ring, and
+    /// won't return `true` again until the driver updates `used_event` and/or the notification
+    /// conditions hold once more.
+    pub fn needs_notification(&mut self) -> Result<bool, Error> {
+        let used_idx = self.next_used;
+
+        // Complete all the writes in add_used() before reading the event.
+        fence(Ordering::SeqCst);
 
         // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
         if self.event_idx_enabled {
             if let Some(old_idx) = self.signalled_used.replace(used_idx) {
-                // Silently ignore errors and let the caller send the notification.
-                if let Ok(used_event) = self.used_event() {
-                    if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
-                        notify = false;
-                    }
+                let used_event = self.used_event(Ordering::Relaxed)?;
+                // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
+                // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
+                // than or equal to the difference between `used_idx` and `old_idx`, then
+                // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
+                // we don't need to elicit another notification.
+                if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
+                    return Ok(false);
                 }
             }
         }
 
-        notify
+        Ok(true)
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -1280,7 +1283,8 @@ pub(crate) mod tests {
         assert_eq!(vq.used.idx().load(), 0);
 
         //should be ok
-        assert_eq!(q.add_used(1, 0x1000).unwrap(), 1);
+        q.add_used(1, 0x1000).unwrap();
+        assert_eq!(q.next_used, Wrapping(1));
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
@@ -1303,37 +1307,45 @@ pub(crate) mod tests {
     #[test]
     fn test_needs_notification() {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let qsize = 16;
+        let vq = VirtQueue::new(GuestAddress(0), m, qsize);
         let mut q = vq.create_queue(&m);
         let avail_addr = vq.avail_start();
 
         // It should always return true when EVENT_IDX isn't enabled.
-        assert_eq!(q.needs_notification(Wrapping(1)), true);
-        assert_eq!(q.needs_notification(Wrapping(2)), true);
-        assert_eq!(q.needs_notification(Wrapping(3)), true);
-        assert_eq!(q.needs_notification(Wrapping(4)), true);
-        assert_eq!(q.needs_notification(Wrapping(5)), true);
+        for i in 0..qsize {
+            q.next_used = Wrapping(i);
+            assert_eq!(q.needs_notification().unwrap(), true);
+        }
 
-        m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + 16 * 2))
+        m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
         q.set_event_idx(true);
-        assert_eq!(q.needs_notification(Wrapping(1)), true);
-        assert_eq!(q.needs_notification(Wrapping(2)), false);
-        assert_eq!(q.needs_notification(Wrapping(3)), false);
-        assert_eq!(q.needs_notification(Wrapping(4)), false);
-        assert_eq!(q.needs_notification(Wrapping(5)), true);
-        assert_eq!(q.needs_notification(Wrapping(6)), false);
-        assert_eq!(q.needs_notification(Wrapping(7)), false);
+
+        // Incrementing up to this value causes an `u16` to wrap back to 0.
+        let wrap = u32::from(u16::MAX) + 1;
+
+        for i in 0..wrap + 12 {
+            q.next_used = Wrapping(i as u16);
+            // Let's test wrapping around the maximum index value as well.
+            let expected = i == 5 || i == (5 + wrap) || q.signalled_used.is_none();
+            assert_eq!(q.needs_notification().unwrap(), expected);
+        }
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + 16 * 2))
             .unwrap();
-        assert_eq!(q.needs_notification(Wrapping(11)), true);
-        assert_eq!(q.needs_notification(Wrapping(12)), false);
+
+        // Returns `false` because `signalled_used` already passed this value.
+        assert_eq!(q.needs_notification().unwrap(), false);
 
         m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + 16 * 2))
             .unwrap();
-        assert_eq!(q.needs_notification(Wrapping(0)), true);
-        assert_eq!(q.needs_notification(Wrapping(14)), false);
+        assert_eq!(q.needs_notification().unwrap(), false);
+        q.next_used = Wrapping(15);
+        assert_eq!(q.needs_notification().unwrap(), false);
+        q.next_used = Wrapping(0);
+        assert_eq!(q.needs_notification().unwrap(), true);
+        assert_eq!(q.needs_notification().unwrap(), false);
     }
 
     #[test]
