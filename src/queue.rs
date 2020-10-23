@@ -16,9 +16,8 @@ use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
-};
+use std::ops::{Deref, DerefMut};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -143,8 +142,8 @@ unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
 #[derive(Clone)]
-pub struct DescriptorChain<M: GuestAddressSpace> {
-    mem: M::T,
+pub struct DescriptorChain<'a, M> {
+    mem: &'a M,
     desc_table: GuestAddress,
     queue_size: u16,
     head_index: u16,
@@ -153,9 +152,9 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     is_indirect: bool,
 }
 
-impl<M: GuestAddressSpace> DescriptorChain<M> {
+impl<'a, M: GuestMemory> DescriptorChain<'a, M> {
     fn with_ttl(
-        mem: M::T,
+        mem: &'a M,
         desc_table: GuestAddress,
         queue_size: u16,
         ttl: u16,
@@ -173,7 +172,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
+    fn new(mem: &'a M, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
         Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
     }
 
@@ -184,12 +183,12 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 
     /// Return a `GuestMemory` object that can be used to access the buffers
     /// pointed to by the descriptor chain.
-    pub fn memory(&self) -> &M::M {
-        &*self.mem
+    pub fn memory(&self) -> &'a M {
+        self.mem
     }
 
     /// Returns an iterator that only yields the readable descriptors in the chain.
-    pub fn readable(self) -> DescriptorChainRwIter<M> {
+    pub fn readable(self) -> DescriptorChainRwIter<'a, M> {
         DescriptorChainRwIter {
             chain: self,
             writable: false,
@@ -197,7 +196,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     /// Returns an iterator that only yields the writable descriptors in the chain.
-    pub fn writable(self) -> DescriptorChainRwIter<M> {
+    pub fn writable(self) -> DescriptorChainRwIter<'a, M> {
         DescriptorChainRwIter {
             chain: self,
             writable: true,
@@ -230,7 +229,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 }
 
-impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
+impl<'a, M: GuestMemory> Iterator for DescriptorChain<'a, M> {
     type Item = Descriptor;
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
@@ -272,12 +271,12 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
 }
 
 /// An iterator for readable or writable descriptors.
-pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
-    chain: DescriptorChain<M>,
+pub struct DescriptorChainRwIter<'a, M: GuestMemory> {
+    chain: DescriptorChain<'a, M>,
     writable: bool,
 }
 
-impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
+impl<'a, M: GuestMemory> Iterator for DescriptorChainRwIter<'a, M> {
     type Item = Descriptor;
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
@@ -300,17 +299,17 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
 }
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'b, M: GuestAddressSpace> {
-    mem: M::T,
+pub struct AvailIter<'a, M: GuestMemory> {
+    mem: &'a M,
     desc_table: GuestAddress,
     avail_ring: GuestAddress,
     last_index: Wrapping<u16>,
     queue_size: u16,
-    next_avail: &'b mut Wrapping<u16>,
+    next_avail: &'a mut Wrapping<u16>,
 }
 
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
-    type Item = DescriptorChain<M>;
+impl<'a, M: GuestMemory> Iterator for AvailIter<'a, M> {
+    type Item = DescriptorChain<'a, M>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if *self.next_avail == self.last_index {
@@ -334,7 +333,7 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
         *self.next_avail += Wrapping(1);
 
         Some(DescriptorChain::new(
-            self.mem.clone(),
+            self.mem,
             self.desc_table,
             self.queue_size,
             head_index,
@@ -363,10 +362,8 @@ impl VirtqUsedElem {
 unsafe impl ByteValued for VirtqUsedElem {}
 
 #[derive(Clone)]
-/// A virtio queue's parameters.
-pub struct Queue<M: GuestAddressSpace> {
-    mem: M,
-
+/// A virtio queue's configuration.
+pub struct QueueConfig {
     /// The maximal size in elements offered by the device
     max_size: u16,
 
@@ -395,11 +392,10 @@ pub struct Queue<M: GuestAddressSpace> {
     pub used_ring: GuestAddress,
 }
 
-impl<M: GuestAddressSpace> Queue<M> {
+impl QueueConfig {
     /// Constructs an empty virtio queue with the given `max_size`.
-    pub fn new(mem: M, max_size: u16) -> Queue<M> {
-        Queue {
-            mem,
+    pub fn new(max_size: u16) -> QueueConfig {
+        QueueConfig {
             max_size,
             size: max_size,
             ready: false,
@@ -443,9 +439,25 @@ impl<M: GuestAddressSpace> Queue<M> {
         self.event_idx_enabled = enabled;
     }
 
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    pub fn go_to_previous_position(&mut self) {
+        self.next_avail -= Wrapping(1);
+    }
+
+    /// Returns the index for the next descriptor in the available ring.
+    pub fn next_avail(&self) -> u16 {
+        self.next_avail.0
+    }
+
+    /// Sets the index for the next descriptor in the available ring.
+    pub fn set_next_avail(&mut self, next_avail: u16) {
+        self.next_avail = Wrapping(next_avail);
+    }
+
     /// Check if the virtio queue configuration is valid.
-    pub fn is_valid(&self) -> bool {
-        let mem = self.mem.memory();
+    pub fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = self.actual_size() as u64;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
@@ -503,12 +515,38 @@ impl<M: GuestAddressSpace> Queue<M> {
             true
         }
     }
+}
+
+/// Provides virtio queue operations based on queue configuration and guest memory handles.
+pub struct Queue<'a, M> {
+    mem: &'a M,
+    config: &'a mut QueueConfig,
+}
+
+impl<'a, M> Deref for Queue<'a, M> {
+    type Target = QueueConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+
+impl<'a, M> DerefMut for Queue<'a, M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.config
+    }
+}
+
+impl<'a, M: GuestMemory> Queue<'a, M> {
+    /// Create a new `Queue` object.
+    pub fn new<'b: 'a, 'c: 'a>(mem: &'b M, config: &'c mut QueueConfig) -> Self {
+        Queue { mem, config }
+    }
 
     /// Reads the `idx` field from the available ring.
     pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
         let addr = self.avail_ring.unchecked_add(2);
         self.mem
-            .memory()
             .load(addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
@@ -517,7 +555,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
         self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
-            mem: self.mem.memory(),
+            mem: self.mem,
             desc_table: self.desc_table,
             avail_ring: self.avail_ring,
             last_index: idx,
@@ -536,20 +574,21 @@ impl<M: GuestAddressSpace> Queue<M> {
             return Err(Error::InvalidDescriptorIndex);
         }
 
-        let mem = self.mem.memory();
         let next_used_index = u64::from(self.next_used.0 % self.actual_size());
         let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
-        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+        self.mem
+            .write_obj(VirtqUsedElem::new(head_index, len), addr)
             .map_err(Error::GuestMemory)?;
 
         self.next_used += Wrapping(1);
 
-        mem.store(
-            self.next_used.0,
-            self.used_ring.unchecked_add(2),
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
+        self.mem
+            .store(
+                self.next_used.0,
+                self.used_ring.unchecked_add(2),
+                Ordering::Release,
+            )
+            .map_err(Error::GuestMemory)
     }
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
@@ -557,16 +596,12 @@ impl<M: GuestAddressSpace> Queue<M> {
     fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
         let offset = (4 + self.actual_size() * 8) as u64;
         let addr = self.used_ring.unchecked_add(offset);
-        self.mem
-            .memory()
-            .store(val, addr, order)
-            .map_err(Error::GuestMemory)
+        self.mem.store(val, addr, order).map_err(Error::GuestMemory)
     }
 
     // Set the value of the `flags` field of the used ring, applying the specified ordering.
     fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
         self.mem
-            .memory()
             .store(val, self.used_ring, order)
             .map_err(Error::GuestMemory)
     }
@@ -652,12 +687,12 @@ impl<M: GuestAddressSpace> Queue<M> {
     fn used_event(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // Safe because we have validated the queue and access guest memory through GuestMemory
         // interfaces.
-        let mem = self.mem.memory();
         let used_event_addr = self
             .avail_ring
             .unchecked_add((4 + self.actual_size() * 2) as u64);
 
-        mem.load(used_event_addr, order)
+        self.mem
+            .load(used_event_addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
@@ -695,23 +730,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         }
 
         Ok(true)
-    }
-
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.next_avail -= Wrapping(1);
-    }
-
-    /// Returns the index for the next descriptor in the available ring.
-    pub fn next_avail(&self) -> u16 {
-        self.next_avail.0
-    }
-
-    /// Sets the index for the next descriptor in the available ring.
-    pub fn set_next_avail(&mut self, next_avail: u16) {
-        self.next_avail = Wrapping(next_avail);
     }
 }
 
