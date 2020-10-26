@@ -3,10 +3,16 @@
 # vm-virtio
 
 The vm-virtio crate provides a [virtio](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=virtio)
-device implementation:
+device implementation for the following:
 
-* A virtio virtqueue and Descriptor chain API
-* A virtio device trait (`VirtioDevice`)
+* A virtio virtqueue and Descriptor chain API,
+* A virtio device trait (`VirtioDevice`),
+* Virtio block device abstractions.
+
+### Note
+We offer support only for virtio v1.0+
+([the legacy interface](https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-60001)
+is not supported).
 
 ## Virtio `Device` trait
 

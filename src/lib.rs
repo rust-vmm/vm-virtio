@@ -14,6 +14,8 @@ extern crate log;
 extern crate vm_memory;
 extern crate vmm_sys_util;
 
+/// Provides abstractions for virtio block device.
+pub mod block;
 mod device;
 mod queue;
 
