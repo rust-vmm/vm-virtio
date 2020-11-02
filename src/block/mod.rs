@@ -4,3 +4,5 @@
 
 /// Contains block request parsing abstraction.
 pub mod request;
+/// Contains block request execution abstraction.
+pub mod stdio_executor;
