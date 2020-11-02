@@ -31,9 +31,12 @@ use vm_memory::{
     ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
-const VIRTIO_BLK_T_IN: u32 = 0;
-const VIRTIO_BLK_T_OUT: u32 = 1;
-const VIRTIO_BLK_T_FLUSH: u32 = 4;
+/// Read request.
+pub const VIRTIO_BLK_T_IN: u32 = 0;
+/// Write request.
+pub const VIRTIO_BLK_T_OUT: u32 = 1;
+/// Flush request.
+pub const VIRTIO_BLK_T_FLUSH: u32 = 4;
 
 /// Block request parsing errors.
 #[derive(Debug)]
@@ -139,6 +142,11 @@ impl Request {
     /// Returns the status address.
     pub fn status_addr(&self) -> GuestAddress {
         self.status_addr
+    }
+
+    /// Returns the total length of request data.
+    pub fn total_data_len(&self) -> u32 {
+        self.data.iter().map(|&x| x.1).sum()
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid status descriptor.
@@ -260,6 +268,22 @@ mod tests {
                 (UnexpectedReadOnlyDescriptor, UnexpectedReadOnlyDescriptor) => true,
                 (UnexpectedWriteOnlyDescriptor, UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
+            }
+        }
+    }
+
+    impl Request {
+        pub fn new(
+            request_type: RequestType,
+            data: Vec<(GuestAddress, u32)>,
+            sector: u64,
+            status_addr: GuestAddress,
+        ) -> Self {
+            Request {
+                request_type,
+                data,
+                sector,
+                status_addr,
             }
         }
     }
@@ -474,6 +498,7 @@ mod tests {
         };
         assert_eq!(request, expected_request);
         assert_eq!(request.status_addr(), GuestAddress(0x40_0000));
+        assert_eq!(request.total_data_len(), 0x100 + 0x200);
 
         // Request header with unsupported request type.
         let req_header = RequestHeader {
