@@ -726,6 +726,18 @@ pub(crate) mod tests {
         VolatileMemory, VolatileRef, VolatileSlice,
     };
 
+    impl Descriptor {
+        // Only available to unit tests within the local crate.
+        pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
+            Descriptor {
+                addr,
+                len,
+                flags,
+                next,
+            }
+        }
+    }
+
     // Represents a virtio descriptor in guest memory.
     pub struct VirtqDesc<'a> {
         desc: VolatileSlice<'a>,
@@ -895,23 +907,23 @@ pub(crate) mod tests {
             }
         }
 
-        fn size(&self) -> u16 {
+        pub fn size(&self) -> u16 {
             (self.dtable.len() / VirtqDesc::dtable_len(1)) as u16
         }
 
-        fn dtable(&self, i: u16) -> VirtqDesc {
+        pub fn dtable(&self, i: u16) -> VirtqDesc {
             VirtqDesc::new(&self.dtable, i)
         }
 
-        fn dtable_start(&self) -> GuestAddress {
+        pub fn dtable_start(&self) -> GuestAddress {
             self.start
         }
 
-        fn avail_start(&self) -> GuestAddress {
+        pub fn avail_start(&self) -> GuestAddress {
             self.avail.start()
         }
 
-        fn used_start(&self) -> GuestAddress {
+        pub fn used_start(&self) -> GuestAddress {
             self.used.start()
         }
 
