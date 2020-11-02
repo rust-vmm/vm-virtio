@@ -237,3 +237,76 @@ impl Request {
         Ok(request)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use vm_memory::{Address, GuestMemoryMmap};
+
+    use crate::queue::tests::VirtQueue;
+    use crate::queue::Descriptor;
+    use crate::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+
+    // Helper method that writes a descriptor chain to a `GuestMemoryMmap` object and returns
+    // the associated `DescriptorChain` object. `descs` represents a slice of `Descriptor` objects
+    // which are used to populate the chain. This method ensures the next flags and values are
+    // set properly for the desired chain, but keeps the other characteristics of the input
+    // descriptors (`addr`, `len`, other flags).
+    // The queue/descriptor chain related information is written in memory starting with
+    // address 0. The `addr` fields of the input descriptors should start at a sufficiently
+    // greater location (i.e. 1MiB, or `0x10_0000`).
+    fn build_desc_chain<'a>(
+        mem: &'a GuestMemoryMmap,
+        descs: &[Descriptor],
+    ) -> DescriptorChain<&'a GuestMemoryMmap> {
+        // Support a max of 16 descriptors for now.
+        let vq = VirtQueue::new(GuestAddress(0), mem, 16);
+        for (idx, desc) in descs.iter().enumerate() {
+            let i = idx as u16;
+            vq.dtable(i).addr().store(desc.addr().0);
+            vq.dtable(i).len().store(desc.len());
+
+            if idx == descs.len() - 1 {
+                // Clear the NEXT flag if it was set. The value of the next field of the
+                // Descriptor doesn't matter at this point.
+                vq.dtable(i)
+                    .flags()
+                    .store(desc.flags() & !VIRTQ_DESC_F_NEXT);
+            } else {
+                // Ensure the next flag is set.
+                vq.dtable(i).flags().store(desc.flags() | VIRTQ_DESC_F_NEXT);
+                // Ensure we are referring the following descriptor. This ignores
+                // any value is actually present in `desc.next`.
+                vq.dtable(i).next().store(i + 1);
+            }
+        }
+
+        // Put the descriptor index 0 in the first available ring position.
+        mem.write_obj(0u16, vq.avail_start().unchecked_add(4))
+            .unwrap();
+
+        // Set `avail_idx` to 1.
+        mem.write_obj(1u16, vq.avail_start().unchecked_add(2))
+            .unwrap();
+
+        vq.create_queue(mem)
+            .iter()
+            .unwrap()
+            .next()
+            .expect("failed to build desc chain")
+    }
+
+    #[test]
+    fn test_example() {
+        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        // The `build_desc_chain` function will populate the `NEXT` related flags and field.
+        let v = vec![
+            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+        ];
+
+        let chain = build_desc_chain(&mem, &v[..3]);
+    }
+}
