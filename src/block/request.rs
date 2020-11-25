@@ -27,7 +27,10 @@ use std::fmt::{self, Display};
 use std::{mem, result};
 
 use crate::{
-    block::defs::{VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT},
+    block::defs::{
+        VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
+        VIRTIO_BLK_T_WRITE_ZEROES,
+    },
     queue::DescriptorChain,
     Descriptor,
 };
@@ -79,6 +82,10 @@ pub enum RequestType {
     Out,
     /// Flush request.
     Flush,
+    /// Discard request.
+    Discard,
+    /// Write zeroes request.
+    WriteZeroes,
     /// Unknown request.
     Unsupported(u32),
 }
@@ -89,6 +96,8 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
+            VIRTIO_BLK_T_DISCARD => RequestType::Discard,
+            VIRTIO_BLK_T_WRITE_ZEROES => RequestType::WriteZeroes,
             t => RequestType::Unsupported(t),
         }
     }
