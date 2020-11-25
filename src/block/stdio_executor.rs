@@ -31,10 +31,11 @@ use vm_memory::{Address, ByteValued, Bytes, GuestMemory, GuestMemoryError};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroesAt};
 
+use crate::block::defs::VIRTIO_BLK_T_GET_ID;
 use crate::block::{
     defs::{
         SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
-        VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH,
+        VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH,
         VIRTIO_BLK_T_WRITE_ZEROES,
     },
     request::{Request, RequestType},
@@ -127,11 +128,13 @@ pub type Result<T> = result::Result<T, Error>;
 /// # Example
 ///
 /// ```rust
-/// # use std::fs::File;
-/// # use vm_virtio::block::{defs::VIRTIO_BLK_F_FLUSH, stdio_executor::StdIoBackend};
-///
-/// let file = File::create("foo.txt").unwrap();
-/// let request_exec = StdIoBackend::new(file, 1 << VIRTIO_BLK_F_FLUSH).unwrap();
+/// # use vm_virtio::block::{
+/// #     defs::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_ID_BYTES},
+/// #     stdio_executor::StdIoBackend,
+/// # };
+/// # use vmm_sys_util::tempfile::TempFile;
+/// let file = TempFile::new().unwrap();
+/// let request_exec = StdIoBackend::new(file.into_file(), 1 << VIRTIO_BLK_F_FLUSH).unwrap();
 /// ```
 pub struct StdIoBackend<B: Backend> {
     /// The block device backing file.
@@ -140,6 +143,9 @@ pub struct StdIoBackend<B: Backend> {
     num_sectors: u64,
     /// The disk features.
     features: u64,
+    /// The device id string, which is a NUL-padded ASCII string up to 20 bytes long.
+    /// If the string is 20 bytes long, then there is no NUL terminator.
+    device_id: Option<[u8; VIRTIO_BLK_ID_BYTES]>,
 }
 
 impl<B: Backend> StdIoBackend<B> {
@@ -166,7 +172,18 @@ impl<B: Backend> StdIoBackend<B> {
             inner,
             num_sectors: disk_size >> SECTOR_SHIFT,
             features,
+            device_id: None,
         })
+    }
+
+    /// Sets the `device_id`.
+    ///
+    /// # Arguments
+    /// * `device_id` - The block device id. On Linux guests, this information can be read from
+    ///                 `/sys/block/<device>/serial`.
+    pub fn with_device_id(mut self, device_id: [u8; VIRTIO_BLK_ID_BYTES]) -> Self {
+        self.device_id = Some(device_id);
+        self
     }
 
     fn has_feature(&self, feature_pos: u64) -> bool {
@@ -250,6 +267,28 @@ impl<B: Backend> StdIoBackend<B> {
                 }
             }
             RequestType::Flush => return self.inner.fsync().map(|_| 0).map_err(Error::Flush),
+            RequestType::GetDeviceID => {
+                let device_id = self
+                    .device_id
+                    .ok_or(Error::Unsupported(VIRTIO_BLK_T_GET_ID))?;
+                // The length of data MUST be VIRTIO_BLK_ID_BYTES bytes for VIRTIO_BLK_T_GET_ID
+                // requests.
+                if total_len != VIRTIO_BLK_ID_BYTES as u64 {
+                    return Err(Error::InvalidDataLength);
+                }
+                for (data_addr, data_len) in request.data() {
+                    // The device_id accesses are safe because we checked that the total data length
+                    // is VIRTIO_BLK_ID_BYTES, which is the size of the id as well.
+                    mem.read_exact_from(
+                        *data_addr,
+                        &mut &device_id
+                            [bytes_from_dev as usize..(*data_len + bytes_from_dev) as usize],
+                        *data_len as usize,
+                    )
+                    .map_err(Error::Read)?;
+                    bytes_from_dev += data_len;
+                }
+            }
             RequestType::Discard | RequestType::WriteZeroes => {
                 for (data_addr, data_len) in request.data() {
                     // We support for now only data descriptors with the `len` field = multiple of
@@ -582,11 +621,13 @@ mod tests {
         f.set_len(0x1000).unwrap();
 
         let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+
         let mut req_exec = StdIoBackend::new(
             f,
             (1 << VIRTIO_BLK_F_DISCARD) | (1 << VIRTIO_BLK_F_WRITE_ZEROES),
         )
         .unwrap();
+
         let out_req = Request::new(
             RequestType::Out,
             vec![(GuestAddress(0x100), 0x400), (GuestAddress(0x800), 0x200)],
@@ -862,5 +903,83 @@ mod tests {
             req_exec.execute(&mem, &wr_zeroes_req).unwrap_err(),
             Error::GuestMemory(InvalidGuestAddress(GuestAddress(0x1100_0000)))
         );
+    }
+
+    #[test]
+    fn test_get_device_id() {
+        let f = TempFile::new().unwrap().into_file();
+        f.set_len(0x1000).unwrap();
+
+        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let dev_id = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x00A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
+        ];
+        let mut req_exec = StdIoBackend::new(f, 0).unwrap();
+
+        let get_id_req = Request::new(
+            RequestType::GetDeviceID,
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32)],
+            1,
+            GuestAddress(0x200),
+        );
+
+        // Device id was not set, so a GetDeviceID request is unsupported.
+        assert_eq!(
+            req_exec.execute(&mem, &get_id_req).unwrap_err(),
+            Error::Unsupported(VIRTIO_BLK_T_GET_ID)
+        );
+
+        req_exec = req_exec.with_device_id(dev_id);
+
+        // Invalid get device ID request, data length should be VIRTIO_BLK_ID_BYTES.
+        let get_id_req = Request::new(
+            RequestType::GetDeviceID,
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32 - 1)],
+            1,
+            GuestAddress(0x200),
+        );
+
+        assert_eq!(
+            req_exec.execute(&mem, &get_id_req).unwrap_err(),
+            Error::InvalidDataLength
+        );
+
+        let get_id_req = Request::new(
+            RequestType::GetDeviceID,
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32)],
+            1,
+            GuestAddress(0x200),
+        );
+
+        // VIRTIO_BLK_ID_BYTES bytes should've been written in memory.
+        assert_eq!(
+            req_exec.execute(&mem, &get_id_req).unwrap(),
+            VIRTIO_BLK_ID_BYTES as u32
+        );
+        let mut buf = [0x00; VIRTIO_BLK_ID_BYTES];
+        mem.read_slice(&mut buf, GuestAddress(0x100)).unwrap();
+        assert_eq!(buf, dev_id);
+
+        let get_id_req = Request::new(
+            RequestType::GetDeviceID,
+            vec![(GuestAddress(0x100), 0x08), (GuestAddress(0x200), 0x0C)],
+            1,
+            GuestAddress(0x200),
+        );
+
+        mem.write_slice(&[0; 20], GuestAddress(0x100)).unwrap();
+
+        // VIRTIO_BLK_ID_BYTES bytes should've been written in memory.
+        assert_eq!(
+            req_exec.execute(&mem, &get_id_req).unwrap(),
+            VIRTIO_BLK_ID_BYTES as u32
+        );
+        let mut buf = [0x00; 8];
+        mem.read_slice(&mut buf, GuestAddress(0x100)).unwrap();
+        assert_eq!(buf, dev_id[0..8]);
+        let mut buf = [0x00; 12];
+        mem.read_slice(&mut buf, GuestAddress(0x200)).unwrap();
+        assert_eq!(buf, dev_id[8..VIRTIO_BLK_ID_BYTES]);
     }
 }
