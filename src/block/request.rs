@@ -28,8 +28,8 @@ use std::{mem, result};
 
 use crate::{
     block::defs::{
-        VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
-        VIRTIO_BLK_T_WRITE_ZEROES,
+        VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+        VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
     },
     queue::DescriptorChain,
     Descriptor,
@@ -82,6 +82,8 @@ pub enum RequestType {
     Out,
     /// Flush request.
     Flush,
+    /// Get device ID request.
+    GetDeviceID,
     /// Discard request.
     Discard,
     /// Write zeroes request.
@@ -96,6 +98,7 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
+            VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
             VIRTIO_BLK_T_DISCARD => RequestType::Discard,
             VIRTIO_BLK_T_WRITE_ZEROES => RequestType::WriteZeroes,
             t => RequestType::Unsupported(t),
