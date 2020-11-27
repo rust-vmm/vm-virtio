@@ -1,5 +1,5 @@
 {
   "coverage_score": 85.6,
   "exclude_path": "",
-  "crate_features": ""
+  "crate_features": "backend-stdio"
 }
