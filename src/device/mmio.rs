@@ -200,3 +200,164 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::device::status;
+    use crate::device::virtio_config::tests::Dummy;
+
+    use super::*;
+    use vm_memory::ByteValued;
+
+    fn mmio_read<M, D>(d: &D, offset: u64) -> u32
+    where
+        M: GuestAddressSpace,
+        D: VirtioMmioDevice<M>,
+    {
+        let mut data = [0u8; 4];
+        d.read(offset, data.as_mut());
+        u32::from_le_bytes(data)
+    }
+
+    #[test]
+    fn test_virtio_mmio_device() {
+        let device_type = 2;
+        let features = (3 << 32) + 7;
+        let driver_features = 7u32;
+        let config_space = vec![0u8, 1, 2, 3, 4, 5, 6, 7];
+
+        // `Dummy` also implements `VirtioMmioDevice`.
+        let mut d = Dummy::new(device_type, features, config_space.clone());
+
+        assert_eq!(mmio_read(&d, 0x00), MMIO_MAGIC_VALUE);
+        assert_eq!(mmio_read(&d, 0x04), MMIO_VERSION);
+        assert_eq!(mmio_read(&d, 0x08), device_type);
+        assert_eq!(mmio_read(&d, 0x0c), VENDOR_ID);
+
+        // `device_features_select` is 0 by default.
+        assert_eq!(mmio_read(&d, 0x10), features as u32);
+        d.write(0x14, &1u32.to_le_bytes());
+        assert_eq!(mmio_read(&d, 0x10), (features >> 32) as u32);
+        // There are currently no features from page 2 onward.
+        d.write(0x14, &2u32.to_le_bytes());
+        assert_eq!(mmio_read(&d, 0x10), 0);
+
+        // Attempt to write some feature acknowledged by the driver.
+        d.write(0x20, &driver_features.as_slice());
+        // Nothing happens because the device status is no appropriate.
+        assert_eq!(d.cfg.driver_features, 0);
+
+        d.cfg.device_status = status::DRIVER;
+        d.write(0x20, &driver_features.as_slice());
+        assert_eq!(d.cfg.driver_features, driver_features as u64);
+
+        d.write(0x24, &1u32.to_le_bytes());
+        assert_eq!(d.cfg.driver_features_select, 1);
+
+        // The max size for the queue in `Dummy` is 256.
+        assert_eq!(mmio_read(&d, 0x34), 256);
+
+        assert_eq!(d.cfg.queues[0].size, 256);
+        d.write(0x38, &32u32.to_le_bytes());
+        // Updating the queue field has no effect due to invalid device status.
+        assert_eq!(d.cfg.queues[0].size, 256);
+
+        d.cfg.device_status |= status::FEATURES_OK;
+
+        // Let's try the update again.
+        d.write(0x38, &32u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].size, 32);
+
+        // The queue in `Dummy` is not ready yet.
+        assert_eq!(mmio_read(&d, 0x44), 0);
+
+        // Let's mark the queue as ready.
+        d.write(0x44, &1u32.to_le_bytes());
+        assert_eq!(mmio_read(&d, 0x44), 1);
+
+        // Check the `queue_notify` method.
+        assert_eq!(d.last_queue_notify, 0);
+        d.write(0x50, &2u32.to_le_bytes());
+        assert_eq!(d.last_queue_notify, 2);
+
+        assert_eq!(d.cfg.queues[0].desc_table.0, 0);
+        d.write(0x80, &1u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].desc_table.0, 1);
+        d.write(0x84, &2u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].desc_table.0, (2 << 32) + 1);
+
+        assert_eq!(d.cfg.queues[0].avail_ring.0, 0);
+        d.write(0x90, &1u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].avail_ring.0, 1);
+        d.write(0x94, &2u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].avail_ring.0, (2 << 32) + 1);
+
+        assert_eq!(d.cfg.queues[0].used_ring.0, 0);
+        d.write(0xa0, &1u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].used_ring.0, 1);
+        d.write(0xa4, &2u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].used_ring.0, (2 << 32) + 1);
+
+        // Let's select a non-existent queue.
+        d.write(0x30, &1u32.to_le_bytes());
+        assert_eq!(mmio_read(&d, 0x34), 0);
+
+        // Let's alter the interrupt status value.
+        let interrupt_status = 3u32;
+        d.cfg
+            .interrupt_status
+            .store(interrupt_status as u8, Ordering::SeqCst);
+        assert_eq!(mmio_read(&d, 0x60), interrupt_status);
+
+        // Let's attempt to clear the interrupt status.
+        d.write(0x64, &interrupt_status.to_le_bytes());
+        // Nothing changes because the `DRIVER_OK` device status is not set.
+        assert_eq!(mmio_read(&d, 0x60), interrupt_status);
+
+        // Let emulate setting the status to `DRIVER_OK` as the driver would do, starting
+        // directly from a device status of `ACKNOWLEDGE | DRIVER | FEATURES_OK`.
+        d.cfg.device_status = status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK;
+        let new_status =
+            status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK | status::DRIVER_OK;
+        d.write(0x70, &(new_status as u32).to_le_bytes());
+        d.write(0x64, &interrupt_status.to_le_bytes());
+        // The interrupt status should be cleared now.
+        assert_eq!(mmio_read(&d, 0x60), 0);
+
+        assert_eq!(mmio_read(&d, 0x70) as u8, new_status);
+
+        // The config generation is 0 by default.
+        assert_eq!(mmio_read(&d, 0xfc) as u8, 0);
+        d.cfg.config_generation = 5;
+        assert_eq!(mmio_read(&d, 0xfc) as u8, 5);
+
+        // Quick configuration space access tests.
+
+        {
+            let mut buf = [1u8; 20];
+            d.read(0x100, &mut buf);
+
+            for i in 0..buf.len() {
+                if i < config_space.len() {
+                    assert_eq!(buf[i], config_space[i]);
+                } else {
+                    assert_eq!(buf[i], 1);
+                }
+            }
+        }
+
+        {
+            let buf = [1u8; 20];
+            let delta = 6;
+            d.write(0x100 + delta, &buf);
+
+            for i in 0..config_space.len() {
+                if i < delta as usize {
+                    assert_eq!(d.cfg.config_space[i], config_space[i]);
+                } else {
+                    assert_eq!(d.cfg.config_space[i], 1);
+                }
+            }
+        }
+    }
+}

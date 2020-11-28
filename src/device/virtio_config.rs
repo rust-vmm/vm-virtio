@@ -225,3 +225,155 @@ where
         self.borrow_mut().driver_features_select = value;
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::borrow::Borrow;
+    use std::sync::Arc;
+
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    use crate::device::mmio::VirtioMmioDevice;
+
+    use super::*;
+
+    pub type DummyMem = Arc<GuestMemoryMmap>;
+
+    pub struct Dummy {
+        pub cfg: VirtioConfig<DummyMem>,
+        pub device_type: u32,
+        pub activate_count: u64,
+        pub reset_count: u64,
+        pub last_queue_notify: u32,
+    }
+
+    impl Dummy {
+        pub fn new(device_type: u32, features: u64, config_space: Vec<u8>) -> Self {
+            let mem =
+                Arc::new(GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap());
+            let queue = Queue::new(mem, 256);
+
+            let cfg = VirtioConfig::new(features, vec![queue], config_space);
+            Dummy {
+                cfg,
+                device_type,
+                activate_count: 0,
+                reset_count: 0,
+                last_queue_notify: 0,
+            }
+        }
+    }
+
+    impl VirtioDeviceType for Dummy {
+        fn device_type(&self) -> u32 {
+            self.device_type
+        }
+    }
+
+    impl Borrow<VirtioConfig<DummyMem>> for Dummy {
+        fn borrow(&self) -> &VirtioConfig<DummyMem> {
+            &self.cfg
+        }
+    }
+
+    impl BorrowMut<VirtioConfig<DummyMem>> for Dummy {
+        fn borrow_mut(&mut self) -> &mut VirtioConfig<DummyMem> {
+            &mut self.cfg
+        }
+    }
+
+    impl VirtioDeviceActions for Dummy {
+        type E = ();
+
+        fn activate(&mut self) -> Result<(), Self::E> {
+            self.activate_count += 1;
+            Ok(())
+        }
+
+        fn reset(&mut self) -> Result<(), Self::E> {
+            self.reset_count += 1;
+            Ok(())
+        }
+    }
+
+    impl VirtioMmioDevice<DummyMem> for Dummy {
+        fn queue_notify(&mut self, val: u32) {
+            self.last_queue_notify = val;
+        }
+    }
+
+    #[test]
+    fn test_impls() {
+        let device_type = 2;
+        let features = 7;
+
+        let config_space = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+
+        let mut d = Dummy::new(device_type, features, config_space.clone());
+
+        assert_eq!(VirtioDevice::device_type(&d), device_type);
+        assert_eq!(d.num_queues(), 1);
+
+        assert!(d.queue(0).is_some());
+        assert!(d.queue_mut(0).is_some());
+        assert!(d.queue(1).is_none());
+        assert!(d.queue_mut(1).is_none());
+
+        assert_eq!(d.device_features(), features);
+
+        assert_eq!(d.driver_features(), 0);
+        d.set_driver_features(0, 1);
+        assert_eq!(d.driver_features(), 1);
+        d.set_driver_features(1, 1);
+        assert_eq!(d.driver_features(), (1 << 32) + 1);
+        d.set_driver_features(2, 1);
+        assert_eq!(d.driver_features(), (1 << 32) + 1);
+
+        assert_eq!(d.device_status(), 0);
+        d.set_device_status(2);
+        assert_eq!(d.device_status(), 2);
+
+        let len = config_space.len();
+        let v1 = vec![0u8; len];
+        let mut v2 = vec![0u8; len];
+
+        // Offset to large to read anything.
+        d.read_config(len, v2.as_mut_slice());
+        assert_eq!(v1, v2);
+
+        d.read_config(len / 2, v2.as_mut_slice());
+        for i in 0..len {
+            if i < len / 2 {
+                assert_eq!(v2[i], config_space[len / 2 + i]);
+            } else {
+                assert_eq!(v2[i], 0);
+            }
+        }
+
+        // Offset too large to overwrite anything.
+        d.write_config(len, v1.as_slice());
+        assert_eq!(d.cfg.config_space, config_space);
+
+        d.write_config(len / 2, v1.as_slice());
+        for i in 0..len {
+            if i < len / 2 {
+                assert_eq!(d.cfg.config_space[i], config_space[i]);
+            } else {
+                assert_eq!(d.cfg.config_space[i], 0);
+            }
+        }
+
+        // Let's test the `WithDriverSelect` auto impl now.
+        assert_eq!(d.queue_select(), 0);
+        d.set_queue_select(1);
+        assert_eq!(d.queue_select(), 1);
+
+        assert_eq!(d.device_features_select(), 0);
+        d.set_device_features_select(1);
+        assert_eq!(d.device_features_select(), 1);
+
+        assert_eq!(d.driver_features_select(), 0);
+        d.set_driver_features_select(1);
+        assert_eq!(d.driver_features_select(), 1);
+    }
+}
