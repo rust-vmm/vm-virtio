@@ -378,7 +378,7 @@ pub struct Queue<M: GuestAddressSpace> {
     next_used: Wrapping<u16>,
 
     /// VIRTIO_F_RING_EVENT_IDX negotiated
-    event_idx_enabled: bool,
+    pub event_idx_enabled: bool,
 
     /// The last used value when using EVENT_IDX
     signalled_used: Option<Wrapping<u16>>,

@@ -22,6 +22,10 @@ use crate::Queue;
 pub use mmio::VirtioMmioDevice;
 pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};
 
+// TODO: Bring this (and other feature definitions) to the vm-virtio crate proper.
+// Using a local const temporarily until then.
+const VIRTIO_F_RING_EVENT_IDX: u64 = 29;
+
 /// When the driver initializes the device, it lets the device know about the completed stages
 /// using the Device Status field.
 ///
@@ -136,10 +140,6 @@ pub trait VirtioDevice<M: GuestAddressSpace> {
                     return;
                 }
 
-                // TODO: Bring this (and other feature definitions) to the vm-virtio crate proper.
-                // Using a local const temporarily until then.
-                const VIRTIO_F_RING_EVENT_IDX: u64 = 29;
-
                 // Set the appropriate configuration flag for all queues if we offered the
                 //`VIRTIO_F_RING_EVENT_IDX` feature and the driver acknowledged it.
                 if self.driver_features() & (1 << VIRTIO_F_RING_EVENT_IDX) != 0 {
@@ -234,4 +234,90 @@ pub trait WithDriverSelect<M: GuestAddressSpace>: VirtioDevice<M> {
 
     /// Set the index of the currently selected page for driver features acknowledgement.
     fn set_driver_features_select(&mut self, value: u32);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::device::status::*;
+    use crate::device::virtio_config::tests::Dummy;
+
+    use super::*;
+
+    #[test]
+    fn test_ack_device_status() {
+        // We're using the `Dummy` struct that gets a `VirtioDevice` implementation
+        // automatically via the logic in `virtio_config`. The auto implementation does
+        // not override the default `ack_device_status` implementation.
+
+        let mut d = Dummy::new(0, 0, Vec::new());
+
+        // TODO: This is just a quick test for the happy path mostly. Find a better way to test
+        // things for the various combinations which are possible.
+
+        assert_eq!(d.cfg.device_status, 0);
+
+        // Doesn't do anything; `ACKNOWLEDGE` has to be set first.
+        d.ack_device_status(DRIVER);
+        assert_eq!(d.cfg.device_status, 0);
+
+        let mut status = ACKNOWLEDGE;
+
+        d.ack_device_status(status);
+        assert_eq!(d.cfg.device_status, status);
+
+        status |= DRIVER;
+        d.ack_device_status(status);
+        assert_eq!(d.cfg.device_status, status);
+
+        // Test several `ack_device_status` cases.
+        {
+            let old_status = status;
+
+            status |= FEATURES_OK;
+            d.ack_device_status(status);
+            assert_eq!(d.cfg.device_status, status);
+
+            // Make sure the EVENT_IDX feature was not advertised.
+            assert_eq!(d.cfg.device_features & (1 << VIRTIO_F_RING_EVENT_IDX), 0);
+
+            for q in d.cfg.queues.iter() {
+                assert_eq!(q.event_idx_enabled, false);
+            }
+
+            // Revert status.
+            d.cfg.device_status = old_status;
+
+            d.cfg.driver_features |= 1 << VIRTIO_F_RING_EVENT_IDX;
+
+            d.ack_device_status(status);
+            // The device status didn't change because the "driver" acknowledged a feature that's
+            // not advertised by the device.
+            assert_eq!(d.cfg.device_status, old_status);
+
+            d.cfg.device_features |= 1 << VIRTIO_F_RING_EVENT_IDX;
+            d.ack_device_status(status);
+            assert_eq!(d.cfg.device_status, status);
+
+            for q in d.cfg.queues.iter() {
+                assert_eq!(q.event_idx_enabled, true);
+            }
+        }
+
+        status |= FEATURES_OK;
+        d.ack_device_status(status);
+        assert_eq!(d.cfg.device_status, status);
+
+        assert_eq!(d.activate_count, 0);
+        status |= DRIVER_OK;
+        d.ack_device_status(status);
+        assert_eq!(d.cfg.device_status, status);
+        assert_eq!(d.activate_count, 1);
+
+        d.ack_device_status(FAILED);
+        assert_ne!(d.cfg.device_status & FAILED, 0);
+
+        assert_eq!(d.reset_count, 0);
+        d.ack_device_status(RESET);
+        assert_eq!(d.reset_count, 1);
+    }
 }
