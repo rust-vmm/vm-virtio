@@ -389,14 +389,14 @@ pub struct Queue<M: GuestAddressSpace> {
     /// Indicates if the queue is finished with configuration
     pub ready: bool,
 
-    /// Guest physical address of the descriptor table
-    pub desc_table: GuestAddress,
+    /// Guest physical address of the descriptor area (the descriptor table for split queues).
+    pub desc_area: GuestAddress,
 
-    /// Guest physical address of the available ring
-    pub avail_ring: GuestAddress,
+    /// Guest physical address of the driver area (the available ring for split queues).
+    pub driver_area: GuestAddress,
 
-    /// Guest physical address of the used ring
-    pub used_ring: GuestAddress,
+    /// Guest physical address of the device area (the used ring for split queues).
+    pub device_area: GuestAddress,
 }
 
 impl<M: GuestAddressSpace> Queue<M> {
@@ -407,9 +407,9 @@ impl<M: GuestAddressSpace> Queue<M> {
             max_size,
             size: max_size,
             ready: false,
-            desc_table: GuestAddress(0),
-            avail_ring: GuestAddress(0),
-            used_ring: GuestAddress(0),
+            desc_area: GuestAddress(0),
+            driver_area: GuestAddress(0),
+            device_area: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
             event_idx_enabled: false,
@@ -432,9 +432,9 @@ impl<M: GuestAddressSpace> Queue<M> {
     pub fn reset(&mut self) {
         self.ready = false;
         self.size = self.max_size;
-        self.desc_table = GuestAddress(0);
-        self.avail_ring = GuestAddress(0);
-        self.used_ring = GuestAddress(0);
+        self.desc_area = GuestAddress(0);
+        self.driver_area = GuestAddress(0);
+        self.device_area = GuestAddress(0);
         self.next_avail = Wrapping(0);
         self.next_used = Wrapping(0);
         self.signalled_used = None;
@@ -451,11 +451,11 @@ impl<M: GuestAddressSpace> Queue<M> {
     pub fn is_valid(&self) -> bool {
         let mem = self.mem.memory();
         let queue_size = self.actual_size() as u64;
-        let desc_table = self.desc_table;
+        let desc_table = self.desc_area;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
-        let avail_ring = self.avail_ring;
+        let avail_ring = self.driver_area;
         let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
-        let used_ring = self.used_ring;
+        let used_ring = self.device_area;
         let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
@@ -510,7 +510,7 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     /// Reads the `idx` field from the available ring.
     pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        let addr = self.avail_ring.unchecked_add(2);
+        let addr = self.driver_area.unchecked_add(2);
         self.mem
             .memory()
             .load(addr, order)
@@ -522,8 +522,8 @@ impl<M: GuestAddressSpace> Queue<M> {
     pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
         self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
             mem: self.mem.memory(),
-            desc_table: self.desc_table,
-            avail_ring: self.avail_ring,
+            desc_table: self.desc_area,
+            avail_ring: self.driver_area,
             last_index: idx,
             queue_size: self.actual_size(),
             next_avail: &mut self.next_avail,
@@ -542,7 +542,7 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         let mem = self.mem.memory();
         let next_used_index = u64::from(self.next_used.0 % self.actual_size());
-        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+        let addr = self.device_area.unchecked_add(4 + next_used_index * 8);
         mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
             .map_err(Error::GuestMemory)?;
 
@@ -550,7 +550,7 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         mem.store(
             self.next_used.0,
-            self.used_ring.unchecked_add(2),
+            self.device_area.unchecked_add(2),
             Ordering::Release,
         )
         .map_err(Error::GuestMemory)
@@ -560,7 +560,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     // the provided ordering.
     fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
         let offset = (4 + self.actual_size() * 8) as u64;
-        let addr = self.used_ring.unchecked_add(offset);
+        let addr = self.device_area.unchecked_add(offset);
         self.mem
             .memory()
             .store(val, addr, order)
@@ -571,7 +571,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
         self.mem
             .memory()
-            .store(val, self.used_ring, order)
+            .store(val, self.device_area, order)
             .map_err(Error::GuestMemory)
     }
 
@@ -658,7 +658,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         // interfaces.
         let mem = self.mem.memory();
         let used_event_addr = self
-            .avail_ring
+            .driver_area
             .unchecked_add((4 + self.actual_size() * 2) as u64);
 
         mem.load(used_event_addr, order)
@@ -921,9 +921,9 @@ pub(crate) mod tests {
 
             q.size = self.size();
             q.ready = true;
-            q.desc_table = self.dtable_start();
-            q.avail_ring = self.avail_start();
-            q.used_ring = self.used_start();
+            q.desc_area = self.dtable_start();
+            q.driver_area = self.avail_start();
+            q.device_area = self.used_start();
 
             q
         }
@@ -1119,23 +1119,23 @@ pub(crate) mod tests {
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffff_ffff);
+        q.desc_area = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.desc_table = GuestAddress(0x1001);
+        q.desc_area = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.desc_table = vq.dtable_start();
+        q.desc_area = vq.dtable_start();
 
-        q.avail_ring = GuestAddress(0xffff_ffff);
+        q.driver_area = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.avail_ring = GuestAddress(0x1001);
+        q.driver_area = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.avail_ring = vq.avail_start();
+        q.driver_area = vq.avail_start();
 
-        q.used_ring = GuestAddress(0xffff_ffff);
+        q.device_area = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.used_ring = GuestAddress(0x1001);
+        q.device_area = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.used_ring = vq.used_start();
+        q.device_area = vq.used_start();
 
         {
             // an invalid queue should return an iterator with no next
