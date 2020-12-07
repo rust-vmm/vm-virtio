@@ -12,7 +12,7 @@ edition = "2018"
 [dependencies]
 byteorder = ">=1.2.1"
 libc = ">=0.2.39"
-log = "=0.4.6"
+log = ">=0.4.6"
 vm-memory = ">=0.3.0"
 vmm-sys-util = ">=0.4.0"
 
