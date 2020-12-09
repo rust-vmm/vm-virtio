@@ -31,16 +31,10 @@ use vm_memory::{Bytes, GuestMemory, GuestMemoryError};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroes};
 
-use crate::block::request::VIRTIO_BLK_T_FLUSH;
-use crate::block::request::{Request, RequestType};
-
-/// Read-only device.
-pub const VIRTIO_BLK_F_RO: u64 = 5;
-/// Flush command supported.
-pub const VIRTIO_BLK_F_FLUSH: u64 = 9;
-
-const SECTOR_SHIFT: u8 = 9;
-const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
+use crate::block::{
+    defs::{SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_T_FLUSH},
+    request::{Request, RequestType},
+};
 
 /// Trait that keeps as supertraits the ones that are necessary for the `StdIoBackend` abstraction
 /// used for the virtio block request execution.
@@ -98,7 +92,7 @@ pub type Result<T> = result::Result<T, Error>;
 ///
 /// ```rust
 /// # use std::fs::File;
-/// # use vm_virtio::block::stdio_executor::{StdIoBackend, VIRTIO_BLK_F_FLUSH};
+/// # use vm_virtio::block::{defs::VIRTIO_BLK_F_FLUSH, stdio_executor::StdIoBackend};
 ///
 /// let file = File::create("foo.txt").unwrap();
 /// let request_exec = StdIoBackend::new(file, 1 << VIRTIO_BLK_F_FLUSH).unwrap();

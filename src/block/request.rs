@@ -26,17 +26,14 @@
 use std::fmt::{self, Display};
 use std::{mem, result};
 
-use crate::{queue::DescriptorChain, Descriptor};
+use crate::{
+    block::defs::{VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT},
+    queue::DescriptorChain,
+    Descriptor,
+};
 use vm_memory::{
     ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
-
-/// Read request.
-pub const VIRTIO_BLK_T_IN: u32 = 0;
-/// Write request.
-pub const VIRTIO_BLK_T_OUT: u32 = 1;
-/// Flush request.
-pub const VIRTIO_BLK_T_FLUSH: u32 = 4;
 
 /// Block request parsing errors.
 #[derive(Debug)]
