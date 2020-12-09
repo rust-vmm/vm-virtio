@@ -1,0 +1,52 @@
+steps:
+  - label: "build-gnu-x86-backend-stdio"
+    commands:
+      - cargo build --release --features=backend-stdio
+    retry:
+      automatic: false
+    agents:
+      platform: x86_64.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v6"
+          always-pull: true
+
+  - label: "build-musl-x86-backend-stdio"
+    commands:
+      - cargo build --release --features=backend-stdio --target x86_64-unknown-linux-musl
+    retry:
+      automatic: false
+    agents:
+      platform: x86_64.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v6"
+          always-pull: true
+
+  - label: "build-gnu-arm-backend-stdio"
+    commands:
+      - cargo build --release --features=backend-stdio
+    retry:
+      automatic: false
+    agents:
+      platform: arm.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v6"
+          always-pull: true
+
+  - label: "build-musl-arm-backend-stdio"
+    commands:
+      - cargo build --release --features=backend-stdio --target aarch64-unknown-linux-musl
+    retry:
+      automatic: false
+    agents:
+      platform: arm.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v6"
+          always-pull: true
