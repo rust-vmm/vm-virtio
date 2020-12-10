@@ -35,8 +35,8 @@ use crate::block::defs::VIRTIO_BLK_T_GET_ID;
 use crate::block::{
     defs::{
         SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
-        VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH,
-        VIRTIO_BLK_T_WRITE_ZEROES,
+        VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK,
+        VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_WRITE_ZEROES,
     },
     request::{Request, RequestType},
 };
@@ -95,6 +95,24 @@ pub enum Error {
     Unsupported(u32),
 }
 
+impl Error {
+    fn status(&self) -> u8 {
+        match self {
+            Error::DiscardWriteZeroes(_) => VIRTIO_BLK_S_IOERR,
+            Error::Flush(_) => VIRTIO_BLK_S_IOERR,
+            Error::GuestMemory(_) => VIRTIO_BLK_S_IOERR,
+            Error::InvalidAccess => VIRTIO_BLK_S_IOERR,
+            Error::InvalidFlags => VIRTIO_BLK_S_UNSUPP,
+            Error::InvalidDataLength => VIRTIO_BLK_S_IOERR,
+            Error::Read(_) => VIRTIO_BLK_S_IOERR,
+            Error::ReadOnly => VIRTIO_BLK_S_IOERR,
+            Error::Write(_) => VIRTIO_BLK_S_IOERR,
+            Error::Seek(_) => VIRTIO_BLK_S_IOERR,
+            Error::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+        }
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Error::*;
@@ -117,6 +135,21 @@ impl Display for Error {
             Seek(ref err) => write!(f, "file seek execution failed: {}", err),
             Unsupported(t) => write!(f, "can't execute unsupported request {}", t),
         }
+    }
+}
+
+/// Errors encountered while processing a request execution result.
+#[derive(Debug)]
+pub enum ProcessReqError {
+    /// Bad memory access.
+    GuestMemory(GuestMemoryError),
+    /// Overflow occurred when computing number of bytes written to memory.
+    Overflow,
+}
+
+impl From<vm_memory::GuestMemoryError> for ProcessReqError {
+    fn from(e: vm_memory::GuestMemoryError) -> Self {
+        ProcessReqError::GuestMemory(e)
     }
 }
 
@@ -192,6 +225,30 @@ impl<B: Backend> StdIoBackend<B> {
 
     fn num_sectors(&self) -> u64 {
         self.num_sectors
+    }
+
+    /// Processes the `request` execution result, writes its status in memory and returns the total
+    /// number of bytes written into the memory buffer.
+    ///
+    /// # Arguments
+    /// * `mem` - A reference to the guest memory.
+    /// * `request` - The request to execute.
+    pub fn process_request<M: GuestMemory>(
+        &mut self,
+        mem: &M,
+        request: &Request,
+    ) -> result::Result<u32, ProcessReqError> {
+        let (status, length) = match self.execute(mem, request) {
+            Ok(length) => (VIRTIO_BLK_S_OK, length),
+            Err(e) => {
+                error!("failed executing block request: {}", e);
+                (e.status(), 0)
+            }
+        };
+        mem.write_obj(status, request.status_addr())?;
+        // Adding +1 here for the status byte. `length` should not be u32::MAX since it is expected
+        // to be a multiple of SECTOR_SIZE, but using `checked_add` here for safety.
+        length.checked_add(1).ok_or(ProcessReqError::Overflow)
     }
 
     fn check_access(&self, mut sectors_count: u64, sector: u64) -> Result<()> {
@@ -1009,5 +1066,98 @@ mod tests {
         let mut buf = [0x00; 12];
         mem.read_slice(&mut buf, GuestAddress(0x200)).unwrap();
         assert_eq!(buf, dev_id[8..VIRTIO_BLK_ID_BYTES]);
+    }
+
+    #[test]
+    fn test_process_request() {
+        let f = TempFile::new().unwrap().into_file();
+        f.set_len(0x1000).unwrap();
+
+        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let flush_req = Request::new(
+            RequestType::Flush,
+            vec![(GuestAddress(0x100), 0x400)],
+            0,
+            GuestAddress(0x600),
+        );
+
+        // VIRTIO_BLK_F_FLUSH not negotiated.
+        let mut req_exec = StdIoBackend::new(f, 0).unwrap();
+        assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            VIRTIO_BLK_S_UNSUPP
+        );
+
+        // VIRTIO_BLK_F_FLUSH negotiated.
+        req_exec.features = 1 << VIRTIO_BLK_F_FLUSH;
+        assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            VIRTIO_BLK_S_OK
+        );
+
+        // Ok In request.
+        let in_req = Request::new(
+            RequestType::In,
+            vec![(GuestAddress(0x100), 0x400), (GuestAddress(0x600), 0x200)],
+            0,
+            GuestAddress(0x900),
+        );
+        // 0x600 bytes should've been written in memory.
+        assert_eq!(req_exec.process_request(&mem, &in_req).unwrap(), 0x601);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x900)).unwrap(),
+            VIRTIO_BLK_S_OK
+        );
+
+        // Invalid status address.
+        let in_req = Request::new(
+            RequestType::In,
+            vec![(GuestAddress(0x100), 0x400), (GuestAddress(0x600), 0x200)],
+            0,
+            GuestAddress(0x1000_0001),
+        );
+        assert!(matches!(
+            req_exec.process_request(&mem, &in_req).unwrap_err(),
+            ProcessReqError::GuestMemory(InvalidGuestAddress(GuestAddress(0x1000_0001)))
+        ));
+
+        req_exec.features = 1 << VIRTIO_BLK_F_DISCARD;
+        // Test discard request with invalid flags.
+        let discard_req = DiscardWriteZeroes {
+            sector: 3,
+            num_sectors: 2,
+            flags: 0x0001,
+        };
+        mem.write_obj::<DiscardWriteZeroes>(discard_req, GuestAddress(0x1000))
+            .unwrap();
+        let discard_req = Request::new(
+            RequestType::Discard,
+            vec![(
+                GuestAddress(0x1000),
+                mem::size_of::<DiscardWriteZeroes>() as u32,
+            )],
+            7,
+            GuestAddress(0x2000),
+        );
+        assert_eq!(req_exec.process_request(&mem, &discard_req).unwrap(), 1);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x2000)).unwrap(),
+            VIRTIO_BLK_S_UNSUPP
+        );
+
+        // Invalid memory address for write operation.
+        let out_req = Request::new(
+            RequestType::Out,
+            vec![(GuestAddress(0xFFF_FFF0), 0x200)],
+            7,
+            GuestAddress(0x200),
+        );
+        assert_eq!(req_exec.process_request(&mem, &out_req).unwrap(), 1);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR
+        );
     }
 }
