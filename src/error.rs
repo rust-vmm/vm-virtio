@@ -11,7 +11,9 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::fmt::{self, Display};
-use vm_memory::GuestMemoryError;
+use std::result;
+
+use vm_memory::{GuestMemoryError, VolatileMemoryError};
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
@@ -26,6 +28,14 @@ pub enum Error {
     InvalidChain,
     /// Invalid descriptor index.
     InvalidDescriptorIndex,
+    /// Volatile memory related error.
+    VolatileMemoryError(VolatileMemoryError),
+    /// Descriptor chain overflow.
+    DescriptorChainOverflow,
+    /// Descriptor chain split is out of bounds.
+    DescriptorChainSplitOOB(usize),
+    /// Memory region error.
+    FindMemoryRegion,
 }
 
 impl Display for Error {
@@ -38,8 +48,20 @@ impl Display for Error {
             InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),
             InvalidIndirectDescriptorTable => write!(f, "invalid indirect descriptor table"),
             InvalidDescriptorIndex => write!(f, "invalid descriptor index"),
+            VolatileMemoryError(e) => write!(f, "volatile memory error: {}", e),
+            DescriptorChainOverflow => write!(
+                f,
+                "the combined length of all the buffers in a `DescriptorChain` would overflow"
+            ),
+            DescriptorChainSplitOOB(off) => {
+                write!(f, "`DescriptorChain` split is out of bounds: {}", off)
+            }
+            FindMemoryRegion => write!(f, "no memory region for this address range"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+/// Alias for a `Result` with the error type `vm_virtio::Error`.
+pub type Result<T> = result::Result<T, Error>;
