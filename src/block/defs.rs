@@ -37,3 +37,11 @@ pub const VIRTIO_BLK_ID_BYTES: usize = 20;
 pub const SECTOR_SHIFT: u8 = 9;
 /// Sector size of a block device.
 pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
+
+//Status bytes.
+/// Success.
+pub const VIRTIO_BLK_S_OK: u8 = 0;
+/// Device or driver error.
+pub const VIRTIO_BLK_S_IOERR: u8 = 1;
+/// Request unsupported by device.
+pub const VIRTIO_BLK_S_UNSUPP: u8 = 2;
