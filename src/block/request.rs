@@ -26,7 +26,7 @@
 use std::fmt::{self, Display};
 use std::{mem, result};
 
-use crate::{queue::DescriptorChain, Descriptor};
+use crate::{Descriptor, DescriptorChain};
 use vm_memory::{
     ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
