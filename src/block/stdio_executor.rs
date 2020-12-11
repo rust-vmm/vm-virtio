@@ -236,11 +236,13 @@ impl<B: Backend> StdIoBackend<B> {
         self.inner
             .seek(SeekFrom::Start(offset))
             .map_err(Error::Seek)?;
-        let mut bytes_from_dev = 0;
+        // This will count the number of bytes written by the device to the memory. It must fit in
+        // an u32 for further writing in the used ring.
+        let mut bytes_from_dev: u32 = 0;
         let request_type = request.request_type();
         self.check_request(request_type)?;
 
-        let total_len = request.total_data_len() as u64;
+        let total_len = request.total_data_len();
 
         if (request_type == RequestType::In || request_type == RequestType::Out)
             && (total_len % SECTOR_SIZE != 0)
@@ -251,19 +253,23 @@ impl<B: Backend> StdIoBackend<B> {
         match request_type {
             RequestType::In => {
                 self.check_access(total_len / SECTOR_SIZE, request.sector())?;
+                // Total data length should fit in an u32 for further writing in the used ring.
+                if total_len > u32::MAX as u64 {
+                    return Err(Error::InvalidDataLength);
+                }
                 for (data_addr, data_len) in request.data() {
                     mem.read_exact_from(*data_addr, &mut self.inner, *data_len as usize)
                         .map_err(Error::Read)?;
+                    // This can not overflow since we checked right before the loop that `total_len`
+                    // fits in an u32.
                     bytes_from_dev += data_len;
                 }
             }
             RequestType::Out => {
                 self.check_access(total_len / SECTOR_SIZE, request.sector())?;
-                let mut bytes_to_dev = 0;
                 for (data_addr, data_len) in request.data() {
                     mem.write_all_to(*data_addr, &mut self.inner, *data_len as usize)
                         .map_err(Error::Write)?;
-                    bytes_to_dev += data_len;
                 }
             }
             RequestType::Flush => return self.inner.fsync().map(|_| 0).map_err(Error::Flush),
@@ -286,6 +292,8 @@ impl<B: Backend> StdIoBackend<B> {
                         *data_len as usize,
                     )
                     .map_err(Error::Read)?;
+                    // This can not overflow since total data length = VIRTIO_BLK_ID_BYTES for sure
+                    // at this point.
                     bytes_from_dev += data_len;
                 }
             }
@@ -610,6 +618,26 @@ mod tests {
         assert_eq!(
             req_exec.execute(&mem, &invalid_req).unwrap_err(),
             Error::Unsupported(8)
+        );
+
+        // Let's create a file large enough for the request.
+        let f = TempFile::new().unwrap().into_file();
+        f.set_len(u32::MAX as u64 * 2).unwrap();
+        let mut req_exec = StdIoBackend::new(f, 0).unwrap();
+
+        // Total data length > u32::MAX.
+        let invalid_req = Request::new(
+            RequestType::In,
+            vec![
+                (GuestAddress(0x100), u32::MAX - SECTOR_SIZE as u32 + 1),
+                (GuestAddress(0x1000), SECTOR_SIZE as u32),
+            ],
+            0,
+            GuestAddress(0x200),
+        );
+        assert_eq!(
+            req_exec.execute(&mem, &invalid_req).unwrap_err(),
+            Error::InvalidDataLength
         );
     }
 

@@ -154,8 +154,10 @@ impl Request {
     }
 
     /// Returns the total length of request data.
-    pub fn total_data_len(&self) -> u32 {
-        self.data.iter().map(|&x| x.1).sum()
+    pub fn total_data_len(&self) -> u64 {
+        // The maximum queue size is 32768 (2^15), which is the maximum  possible descriptor chain
+        // length and since data length is an u32, this sum can not overflow an u64.
+        self.data.iter().map(|x| x.1 as u64).sum()
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid status descriptor.
