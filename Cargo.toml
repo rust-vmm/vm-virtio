@@ -30,3 +30,6 @@ harness = false
 [profile.bench]
 lto = true
 codegen-units = 1
+
+[patch.crates-io]
+vm-memory = { git = "https://github.com/rust-vmm/vm-memory.git" }
