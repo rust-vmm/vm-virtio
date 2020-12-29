@@ -143,7 +143,9 @@ impl Descriptor {
     /// If this is false, this descriptor is read only.
     /// Write only means the the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_WRITE != 0
+        // The device MUST ignore the write-only flag (flags&VIRTQ_DESC_F_WRITE) in the descriptor
+        // that refers to an indirect table.
+        self.flags() & VIRTQ_DESC_F_WRITE != 0 && !self.is_indirect()
     }
 }
 
@@ -215,7 +217,10 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     // Alters the internal state of the `DescriptorChain` to switch iterating over an
     // indirect descriptor table defined by `desc`.
     fn process_indirect_descriptor(&mut self, desc: Descriptor) -> Result<(), Error> {
-        if self.is_indirect {
+        //  - A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags.
+        //  - The device MUST handle the case of zero or more normal chained descriptors followed
+        //    by a single descriptor with flags&VIRTQ_DESC_F_INDIRECT.
+        if self.is_indirect || desc.has_next() {
             return Err(Error::InvalidIndirectDescriptor);
         }
 
@@ -1406,9 +1411,9 @@ pub(crate) mod tests {
 
         // create a chain with two descriptor pointing to an indirect tables
         let desc = vq.dtable(0);
-        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 1);
+        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 1);
         let desc = vq.dtable(1);
-        desc.set(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
+        desc.set(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT, 2);
         let desc = vq.dtable(2);
         desc.set(0x3000, 0x1000, 0, 0);
 
