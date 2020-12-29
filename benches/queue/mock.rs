@@ -260,11 +260,11 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.update_avail_idx(head_idx);
     }
 
-    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A> {
+    pub fn create_queue<A: GuestAddressSpace + Clone>(&self, a: A) -> Queue<A> {
         let mut q = Queue::new(a, self.len);
-        q.desc_table = self.desc_table_addr;
-        q.avail_ring = self.avail_addr;
-        q.used_ring = self.used_addr;
+        q.set_desc_table_address(self.desc_table_addr);
+        q.set_avail_ring_address(self.avail_addr);
+        q.set_used_ring_address(self.used_addr);
         q
     }
 }
