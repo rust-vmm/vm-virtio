@@ -77,38 +77,42 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A virtio descriptor constraints with C representation
+/// A split virtio descriptor to encapsulate a driver data buffer.
+///
+/// The descriptor table refers to the buffers the driver is using for the device. The `addr` is
+/// a physical address, and the buffers can be chained via next. Each descriptor describes a
+/// buffer which is read-only for the device (“device-readable”) or write-only for the device
+/// (“device-writable”), but a chain of descriptors can contain both device-readable and
+/// device-writable buffers.
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 pub struct Descriptor {
-    /// Guest physical address of device specific data
+    /// Guest physical address of the data buffer.
     addr: u64,
 
-    /// Length of device specific data
+    /// Length of the data buffer.
     len: u32,
 
-    /// Includes next, write, and indirect bits
+    /// Data buffer flags, including the next, write, and indirect bits.
     flags: u16,
 
-    /// Index into the descriptor table of the next descriptor if flags has
-    /// the next bit set
+    /// Index into the descriptor table of the next descriptor if flags has the next bit set.
     next: u16,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Descriptor {
-    /// Return the guest physical address of descriptor buffer
+    /// Return the guest physical address of descriptor buffer.
     pub fn addr(&self) -> GuestAddress {
         GuestAddress(self.addr)
     }
 
-    /// Return the length of descriptor buffer
+    /// Return the length of descriptor buffer.
     pub fn len(&self) -> u32 {
         self.len
     }
 
-    /// Return the flags for this descriptor, including next, write and indirect
-    /// bits
+    /// Return the flags for this descriptor, including next, write and indirect bits.
     pub fn flags(&self) -> u16 {
         self.flags
     }
@@ -118,6 +122,11 @@ impl Descriptor {
         self.next
     }
 
+    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
+    pub fn has_next(&self) -> bool {
+        self.flags() & VIRTQ_DESC_F_NEXT != 0
+    }
+
     /// Check whether this is an indirect descriptor.
     pub fn is_indirect(&self) -> bool {
         // TODO: The are a couple of restrictions in terms of which flags combinations are
@@ -125,17 +134,12 @@ impl Descriptor {
         self.flags() & VIRTQ_DESC_F_INDIRECT != 0
     }
 
-    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
-    pub fn has_next(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_NEXT != 0
-    }
-
     /// Checks if the driver designated this as a write only descriptor.
     ///
     /// If this is false, this descriptor is read only.
     /// Write only means the the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
-        self.flags & VIRTQ_DESC_F_WRITE != 0
+        self.flags() & VIRTQ_DESC_F_WRITE != 0
     }
 }
 
