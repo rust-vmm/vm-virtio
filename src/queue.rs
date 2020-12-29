@@ -719,7 +719,7 @@ struct AvailRing<M: GuestAddressSpace> {
 }
 
 impl<M: GuestAddressSpace> AvailRing<M> {
-    fn new(mem: M, size: u16) -> Self {
+    fn new(mem: M, size: u16, is_packed: bool) -> Self {
         AvailRing {
             mem,
             size,
@@ -731,7 +731,7 @@ impl<M: GuestAddressSpace> AvailRing<M> {
             driver_wrapper_counter: Position::new(VIRTQ_DESC_F_AVAIL),
             device_wrapper_counter: Position::new(VIRTQ_DESC_F_AVAIL | VIRTQ_DESC_F_USED),
             event_idx_enabled: false,
-            is_packed: false,
+            is_packed,
         }
     }
 
@@ -927,7 +927,7 @@ pub trait UsedRingT {
     type M: GuestAddressSpace;
 
     /// Create a new virtio used ring object.
-    fn new(mem: Self::M, max_size: u16) -> Self;
+    fn new(mem: Self::M, max_size: u16, is_packed: bool) -> Self;
 
     /// Set the configured size of the used ring.
     fn set_ring_size(&mut self, size: u16);
@@ -958,7 +958,9 @@ pub trait UsedRingT {
     fn is_valid(&self) -> bool;
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error>;
+    ///
+    /// The parameter `packed` is used for packed queue, which is a (buffer_id, desc_count) tuple.
+    fn add_used(&mut self, len: u32, info: DescriptorChainUsed) -> Result<(), Error>;
 
     /// Check whether a notification to the guest is needed.
     ///
@@ -977,6 +979,8 @@ pub struct UsedRing<M: GuestAddressSpace> {
     size: u16,
     /// Indicates if the queue is finished with configuration.
     ready: bool,
+    /// Whether it's a packed queue.
+    is_packed: bool,
 
     /// Split queue: guest physical address of the used ring.
     used_ring: GuestAddress,
@@ -1019,16 +1023,65 @@ impl<M: GuestAddressSpace> UsedRing<M> {
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
+
+    fn add_used_packed(&mut self, len: u32, buffer_id: u16, desc_count: u16) -> Result<(), Error> {
+        if desc_count >= self.size {
+            error!(
+                "attempted to add too many({}) used descriptor to packed queue",
+                desc_count
+            );
+            return Err(Error::InvalidChain);
+        }
+
+        let mem = self.mem.memory();
+        let next_used_index = u64::from(self.next_used.0 % self.size);
+        let wrapper_counter = self.device_wrapper_counter.get();
+
+        // In a used descriptor, Element Address is unused. Element Length specifies the length
+        // of the buffer that has been initialized (written to) by the device.
+        // Element Length is reserved for used descriptors without the VIRTQ_DESC_F_WRITE flag,
+        // and is ignored by drivers.
+        //
+        // It's ok to use `unchecked_add` here because we previously verify the index does not
+        // exceed the queue size, and the descriptor table location is expected to have been
+        // validate before (for example, before activating a device). Moreover, this cannot
+        // lead to unsafety because the actual memory accesses are always checked.
+        let addr = self
+            .desc_table
+            .unchecked_add(next_used_index * size_of::<PackedDescriptor>() as u64);
+        mem.write_obj(len, addr.unchecked_add(8))
+            .map_err(Error::GuestMemory)?;
+        mem.write_obj(buffer_id, addr.unchecked_add(12))
+            .map_err(Error::GuestMemory)?;
+        fence(Ordering::Release);
+        mem.write_obj(wrapper_counter, addr.unchecked_add(14))
+            .map_err(Error::GuestMemory)?;
+
+        self.next_used += Wrapping(desc_count);
+
+        // Wrapper around, change the device ring wrapper counter.
+        if next_used_index + desc_count as u64 > self.size as u64 {
+            if wrapper_counter & VIRTQ_DESC_F_USED != 0 {
+                self.device_wrapper_counter.set(0);
+            } else {
+                self.device_wrapper_counter
+                    .set(VIRTQ_DESC_F_AVAIL | VIRTQ_DESC_F_USED);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<M: GuestAddressSpace> UsedRingT for UsedRing<M> {
     type M = M;
 
-    fn new(mem: Self::M, max_size: u16) -> Self {
+    fn new(mem: Self::M, max_size: u16, is_packed: bool) -> Self {
         UsedRing {
             mem,
             size: max_size,
             ready: false,
+            is_packed,
             used_ring: GuestAddress(0),
             next_used: Wrapping(0),
             desc_table: GuestAddress(0),
@@ -1100,29 +1153,38 @@ impl<M: GuestAddressSpace> UsedRingT for UsedRing<M> {
         }
     }
 
-    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        if head_index >= self.size {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                head_index
-            );
-            return Err(Error::InvalidDescriptorIndex);
+    fn add_used(&mut self, len: u32, info: DescriptorChainUsed) -> Result<(), Error> {
+        match info {
+            DescriptorChainUsed::Packed(buffer_id, desc_count) => {
+                debug_assert!(self.is_packed);
+                self.add_used_packed(len, buffer_id, desc_count)
+            }
+            DescriptorChainUsed::Split(head_index) => {
+                debug_assert!(!self.is_packed);
+                if head_index >= self.size {
+                    error!(
+                        "attempted to add out of bounds descriptor to used ring: {}",
+                        head_index
+                    );
+                    return Err(Error::InvalidDescriptorIndex);
+                }
+
+                let mem = self.mem.memory();
+                let next_used_index = u64::from(self.next_used.0 % self.size);
+                let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+                mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+                    .map_err(Error::GuestMemory)?;
+
+                self.next_used += Wrapping(1);
+
+                mem.store(
+                    self.next_used.0,
+                    self.used_ring.unchecked_add(2),
+                    Ordering::Release,
+                )
+                .map_err(Error::GuestMemory)
+            }
         }
-
-        let mem = self.mem.memory();
-        let next_used_index = u64::from(self.next_used.0 % self.size);
-        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
-        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
-            .map_err(Error::GuestMemory)?;
-
-        self.next_used += Wrapping(1);
-
-        mem.store(
-            self.next_used.0,
-            self.used_ring.unchecked_add(2),
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
     }
 
     fn needs_notification(&mut self) -> Result<bool, Error> {
@@ -1154,8 +1216,8 @@ impl<M: GuestAddressSpace> UsedRingT for UsedRing<M> {
 impl<U: UsedRingT> UsedRingT for Arc<Mutex<U>> {
     type M = <U as UsedRingT>::M;
 
-    fn new(mem: Self::M, max_size: u16) -> Self {
-        Arc::new(Mutex::new(U::new(mem, max_size)))
+    fn new(mem: Self::M, max_size: u16, is_packed: bool) -> Self {
+        Arc::new(Mutex::new(U::new(mem, max_size, is_packed)))
     }
 
     fn set_ring_size(&mut self, size: u16) {
@@ -1199,8 +1261,8 @@ impl<U: UsedRingT> UsedRingT for Arc<Mutex<U>> {
         self.lock().unwrap().is_valid()
     }
 
-    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        self.lock().unwrap().add_used(head_index, len)
+    fn add_used(&mut self, len: u32, info: DescriptorChainUsed) -> Result<(), Error> {
+        self.lock().unwrap().add_used(len, info)
     }
 
     fn needs_notification(&mut self) -> Result<bool, Error> {
@@ -1251,10 +1313,19 @@ where
     M: GuestAddressSpace + Clone,
     U: UsedRingT<M = M>,
 {
-    /// Constructs an empty virtio queue with the given `max_size`.
+    /// Constructs an empty split virtio queue with the given `max_size`.
     pub fn new(mem: M, max_size: u16) -> Self {
-        let avail_ring = AvailRing::new(mem.clone(), max_size);
-        let used_ring = U::new(mem, max_size);
+        Self::new_with_type(mem, max_size, false)
+    }
+
+    /// Constructs an empty packed virtio queue with the given `max_size`.
+    pub fn new_packed(mem: M, max_size: u16) -> Self {
+        Self::new_with_type(mem, max_size, true)
+    }
+
+    fn new_with_type(mem: M, max_size: u16, is_packed: bool) -> Self {
+        let avail_ring = AvailRing::new(mem.clone(), max_size, is_packed);
+        let used_ring = U::new(mem, max_size, is_packed);
 
         Queue {
             max_size,
@@ -1270,8 +1341,8 @@ where
     U: UsedRingT<M = M>,
 {
     /// Constructs an empty virtio queue with caller provided used ring.
-    pub fn with_rings(mem: M, max_size: u16, used_ring: U) -> Self {
-        let avail_ring = AvailRing::new(mem, max_size);
+    pub fn with_rings(mem: M, max_size: u16, used_ring: U, is_packed: bool) -> Self {
+        let avail_ring = AvailRing::new(mem, max_size, is_packed);
 
         Queue {
             max_size,
@@ -1342,6 +1413,9 @@ where
 
     /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
     pub fn set_event_idx(&mut self, enabled: bool) {
+        if self.avail_ring.is_packed {
+            panic!("no support of EVENT_IDX for packed queue yet!");
+        }
         self.avail_ring.event_idx_enabled = enabled;
         self.used_ring.set_event_idx(enabled)
     }
@@ -1447,8 +1521,8 @@ where
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        self.used_ring.add_used(head_index, len)
+    pub fn add_used(&mut self, len: u32, info: DescriptorChainUsed) -> Result<(), Error> {
+        self.used_ring.add_used(len, info)
     }
 
     /// Check whether a notification to the guest is needed.
@@ -2037,11 +2111,11 @@ pub(crate) mod tests {
         assert_eq!(vq.used.idx().load(), 0);
 
         //index too large
-        assert!(q.add_used(16, 0x1000).is_err());
+        assert!(q.add_used(0x1000, DescriptorChainUsed::Split(16)).is_err());
         assert_eq!(vq.used.idx().load(), 0);
 
         //should be ok
-        q.add_used(1, 0x1000).unwrap();
+        q.add_used(0x1000, DescriptorChainUsed::Split(1)).unwrap();
         assert_eq!(q.used_ring.next_used(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();

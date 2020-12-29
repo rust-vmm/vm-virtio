@@ -5,7 +5,7 @@ mod mock;
 
 use criterion::{black_box, BatchSize, Criterion};
 use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryAtomic, GuestMemoryMmap};
-use vm_virtio::Queue;
+use vm_virtio::{DescriptorChainUsed, Queue};
 
 use mock::MockSplitQueue;
 
@@ -86,7 +86,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
         || empty_queue(),
         |mut q| {
             for _ in 0..128 {
-                q.add_used(123, 0x1000).unwrap();
+                q.add_used(123, DescriptorChainUsed::Split(0x1000)).unwrap();
             }
         },
     );
