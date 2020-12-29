@@ -90,7 +90,7 @@ impl std::error::Error for Error {}
 /// device-writable buffers.
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
-pub struct Descriptor {
+pub struct SplitDescriptor {
     /// Guest physical address of the data buffer.
     addr: u64,
 
@@ -105,7 +105,16 @@ pub struct Descriptor {
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl Descriptor {
+impl SplitDescriptor {
+    pub(crate) fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
+        SplitDescriptor {
+            addr,
+            len,
+            flags,
+            next,
+        }
+    }
+
     /// Return the guest physical address of descriptor buffer.
     pub fn addr(&self) -> GuestAddress {
         GuestAddress(self.addr)
@@ -147,7 +156,83 @@ impl Descriptor {
     }
 }
 
-unsafe impl ByteValued for Descriptor {}
+unsafe impl ByteValued for SplitDescriptor {}
+
+/// A packed virtio descriptor to encapsulate a driver data buffer.
+///
+/// The available descriptor refers to the buffers the driver is sending to the device. The `addr`
+/// field is a physical address, and the descriptor is identified with a buffer using the id field.
+/// The packed ring format allows the driver to supply a scatter/gather list to the device by using
+/// multiple descriptors, and setting the VIRTQ_DESC_F_NEXT bit in Flags for all but the last
+/// available descriptor. Buffer ID is included in the last descriptor in the list.
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+pub struct PackedDescriptor {
+    /// Guest physical address of the data buffer.
+    addr: u64,
+
+    /// Length of the data buffer.
+    len: u32,
+
+    /// Index into the descriptor table of the next descriptor if flags has the next bit set.
+    id: u16,
+
+    /// Data buffer flags, including the next, write, and indirect bits.
+    flags: u16,
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl PackedDescriptor {
+    /// Return the guest physical address of descriptor buffer.
+    pub fn addr(&self) -> GuestAddress {
+        GuestAddress(self.addr)
+    }
+
+    /// Return the length of descriptor buffer.
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    /// Return the flags for this descriptor, including next, write and indirect bits.
+    pub fn flags(&self) -> u16 {
+        self.flags
+    }
+
+    /// Get the buffer ID associated with the descriptor.
+    /// In case of chain with multiple descriptors, Buffer ID is included in the last descriptor,
+    /// and other descriptors may not contain a valid buffer id.
+    #[allow(dead_code)]
+    fn buffer_id(&self) -> u16 {
+        self.id
+    }
+
+    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
+    ///
+    /// Note: the VIRTQ_DESC_F_NEXT flag is not available for indirect descriptors.
+    fn has_next(&self) -> bool {
+        self.flags() & VIRTQ_DESC_F_NEXT != 0
+    }
+
+    /// Check whether this is an indirect descriptor.
+    fn is_indirect(&self) -> bool {
+        self.flags() & VIRTQ_DESC_F_INDIRECT != 0
+    }
+
+    /// Checks if the driver designated this as a write only descriptor.
+    ///
+    /// If this is false, this descriptor is read only.
+    /// Write only means the the emulated device can write and the driver can read.
+    pub fn is_write_only(&self) -> bool {
+        // In descriptors with VIRTQ_DESC_F_INDIRECT set VIRTQ_DESC_F_WRITE is reserved and
+        // is ignored by the device.
+        self.flags() & VIRTQ_DESC_F_WRITE != 0 && !self.is_indirect()
+    }
+}
+
+unsafe impl ByteValued for PackedDescriptor {}
+
+/// Use the split descriptor for external internal.
+pub type Descriptor = SplitDescriptor;
 
 /// A virtio descriptor chain.
 #[derive(Clone)]
@@ -1112,18 +1197,6 @@ pub(crate) mod tests {
         GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
         VolatileMemory, VolatileRef, VolatileSlice,
     };
-
-    impl Descriptor {
-        // Only available to unit tests within the local crate.
-        pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
-            Descriptor {
-                addr,
-                len,
-                flags,
-                next,
-            }
-        }
-    }
 
     // Represents a virtio descriptor in guest memory.
     pub struct VirtqDesc<'a> {
