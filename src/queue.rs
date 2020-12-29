@@ -122,19 +122,17 @@ impl Descriptor {
     }
 
     /// Return the value stored in the `next` field of the descriptor.
-    pub fn next(&self) -> u16 {
+    fn next(&self) -> u16 {
         self.next
     }
 
     /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
-    pub fn has_next(&self) -> bool {
+    fn has_next(&self) -> bool {
         self.flags() & VIRTQ_DESC_F_NEXT != 0
     }
 
     /// Check whether this is an indirect descriptor.
-    pub fn is_indirect(&self) -> bool {
-        // TODO: The are a couple of restrictions in terms of which flags combinations are
-        // actually valid for indirect descriptors. Implement those checks as well somewhere.
+    fn is_indirect(&self) -> bool {
         self.flags() & VIRTQ_DESC_F_INDIRECT != 0
     }
 
@@ -190,6 +188,11 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     /// Get the descriptor index of the chain header
     pub fn head_index(&self) -> u16 {
         self.head_index
+    }
+
+    /// Check whether the chain still has next available descriptor.
+    pub fn has_next(&self, desc: &Descriptor) -> bool {
+        desc.has_next()
     }
 
     /// Return a `GuestMemory` object that can be used to access the buffers

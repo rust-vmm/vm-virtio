@@ -231,7 +231,7 @@ impl Request {
 
         let mut desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
-        while desc.has_next() {
+        while desc_chain.has_next(&desc) {
             Request::check_data_desc::<<M>::M>(desc_chain.memory(), desc, request.request_type)?;
 
             request.data.push((desc.addr(), desc.len()));
