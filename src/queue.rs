@@ -243,6 +243,9 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     head_index: u16,
     next_index: u16,
     ttl: u16,
+    buffer_id: u16,  // used for packed queue
+    desc_count: u16, // used for packed queue
+    is_packed: bool,
     is_indirect: bool,
 }
 
@@ -253,6 +256,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         queue_size: u16,
         ttl: u16,
         head_index: u16,
+        is_packed: bool,
     ) -> Self {
         DescriptorChain {
             mem,
@@ -261,13 +265,24 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             head_index,
             next_index: head_index,
             ttl,
+            buffer_id: 0xffff,
+            desc_count: 0,
+            is_packed,
             is_indirect: false,
         }
     }
 
     /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
-        Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
+    fn new(
+        mem: M::T,
+        desc_table: GuestAddress,
+        queue_size: u16,
+        head_index: u16,
+        is_packed: bool,
+    ) -> Self {
+        Self::with_ttl(
+            mem, desc_table, queue_size, queue_size, head_index, is_packed,
+        )
     }
 
     /// Get the descriptor index of the chain header
@@ -329,6 +344,34 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 
         Ok(())
     }
+
+    /// Fetch and convert a PackedDescriptor to a normal SplitDescriptor.
+    fn fetch_packed_descriptor(&self, desc_addr: GuestAddress) -> Option<SplitDescriptor> {
+        let packed = self.mem.read_obj::<PackedDescriptor>(desc_addr).ok()?;
+
+        // The first descriptor is located at the start of the indirect descriptor table,
+        // additional indirect descriptors come immediately afterwards. The VIRTQ_DESC_F_WRITE
+        // flags bit is the only valid flag for descriptors in the indirect table. Others are
+        // reserved and are ignored by the device. Buffer ID is also reserved and is ignored
+        // by the device.
+        let (has_next, mut flags) = if self.is_indirect {
+            (self.ttl > 1, packed.flags() & VIRTQ_DESC_F_WRITE)
+        } else {
+            (packed.has_next(), packed.flags())
+        };
+        let next = if has_next {
+            self.next_index.wrapping_add(1) & (self.queue_size - 1)
+        } else {
+            0xffff
+        };
+
+        // Adjust the VIRTQ_DESC_F_NEXT for descriptors in indirect table.
+        if has_next && self.is_indirect {
+            flags |= VIRTQ_DESC_F_NEXT;
+        }
+
+        Some(SplitDescriptor::new(packed.addr, packed.len, flags, next))
+    }
 }
 
 impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
@@ -351,8 +394,11 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
         let desc_addr = self
             .desc_table
             .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
-
-        let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
+        let desc = if self.is_packed {
+            self.fetch_packed_descriptor(desc_addr)?
+        } else {
+            self.mem.read_obj::<Descriptor>(desc_addr).ok()?
+        };
 
         if desc.is_indirect() {
             self.process_indirect_descriptor(desc).ok()?;
@@ -460,6 +506,7 @@ impl<M: GuestAddressSpace> Iterator for AvailIter<M> {
             self.desc_table,
             self.queue_size,
             head_index,
+            false,
         ))
     }
 }
@@ -1430,17 +1477,21 @@ pub(crate) mod tests {
 
         // index >= queue_size
         assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16)
+            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16, false)
                 .next()
                 .is_none()
         );
 
         // desc_table address is way off
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
-                .next()
-                .is_none()
-        );
+        assert!(DescriptorChain::<&GuestMemoryMmap>::new(
+            m,
+            GuestAddress(0x00ff_ffff_ffff),
+            16,
+            0,
+            false
+        )
+        .next()
+        .is_none());
 
         {
             // the first desc has a normal len, and the next_descriptor flag is set
@@ -1450,7 +1501,7 @@ pub(crate) mod tests {
             //..but the the index of the next descriptor is too large
             vq.dtable(0).next().store(16);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0, false);
             c.next().unwrap();
             assert!(c.next().is_none());
         }
@@ -1460,7 +1511,7 @@ pub(crate) mod tests {
             vq.dtable(0).next().store(1);
             vq.dtable(1).set(0x2000, 0x1000, 0, 0);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0, false);
 
             assert_eq!(
                 c.memory() as *const GuestMemoryMmap,
@@ -1493,7 +1544,8 @@ pub(crate) mod tests {
         let desc = vq.dtable(2);
         desc.set(0x3000, 0x1000, 0, 0);
 
-        let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
+        let mut c: DescriptorChain<&GuestMemoryMmap> =
+            DescriptorChain::new(m, vq.start(), 16, 0, false);
 
         // The chain logic hasn't parsed the indirect descriptor yet.
         assert!(!c.is_indirect);
@@ -1543,7 +1595,7 @@ pub(crate) mod tests {
             desc.set(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+                DescriptorChain::new(m, vq.start(), 16, 0, false);
 
             assert!(c.next().is_none());
         }
@@ -1557,7 +1609,7 @@ pub(crate) mod tests {
             desc.set(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+                DescriptorChain::new(m, vq.start(), 16, 0, false);
 
             assert!(c.next().is_none());
         }
