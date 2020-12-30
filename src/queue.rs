@@ -303,6 +303,15 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         &*self.mem
     }
 
+    /// Get used descriptor information about the chain.
+    pub fn used_info(&self) -> DescriptorChainUsed {
+        if self.is_packed {
+            DescriptorChainUsed::Packed(self.buffer_id, self.desc_count)
+        } else {
+            DescriptorChainUsed::Split(self.head_index)
+        }
+    }
+
     /// Returns an iterator that only yields the readable descriptors in the chain.
     pub fn readable(self) -> DescriptorChainRwIter<M> {
         DescriptorChainRwIter {
@@ -903,6 +912,14 @@ impl VirtqUsedElem {
 }
 
 unsafe impl ByteValued for VirtqUsedElem {}
+
+/// Information about an used chain.
+pub enum DescriptorChainUsed {
+    /// head_index of used chain for split queue.
+    Split(u16),
+    /// (buffer_id, desc_count) of used chain tuple for packed queue.
+    Packed(u16, u16),
+}
 
 /// Manage the used ring of a split virtio queue and notify the driver on demand.
 pub trait UsedRingT {
