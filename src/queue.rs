@@ -928,7 +928,14 @@ pub trait UsedRingT {
     fn set_next_used(&mut self, next_used: u16);
 
     /// Set readiness of the queue.
-    fn set_ready(&mut self, ready: bool, addr: GuestAddress, pos: Position);
+    fn set_ready(
+        &mut self,
+        ready: bool,
+        avail_ring: GuestAddress,
+        desc_table: GuestAddress,
+        next_avail: Position,
+        device_wrapper_counter: Position,
+    );
 
     /// Check if the virtio queue configuration is valid.
     fn is_valid(&self) -> bool;
@@ -959,9 +966,14 @@ pub struct UsedRing<M: GuestAddressSpace> {
     /// Next entry in the used ring to consume.
     next_used: Wrapping<u16>,
 
+    /// Packed queue: guest physical address of the descriptor table.
+    desc_table: GuestAddress,
+    /// Packed queue: device ring wrapper counter.
+    device_wrapper_counter: Position,
+
     /// Split queue: guest physical address of the available ring.
     avail_ring: GuestAddress,
-    /// Split queue: index into the available ring for next available descriptor chain.
+    /// Index into the available ring for next available descriptor chain.
     next_avail: Position,
     /// The VIRTIO_F_RING_EVENT_IDX flag negotiated.
     event_idx_enabled: bool,
@@ -1002,6 +1014,8 @@ impl<M: GuestAddressSpace> UsedRingT for UsedRing<M> {
             ready: false,
             used_ring: GuestAddress(0),
             next_used: Wrapping(0),
+            desc_table: GuestAddress(0),
+            device_wrapper_counter: Position::new(0),
             avail_ring: GuestAddress(0),
             next_avail: Position::default(),
             event_idx_enabled: false,
@@ -1030,10 +1044,19 @@ impl<M: GuestAddressSpace> UsedRingT for UsedRing<M> {
         self.next_used = Wrapping(next_used);
     }
 
-    fn set_ready(&mut self, ready: bool, addr: GuestAddress, pos: Position) {
+    fn set_ready(
+        &mut self,
+        ready: bool,
+        avail_ring: GuestAddress,
+        desc_table: GuestAddress,
+        next_avail: Position,
+        device_wrapper_counter: Position,
+    ) {
         self.ready = ready;
-        self.avail_ring = addr;
-        self.next_avail = pos;
+        self.avail_ring = avail_ring;
+        self.desc_table = desc_table;
+        self.next_avail = next_avail;
+        self.device_wrapper_counter = device_wrapper_counter;
     }
 
     fn is_valid(&self) -> bool {
@@ -1138,8 +1161,21 @@ impl<U: UsedRingT> UsedRingT for Arc<Mutex<U>> {
         self.lock().unwrap().set_next_used(next_used);
     }
 
-    fn set_ready(&mut self, ready: bool, addr: GuestAddress, pos: Position) {
-        self.lock().unwrap().set_ready(ready, addr, pos);
+    fn set_ready(
+        &mut self,
+        ready: bool,
+        avail_ring: GuestAddress,
+        desc_table: GuestAddress,
+        next_avail: Position,
+        device_wrapper_counter: Position,
+    ) {
+        self.lock().unwrap().set_ready(
+            ready,
+            avail_ring,
+            desc_table,
+            next_avail,
+            device_wrapper_counter,
+        );
     }
 
     fn is_valid(&self) -> bool {
@@ -1324,7 +1360,9 @@ where
         self.used_ring.set_ready(
             ready,
             self.avail_ring.avail_ring,
+            self.avail_ring.desc_table,
             self.avail_ring.next_avail.clone(),
+            self.avail_ring.device_wrapper_counter.clone(),
         );
     }
 
