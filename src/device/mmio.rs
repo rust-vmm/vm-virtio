@@ -98,7 +98,7 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                         .into(),
                     0x44 => self
                         .selected_queue()
-                        .map(|q| q.ready)
+                        .map(|q| q.ready())
                         .unwrap_or(false)
                         .into(),
                     0x60 => self.interrupt_status().load(Ordering::SeqCst).into(),
@@ -158,8 +158,8 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                     // data type specified by the virtio standard (we simply use `as` conversion
                     // for now).
                     0x30 => self.set_queue_select(v as u16),
-                    0x38 => update_queue_field(self, |q| q.size = v as u16),
-                    0x44 => update_queue_field(self, |q| q.ready = v == 1),
+                    0x38 => update_queue_field(self, |q| q.set_queue_size(v as u16)),
+                    0x44 => update_queue_field(self, |q| q.set_ready(v == 1)),
                     0x50 => self.queue_notify(v),
                     0x64 => {
                         if self.check_device_status(status::DRIVER_OK, 0) {
@@ -168,12 +168,36 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                         }
                     }
                     0x70 => self.ack_device_status(v as u8),
-                    0x80 => update_queue_field(self, |q| set_low(&mut q.desc_table, v)),
-                    0x84 => update_queue_field(self, |q| set_high(&mut q.desc_table, v)),
-                    0x90 => update_queue_field(self, |q| set_low(&mut q.avail_ring, v)),
-                    0x94 => update_queue_field(self, |q| set_high(&mut q.avail_ring, v)),
-                    0xa0 => update_queue_field(self, |q| set_low(&mut q.used_ring, v)),
-                    0xa4 => update_queue_field(self, |q| set_high(&mut q.used_ring, v)),
+                    0x80 => update_queue_field(self, |q| {
+                        let mut addr = q.desc_table_address();
+                        set_low(&mut addr, v);
+                        q.set_desc_table_address(addr);
+                    }),
+                    0x84 => update_queue_field(self, |q| {
+                        let mut addr = q.desc_table_address();
+                        set_high(&mut addr, v);
+                        q.set_desc_table_address(addr);
+                    }),
+                    0x90 => update_queue_field(self, |q| {
+                        let mut addr = q.avail_ring_address();
+                        set_low(&mut addr, v);
+                        q.set_avail_ring_address(addr);
+                    }),
+                    0x94 => update_queue_field(self, |q| {
+                        let mut addr = q.avail_ring_address();
+                        set_high(&mut addr, v);
+                        q.set_avail_ring_address(addr);
+                    }),
+                    0xa0 => update_queue_field(self, |q| {
+                        let mut addr = q.used_ring_address();
+                        set_low(&mut addr, v);
+                        q.set_used_ring_address(addr);
+                    }),
+                    0xa4 => update_queue_field(self, |q| {
+                        let mut addr = q.used_ring_address();
+                        set_high(&mut addr, v);
+                        q.set_used_ring_address(addr);
+                    }),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                     }
@@ -257,16 +281,16 @@ mod tests {
         // The max size for the queue in `Dummy` is 256.
         assert_eq!(mmio_read(&d, 0x34), 256);
 
-        assert_eq!(d.cfg.queues[0].size, 256);
+        assert_eq!(d.cfg.queues[0].queue_size(), 256);
         d.write(0x38, &32u32.to_le_bytes());
         // Updating the queue field has no effect due to invalid device status.
-        assert_eq!(d.cfg.queues[0].size, 256);
+        assert_eq!(d.cfg.queues[0].queue_size(), 256);
 
         d.cfg.device_status |= status::FEATURES_OK;
 
         // Let's try the update again.
         d.write(0x38, &32u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].size, 32);
+        assert_eq!(d.cfg.queues[0].queue_size(), 32);
 
         // The queue in `Dummy` is not ready yet.
         assert_eq!(mmio_read(&d, 0x44), 0);
@@ -280,23 +304,23 @@ mod tests {
         d.write(0x50, &2u32.to_le_bytes());
         assert_eq!(d.last_queue_notify, 2);
 
-        assert_eq!(d.cfg.queues[0].desc_table.0, 0);
+        assert_eq!(d.cfg.queues[0].desc_table_address().0, 0);
         d.write(0x80, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].desc_table.0, 1);
+        assert_eq!(d.cfg.queues[0].desc_table_address().0, 1);
         d.write(0x84, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].desc_table.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].desc_table_address().0, (2 << 32) + 1);
 
-        assert_eq!(d.cfg.queues[0].avail_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].avail_ring_address().0, 0);
         d.write(0x90, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].avail_ring.0, 1);
+        assert_eq!(d.cfg.queues[0].avail_ring_address().0, 1);
         d.write(0x94, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].avail_ring.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].avail_ring_address().0, (2 << 32) + 1);
 
-        assert_eq!(d.cfg.queues[0].used_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].used_ring_address().0, 0);
         d.write(0xa0, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].used_ring.0, 1);
+        assert_eq!(d.cfg.queues[0].used_ring_address().0, 1);
         d.write(0xa4, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].used_ring.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].used_ring_address().0, (2 << 32) + 1);
 
         // Let's select a non-existent queue.
         d.write(0x30, &1u32.to_le_bytes());

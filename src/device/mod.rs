@@ -281,7 +281,7 @@ mod tests {
             assert_eq!(d.cfg.device_features & (1 << VIRTIO_F_RING_EVENT_IDX), 0);
 
             for q in d.cfg.queues.iter() {
-                assert_eq!(q.event_idx_enabled, false);
+                assert_eq!(q.event_idx(), false);
             }
 
             // Revert status.
@@ -299,7 +299,7 @@ mod tests {
             assert_eq!(d.cfg.device_status, status);
 
             for q in d.cfg.queues.iter() {
-                assert_eq!(q.event_idx_enabled, true);
+                assert_eq!(q.event_idx(), true);
             }
         }
 
