@@ -588,8 +588,11 @@ impl<M: GuestAddressSpace, C: Borrow<QueueConfig>> Queue<M, C> {
     //     }
     // }
     #[inline]
-    pub fn enable_notification(&self) -> Result<bool, Error> {
-        self.set_notification(true)?;
+    pub fn enable_notification(&self) -> bool {
+        if let Err(e) = self.set_notification(true) {
+            error!("queue enable notification error {}", e);
+            return false;
+        }
         // Ensures the following read is not reordered before any previous write operation.
         fence(Ordering::SeqCst);
 
@@ -601,12 +604,15 @@ impl<M: GuestAddressSpace, C: Borrow<QueueConfig>> Queue<M, C> {
         // probably not re-enable notifications as we already know there are pending entries.
         self.avail_idx(Ordering::Relaxed)
             .map(|idx| idx != self.config().next_avail)
+            .unwrap_or(false)
     }
 
     /// Disable notification events from the guest driver.
     #[inline]
-    pub fn disable_notification(&self) -> Result<(), Error> {
-        self.set_notification(false)
+    pub fn disable_notification(&self) {
+        if let Err(e) = self.set_notification(false) {
+            error!("queue disable notification error {}", e);
+        }
     }
 
     /// Return the value present in the used_event field of the avail ring.
@@ -715,7 +721,7 @@ impl<M: GuestAddressSpace, C: BorrowMut<QueueConfig>> Queue<M, C> {
     /// driver will actually be notified, remember the associated index in the used ring, and
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
-    pub fn needs_notification(&mut self) -> Result<bool, Error> {
+    pub fn needs_notification(&mut self) -> bool {
         let cfg = self.config_mut();
         let used_idx = cfg.next_used;
 
@@ -725,19 +731,28 @@ impl<M: GuestAddressSpace, C: BorrowMut<QueueConfig>> Queue<M, C> {
         // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
         if cfg.event_idx_enabled {
             if let Some(old_idx) = cfg.signalled_used.replace(used_idx) {
-                let used_event = self.used_event(Ordering::Relaxed)?;
-                // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
-                // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
-                // than or equal to the difference between `used_idx` and `old_idx`, then
-                // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
-                // we don't need to elicit another notification.
-                if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
-                    return Ok(false);
+                if let Ok(used_event) = self.used_event(Ordering::Relaxed) {
+                    // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
+                    // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
+                    // than or equal to the difference between `used_idx` and `old_idx`, then
+                    // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
+                    // we don't need to elicit another notification.
+                    if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
+                        return false;
+                    }
                 }
             }
         }
+        true
+    }
 
-        Ok(true)
+    /// Pop and return the next available descriptor chain. Returns `None` if no more
+    /// descriptor chains are available.
+    pub fn pop_descriptor_chain(&mut self) -> Option<DescriptorChain<M>> {
+        // The current implementation merely creates a new `AvailIter` and calls `next` once.
+        // TODO: Improve this if there's a performance impact or we get rid of `AvailIter`
+        // altogether.
+        self.iter().map(|mut i| i.next()).unwrap_or(None)
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
