@@ -83,6 +83,8 @@ pub enum Error {
     InvalidFlags,
     /// Invalid data length of request.
     InvalidDataLength,
+    /// Overflow when computing memory address.
+    Overflow,
     /// Error during read request execution.
     Read(GuestMemoryError),
     /// Can't execute an operation other than `read` on a read-only device.
@@ -104,6 +106,7 @@ impl Error {
             Error::InvalidAccess => VIRTIO_BLK_S_IOERR,
             Error::InvalidFlags => VIRTIO_BLK_S_UNSUPP,
             Error::InvalidDataLength => VIRTIO_BLK_S_IOERR,
+            Error::Overflow => VIRTIO_BLK_S_IOERR,
             Error::Read(_) => VIRTIO_BLK_S_IOERR,
             Error::ReadOnly => VIRTIO_BLK_S_IOERR,
             Error::Write(_) => VIRTIO_BLK_S_IOERR,
@@ -126,6 +129,7 @@ impl Display for Error {
             InvalidAccess => write!(f, "invalid file access"),
             InvalidDataLength => write!(f, "invalid data length of request"),
             InvalidFlags => write!(f, "invalid flags for discard/write zeroes request"),
+            Overflow => write!(f, "overflow when computing memory address"),
             Read(ref err) => write!(f, "error accessing guest memory: {}", err),
             ReadOnly => write!(
                 f,
@@ -367,13 +371,16 @@ impl<B: Backend> StdIoBackend<B> {
                     }
                     let mut available_bytes = *data_len as u64;
                     let mut crt_addr = *data_addr;
+                    crt_addr
+                        .checked_add(*data_len as u64)
+                        .ok_or(Error::Overflow)?;
 
                     while available_bytes >= DiscardWriteZeroes::LEN {
                         let segment = mem.read_obj(crt_addr).map_err(Error::GuestMemory)?;
                         self.handle_discard_write_zeroes(&segment, request.request_type())?;
                         // Using `unchecked_add` here, since the overflow is not possible at this
-                        // point (it is checked when parsing the request) and `read_obj` fails if
-                        // the memory access is invalid.
+                        // point (it is checked right before the current loop) and `read_obj` fails
+                        // if the memory access is invalid.
                         crt_addr = crt_addr.unchecked_add(DiscardWriteZeroes::LEN);
                         available_bytes -= DiscardWriteZeroes::LEN;
                     }
@@ -458,6 +465,7 @@ mod tests {
                 (InvalidAccess, InvalidAccess) => true,
                 (InvalidDataLength, InvalidDataLength) => true,
                 (InvalidFlags, InvalidFlags) => true,
+                (Overflow, Overflow) => true,
                 (Read(ref e), Read(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
                 (ReadOnly, ReadOnly) => true,
                 (Write(ref e), Write(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
@@ -914,6 +922,21 @@ mod tests {
         assert_eq!(
             req_exec.execute(&mem, &discard_req).unwrap_err(),
             Error::InvalidDataLength
+        );
+
+        // Test discard request with an invalid memory access that would cause an overflow.
+        let discard_req = Request::new(
+            RequestType::Discard,
+            vec![(
+                GuestAddress(u64::MAX - DiscardWriteZeroes::LEN),
+                2 * DiscardWriteZeroes::LEN as u32,
+            )],
+            7,
+            GuestAddress(0x2000),
+        );
+        assert_eq!(
+            req_exec.execute(&mem, &discard_req).unwrap_err(),
+            Error::Overflow
         );
 
         // Test discard request with invalid sectors.

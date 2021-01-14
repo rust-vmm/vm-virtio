@@ -24,7 +24,7 @@
 //! approach.
 
 use std::fmt::{self, Display};
-use std::{mem, result};
+use std::result;
 
 use crate::{
     block::defs::{
@@ -173,22 +173,16 @@ impl Request {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        // Check that the address of the status descriptor is valid in guest memory.
+        // Check that the address of the status is valid in guest memory.
         // We will write an u8 status here after executing the request.
-        let _ = mem
-            .checked_offset(desc.addr(), mem::size_of::<u8>())
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
+        let _ = mem.check_address(desc.addr()).ok_or_else(|| {
+            Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
+        })?;
         Ok(())
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid data descriptor.
-    fn check_data_desc<M: GuestMemory>(
-        mem: &M,
-        desc: Descriptor,
-        request_type: RequestType,
-    ) -> Result<()> {
+    fn check_data_desc(desc: Descriptor, request_type: RequestType) -> Result<()> {
         // We do this check only for the device-readable buffers, as opposed to
         // also check that the device doesn't want to read a device-writable buffer
         // because this one is not a MUST (the device MAY do that for debugging or
@@ -196,13 +190,6 @@ impl Request {
         if !desc.is_write_only() && request_type == RequestType::In {
             return Err(Error::UnexpectedReadOnlyDescriptor);
         }
-
-        // Check that the address of the data descriptor is valid in guest memory.
-        let _ = mem
-            .checked_offset(desc.addr(), desc.len() as usize)
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
         Ok(())
     }
 
@@ -243,7 +230,7 @@ impl Request {
         let mut desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
         while desc.has_next() {
-            Request::check_data_desc::<<M>::M>(desc_chain.memory(), desc, request.request_type)?;
+            Request::check_data_desc(desc, request.request_type)?;
 
             request.data.push((desc.addr(), desc.len()));
             desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
@@ -428,31 +415,6 @@ mod tests {
         assert_eq!(
             Request::parse(&mut chain).unwrap_err(),
             Error::UnexpectedReadOnlyDescriptor
-        );
-
-        // Invalid data buffer address.
-        let v = vec![
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0xFFF_FFF0, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x200, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x40_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-        ];
-        let req_header = RequestHeader {
-            request_type: VIRTIO_BLK_T_OUT,
-            _reserved: 0,
-            sector: 2,
-        };
-        mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
-            .unwrap();
-
-        let mut chain = build_desc_chain(&mem, &v[..4]);
-
-        // The first data descriptor would cause a write beyond memory capacity.
-        assert_eq!(
-            Request::parse(&mut chain).unwrap_err(),
-            Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(GuestAddress(
-                0xFFF_FFF0,
-            )))
         );
 
         // Invalid status address.
