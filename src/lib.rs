@@ -17,6 +17,8 @@ extern crate vmm_sys_util;
 /// Provides abstractions for virtio block device.
 pub mod block;
 pub mod device;
+mod error;
 mod queue;
 
+pub use self::error::*;
 pub use self::queue::*;
