@@ -86,7 +86,8 @@ pub enum Error {
     /// Overflow when computing memory address.
     Overflow,
     /// Error during read request execution.
-    Read(GuestMemoryError),
+    // The `u32` represents the number of bytes written to memory until the error occurred.
+    Read(GuestMemoryError, u32),
     /// Can't execute an operation other than `read` on a read-only device.
     ReadOnly,
     /// Error during write request execution.
@@ -107,7 +108,7 @@ impl Error {
             Error::InvalidFlags => VIRTIO_BLK_S_UNSUPP,
             Error::InvalidDataLength => VIRTIO_BLK_S_IOERR,
             Error::Overflow => VIRTIO_BLK_S_IOERR,
-            Error::Read(_) => VIRTIO_BLK_S_IOERR,
+            Error::Read(_, _) => VIRTIO_BLK_S_IOERR,
             Error::ReadOnly => VIRTIO_BLK_S_IOERR,
             Error::Write(_) => VIRTIO_BLK_S_IOERR,
             Error::Seek(_) => VIRTIO_BLK_S_IOERR,
@@ -130,7 +131,7 @@ impl Display for Error {
             InvalidDataLength => write!(f, "invalid data length of request"),
             InvalidFlags => write!(f, "invalid flags for discard/write zeroes request"),
             Overflow => write!(f, "overflow when computing memory address"),
-            Read(ref err) => write!(f, "error accessing guest memory: {}", err),
+            Read(ref err, _) => write!(f, "error during read request execution: {}", err),
             ReadOnly => write!(
                 f,
                 "can't execute an operation other than `read` on a read-only device"
@@ -231,8 +232,9 @@ impl<B: Backend> StdIoBackend<B> {
         self.num_sectors
     }
 
-    /// Processes the `request` execution result, writes its status in memory and returns the total
-    /// number of bytes written into the memory buffer.
+    /// Processes the `request` execution result, writes its status in memory and returns the used
+    /// length (i.e. the total number of bytes written into the memory buffer, including the status
+    /// byte).
     ///
     /// # Arguments
     /// * `mem` - A reference to the guest memory.
@@ -246,7 +248,10 @@ impl<B: Backend> StdIoBackend<B> {
             Ok(length) => (VIRTIO_BLK_S_OK, length),
             Err(e) => {
                 error!("failed executing block request: {}", e);
-                (e.status(), 0)
+                match e {
+                    Error::Read(_, bytes_to_mem) => (e.status(), bytes_to_mem),
+                    _ => (e.status(), 0),
+                }
             }
         };
         mem.write_obj(status, request.status_addr())?;
@@ -284,7 +289,7 @@ impl<B: Backend> StdIoBackend<B> {
     }
 
     /// Executes `request` Request on `B` and `mem` and returns the number of bytes that were
-    /// read from the device.
+    /// written into the memory buffer during execution (status byte not included).
     ///
     /// # Arguments
     /// * `mem` - A reference to the guest memory.
@@ -299,7 +304,7 @@ impl<B: Backend> StdIoBackend<B> {
             .map_err(Error::Seek)?;
         // This will count the number of bytes written by the device to the memory. It must fit in
         // an u32 for further writing in the used ring.
-        let mut bytes_from_dev: u32 = 0;
+        let mut bytes_to_mem: u32 = 0;
         let request_type = request.request_type();
         self.check_request(request_type)?;
 
@@ -320,10 +325,21 @@ impl<B: Backend> StdIoBackend<B> {
                 }
                 for (data_addr, data_len) in request.data() {
                     mem.read_exact_from(*data_addr, &mut self.inner, *data_len as usize)
-                        .map_err(Error::Read)?;
+                        .map_err(|e| {
+                            if let GuestMemoryError::PartialBuffer {
+                                completed,
+                                expected: _,
+                            } = e
+                            {
+                                // The `as u32` cast is safe, since completed < data_len (which is
+                                // an u32).
+                                bytes_to_mem += completed as u32
+                            }
+                            Error::Read(e, bytes_to_mem)
+                        })?;
                     // This can not overflow since we checked right before the loop that `total_len`
                     // fits in an u32.
-                    bytes_from_dev += data_len;
+                    bytes_to_mem += data_len;
                 }
             }
             RequestType::Out => {
@@ -348,14 +364,24 @@ impl<B: Backend> StdIoBackend<B> {
                     // is VIRTIO_BLK_ID_BYTES, which is the size of the id as well.
                     mem.read_exact_from(
                         *data_addr,
-                        &mut &device_id
-                            [bytes_from_dev as usize..(*data_len + bytes_from_dev) as usize],
+                        &mut &device_id[bytes_to_mem as usize..(*data_len + bytes_to_mem) as usize],
                         *data_len as usize,
                     )
-                    .map_err(Error::Read)?;
+                    .map_err(|e| {
+                        if let GuestMemoryError::PartialBuffer {
+                            completed,
+                            expected: _,
+                        } = e
+                        {
+                            // The `as u32` cast is safe, since completed < data_len (which is an
+                            // u32).
+                            bytes_to_mem += completed as u32
+                        }
+                        Error::Read(e, bytes_to_mem)
+                    })?;
                     // This can not overflow since total data length = VIRTIO_BLK_ID_BYTES for sure
                     // at this point.
-                    bytes_from_dev += data_len;
+                    bytes_to_mem += data_len;
                 }
             }
             RequestType::Discard | RequestType::WriteZeroes => {
@@ -389,7 +415,7 @@ impl<B: Backend> StdIoBackend<B> {
             RequestType::Unsupported(t) => return Err(Error::Unsupported(t)),
         };
 
-        Ok(bytes_from_dev)
+        Ok(bytes_to_mem)
     }
 
     fn handle_discard_write_zeroes(
@@ -466,7 +492,9 @@ mod tests {
                 (InvalidDataLength, InvalidDataLength) => true,
                 (InvalidFlags, InvalidFlags) => true,
                 (Overflow, Overflow) => true,
-                (Read(ref e), Read(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
+                (Read(ref e, bytes), Read(ref other_e, other_bytes)) => {
+                    format!("{}", e).eq(&format!("{}", other_e)) && bytes == other_bytes
+                }
                 (ReadOnly, ReadOnly) => true,
                 (Write(ref e), Write(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
                 (Seek(ref e), Seek(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
@@ -667,10 +695,13 @@ mod tests {
         );
         assert_eq!(
             req_exec.execute(&mem, &in_req).unwrap_err(),
-            Error::Read(PartialBuffer {
-                expected: 512,
-                completed: 16
-            })
+            Error::Read(
+                PartialBuffer {
+                    expected: 512,
+                    completed: 16
+                },
+                16
+            )
         );
 
         // Invalid request type.
@@ -1178,6 +1209,44 @@ mod tests {
             GuestAddress(0x200),
         );
         assert_eq!(req_exec.process_request(&mem, &out_req).unwrap(), 1);
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR
+        );
+
+        // Invalid memory address for read operation.
+        let in_req = Request::new(
+            RequestType::In,
+            vec![(GuestAddress(0xFFF_FFF0), 0x200)],
+            7,
+            GuestAddress(0x200),
+        );
+        assert_eq!(
+            req_exec.process_request(&mem, &in_req).unwrap(),
+            0x1000_0000 - 0xFFF_FFF0 + 1
+        );
+        assert_eq!(
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR
+        );
+
+        let dev_id = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x00A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
+        ];
+        req_exec = req_exec.with_device_id(dev_id);
+
+        // Invalid memory address for get device id operation.
+        let get_id_req = Request::new(
+            RequestType::GetDeviceID,
+            vec![(GuestAddress(0xFFF_FFFA), VIRTIO_BLK_ID_BYTES as u32)],
+            7,
+            GuestAddress(0x200),
+        );
+        assert_eq!(
+            req_exec.process_request(&mem, &get_id_req).unwrap(),
+            0x1000_0000 - 0xFFF_FFFA + 1
+        );
         assert_eq!(
             mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
             VIRTIO_BLK_S_IOERR
