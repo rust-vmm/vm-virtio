@@ -20,6 +20,14 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
+mod descriptor;
+mod descriptor_chain;
+mod iterator;
+
+pub use descriptor::Descriptor;
+pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
+pub use iterator::AvailIter;
+
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
 pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
@@ -76,279 +84,6 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-/// A split virtio descriptor to encapsulate a driver data buffer.
-///
-/// The descriptor table refers to the buffers the driver is using for the device. The `addr` is
-/// a physical address, and the buffers can be chained via next. Each descriptor describes a
-/// buffer which is read-only for the device (“device-readable”) or write-only for the device
-/// (“device-writable”), but a chain of descriptors can contain both device-readable and
-/// device-writable buffers.
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-pub struct Descriptor {
-    /// Guest physical address of the data buffer.
-    addr: u64,
-
-    /// Length of the data buffer.
-    len: u32,
-
-    /// Data buffer flags, including the next, write, and indirect bits.
-    flags: u16,
-
-    /// Index into the descriptor table of the next descriptor if flags has the next bit set.
-    next: u16,
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl Descriptor {
-    /// Return the guest physical address of descriptor buffer.
-    pub fn addr(&self) -> GuestAddress {
-        GuestAddress(self.addr)
-    }
-
-    /// Return the length of descriptor buffer.
-    pub fn len(&self) -> u32 {
-        self.len
-    }
-
-    /// Return the flags for this descriptor, including next, write and indirect bits.
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// Return the value stored in the `next` field of the descriptor.
-    pub fn next(&self) -> u16 {
-        self.next
-    }
-
-    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
-    pub fn has_next(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_NEXT != 0
-    }
-
-    /// Check whether this is an indirect descriptor.
-    pub fn is_indirect(&self) -> bool {
-        // TODO: The are a couple of restrictions in terms of which flags combinations are
-        // actually valid for indirect descriptors. Implement those checks as well somewhere.
-        self.flags() & VIRTQ_DESC_F_INDIRECT != 0
-    }
-
-    /// Checks if the driver designated this as a write only descriptor.
-    ///
-    /// If this is false, this descriptor is read only.
-    /// Write only means the the emulated device can write and the driver can read.
-    pub fn is_write_only(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_WRITE != 0
-    }
-}
-
-unsafe impl ByteValued for Descriptor {}
-
-/// A virtio descriptor chain.
-#[derive(Clone)]
-pub struct DescriptorChain<M: GuestAddressSpace> {
-    mem: M::T,
-    desc_table: GuestAddress,
-    queue_size: u16,
-    head_index: u16,
-    next_index: u16,
-    ttl: u16,
-    is_indirect: bool,
-}
-
-impl<M: GuestAddressSpace> DescriptorChain<M> {
-    fn with_ttl(
-        mem: M::T,
-        desc_table: GuestAddress,
-        queue_size: u16,
-        ttl: u16,
-        head_index: u16,
-    ) -> Self {
-        DescriptorChain {
-            mem,
-            desc_table,
-            queue_size,
-            head_index,
-            next_index: head_index,
-            ttl,
-            is_indirect: false,
-        }
-    }
-
-    /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
-        Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
-    }
-
-    /// Get the descriptor index of the chain header
-    pub fn head_index(&self) -> u16 {
-        self.head_index
-    }
-
-    /// Return a `GuestMemory` object that can be used to access the buffers
-    /// pointed to by the descriptor chain.
-    pub fn memory(&self) -> &M::M {
-        &*self.mem
-    }
-
-    /// Returns an iterator that only yields the readable descriptors in the chain.
-    pub fn readable(self) -> DescriptorChainRwIter<M> {
-        DescriptorChainRwIter {
-            chain: self,
-            writable: false,
-        }
-    }
-
-    /// Returns an iterator that only yields the writable descriptors in the chain.
-    pub fn writable(self) -> DescriptorChainRwIter<M> {
-        DescriptorChainRwIter {
-            chain: self,
-            writable: true,
-        }
-    }
-
-    // Alters the internal state of the `DescriptorChain` to switch iterating over an
-    // indirect descriptor table defined by `desc`.
-    fn process_indirect_descriptor(&mut self, desc: Descriptor) -> Result<(), Error> {
-        if self.is_indirect {
-            return Err(Error::InvalidIndirectDescriptor);
-        }
-
-        let table_len = (desc.len as usize) / VIRTQ_DESCRIPTOR_SIZE;
-        // Check the target indirect descriptor table is correctly aligned.
-        if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
-            || (desc.len as usize) & (VIRTQ_DESCRIPTOR_SIZE - 1) != 0
-            || table_len > usize::from(std::u16::MAX)
-        {
-            return Err(Error::InvalidIndirectDescriptorTable);
-        }
-
-        self.desc_table = desc.addr();
-        self.queue_size = table_len as u16;
-        self.next_index = 0;
-        self.ttl = self.queue_size;
-        self.is_indirect = true;
-
-        Ok(())
-    }
-}
-
-impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
-    type Item = Descriptor;
-
-    /// Returns the next descriptor in this descriptor chain, if there is one.
-    ///
-    /// Note that this is distinct from the next descriptor chain returned by
-    /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
-    /// _available_ descriptor chain.
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.ttl == 0 || self.next_index >= self.queue_size {
-            return None;
-        }
-
-        // It's ok to use `unchecked_add` here because we previously verify the index does not
-        // exceed the queue size, and the descriptor table location is expected to have been
-        // validate before (for example, before activating a device). Moreover, this cannot
-        // lead to unsafety because the actual memory accesses are always checked.
-        let desc_addr = self
-            .desc_table
-            .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
-
-        let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
-
-        if desc.is_indirect() {
-            self.process_indirect_descriptor(desc).ok()?;
-            return self.next();
-        }
-
-        if desc.has_next() {
-            self.next_index = desc.next();
-            // It's ok to decrement `self.ttl` here because we check at the start of the method
-            // that it's greater than 0.
-            self.ttl -= 1;
-        } else {
-            self.ttl = 0;
-        }
-
-        Some(desc)
-    }
-}
-
-/// An iterator for readable or writable descriptors.
-pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
-    chain: DescriptorChain<M>,
-    writable: bool,
-}
-
-impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
-    type Item = Descriptor;
-
-    /// Returns the next descriptor in this descriptor chain, if there is one.
-    ///
-    /// Note that this is distinct from the next descriptor chain returned by
-    /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
-    /// _available_ descriptor chain.
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.chain.next() {
-                Some(v) => {
-                    if v.is_write_only() == self.writable {
-                        return Some(v);
-                    }
-                }
-                None => return None,
-            }
-        }
-    }
-}
-
-/// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'b, M: GuestAddressSpace> {
-    mem: M::T,
-    desc_table: GuestAddress,
-    avail_ring: GuestAddress,
-    last_index: Wrapping<u16>,
-    queue_size: u16,
-    next_avail: &'b mut Wrapping<u16>,
-}
-
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
-    type Item = DescriptorChain<M>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if *self.next_avail == self.last_index {
-            return None;
-        }
-
-        // This computation cannot overflow because all the values involved are actually
-        // `u16`s cast to `u64`.
-        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE
-            + (self.next_avail.0 % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
-
-        // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
-        // as the index is within bounds. We do not currently enforce that a queue is only used
-        // after checking `is_valid`, but rather expect the device implementations to do so
-        // before activation. The standard also forbids drivers to change queue parameters
-        // while the device is "running". A warp-around cannot lead to unsafe memory accesses
-        // because the memory model performs its own validations.
-        let addr = self.avail_ring.unchecked_add(offset);
-        let head_index: u16 = self
-            .mem
-            .read_obj(addr)
-            .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
-            .ok()?;
-
-        *self.next_avail += Wrapping(1);
-
-        Some(DescriptorChain::new(
-            self.mem.clone(),
-            self.desc_table,
-            self.queue_size,
-            head_index,
-        ))
-    }
-}
 
 /// Represents the contents of an element from the used virtqueue ring.
 #[repr(C)]
@@ -524,14 +259,8 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
-        self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
-            mem: self.mem.memory(),
-            desc_table: self.desc_table,
-            avail_ring: self.avail_ring,
-            last_index: idx,
-            queue_size: self.actual_size(),
-            next_avail: &mut self.next_avail,
-        })
+        self.avail_idx(Ordering::Acquire)
+            .map(move |idx| AvailIter::new(self, idx))
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
@@ -754,7 +483,7 @@ pub(crate) mod tests {
     }
 
     impl<'a> VirtqDesc<'a> {
-        fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
+        pub fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
             let desc = dtable
                 .get_slice((i as usize) * Self::dtable_len(1), Self::dtable_len(1))
                 .unwrap();
@@ -784,7 +513,7 @@ pub(crate) mod tests {
             self.next().store(next);
         }
 
-        fn dtable_len(nelem: u16) -> usize {
+        pub fn dtable_len(nelem: u16) -> usize {
             16 * nelem as usize
         }
     }
@@ -959,65 +688,6 @@ pub(crate) mod tests {
         assert_eq!(offset_of!(Descriptor, len), 8);
         assert_eq!(offset_of!(Descriptor, flags), 12);
         assert_eq!(offset_of!(Descriptor, next), 14);
-    }
-
-    #[test]
-    fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
-
-        assert!(vq.end().0 < 0x1000);
-
-        // index >= queue_size
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16)
-                .next()
-                .is_none()
-        );
-
-        // desc_table address is way off
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
-                .next()
-                .is_none()
-        );
-
-        {
-            // the first desc has a normal len, and the next_descriptor flag is set
-            vq.dtable(0).addr().store(0x1000);
-            vq.dtable(0).len().store(0x1000);
-            vq.dtable(0).flags().store(VIRTQ_DESC_F_NEXT);
-            //..but the the index of the next descriptor is too large
-            vq.dtable(0).next().store(16);
-
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
-            c.next().unwrap();
-            assert!(c.next().is_none());
-        }
-
-        // finally, let's test an ok chain
-        {
-            vq.dtable(0).next().store(1);
-            vq.dtable(1).set(0x2000, 0x1000, 0, 0);
-
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
-
-            assert_eq!(
-                c.memory() as *const GuestMemoryMmap,
-                m as *const GuestMemoryMmap
-            );
-            assert_eq!(c.desc_table, vq.dtable_start());
-            assert_eq!(c.queue_size, 16);
-            assert_eq!(c.ttl, c.queue_size);
-            let desc = c.next().unwrap();
-            assert_eq!(desc.addr(), GuestAddress(0x1000));
-            assert_eq!(desc.len(), 0x1000);
-            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-            assert_eq!(desc.next, 1);
-
-            assert!(c.next().is_some());
-            assert!(c.next().is_none());
-        }
     }
 
     #[test]
