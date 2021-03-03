@@ -14,7 +14,8 @@ use std::cmp::min;
 use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{fence, AtomicU16, Ordering};
+use std::sync::Arc;
 
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
@@ -105,6 +106,33 @@ impl VirtqUsedElem {
 
 unsafe impl ByteValued for VirtqUsedElem {}
 
+/// Sharable ring position for next available entry.
+#[derive(Clone, Default)]
+pub struct Position(Arc<AtomicU16>);
+
+impl Position {
+    /// Create a ring position object with specified value.
+    pub fn new(val: u16) -> Self {
+        Position(Arc::new(AtomicU16::new(val)))
+    }
+
+    fn get(&self) -> u16 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn set(&self, val: u16) {
+        self.0.store(val, Ordering::Release);
+    }
+
+    fn inc(&self) -> u16 {
+        self.0.fetch_add(1, Ordering::Release)
+    }
+
+    fn dec(&self) -> u16 {
+        self.0.fetch_sub(1, Ordering::Release)
+    }
+}
+
 #[derive(Clone)]
 /// A virtio queue's parameters.
 pub struct Queue<M: GuestAddressSpace> {
@@ -113,8 +141,8 @@ pub struct Queue<M: GuestAddressSpace> {
     /// The maximal size in elements offered by the device
     max_size: u16,
 
-    next_avail: Wrapping<u16>,
-    next_used: Wrapping<u16>,
+    next_avail: Position,
+    next_used: Position,
 
     /// VIRTIO_F_RING_EVENT_IDX negotiated
     pub event_idx_enabled: bool,
@@ -149,8 +177,8 @@ impl<M: GuestAddressSpace> Queue<M> {
             desc_table: GuestAddress(0),
             avail_ring: GuestAddress(0),
             used_ring: GuestAddress(0),
-            next_avail: Wrapping(0),
-            next_used: Wrapping(0),
+            next_avail: Position::new(0),
+            next_used: Position::new(0),
             event_idx_enabled: false,
             signalled_used: None,
         }
@@ -174,8 +202,8 @@ impl<M: GuestAddressSpace> Queue<M> {
         self.desc_table = GuestAddress(0);
         self.avail_ring = GuestAddress(0);
         self.used_ring = GuestAddress(0);
-        self.next_avail = Wrapping(0);
-        self.next_used = Wrapping(0);
+        self.next_avail = Position::new(0);
+        self.next_used = Position::new(0);
         self.signalled_used = None;
         self.event_idx_enabled = false;
     }
@@ -258,7 +286,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
+    pub fn iter(&mut self) -> Result<AvailIter<M>, Error> {
         self.avail_idx(Ordering::Acquire)
             .map(move |idx| AvailIter::new(self, idx))
     }
@@ -274,15 +302,15 @@ impl<M: GuestAddressSpace> Queue<M> {
         }
 
         let mem = self.mem.memory();
-        let next_used_index = u64::from(self.next_used.0 % self.actual_size());
+        let next_used_index = u64::from(self.next_used.get() % self.actual_size());
         let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
         mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
             .map_err(Error::GuestMemory)?;
 
-        self.next_used += Wrapping(1);
+        self.next_used.inc();
 
         mem.store(
-            self.next_used.0,
+            self.next_used.get(),
             self.used_ring.unchecked_add(2),
             Ordering::Release,
         )
@@ -317,7 +345,7 @@ impl<M: GuestAddressSpace> Queue<M> {
                 // We call `set_avail_event` using the `next_avail` value, instead of reading
                 // and using the current `avail_idx` to avoid missing notifications. More
                 // details in `enable_notification`.
-                self.set_avail_event(self.next_avail.0, Ordering::Relaxed)?;
+                self.set_avail_event(self.next_avail.get(), Ordering::Relaxed)?;
             } else {
                 self.set_used_flags(0, Ordering::Relaxed)?;
             }
@@ -367,7 +395,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         // available ring (which will cause this method to return `true`), but in that case we'll
         // probably not re-enable notifications as we already know there are pending entries.
         self.avail_idx(Ordering::Relaxed)
-            .map(|idx| idx != self.next_avail)
+            .map(|idx| idx.0 != self.next_avail.get())
     }
 
     /// Disable notification events from the guest driver.
@@ -406,7 +434,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
     pub fn needs_notification(&mut self) -> Result<bool, Error> {
-        let used_idx = self.next_used;
+        let used_idx = Wrapping(self.next_used.get());
 
         // Complete all the writes in add_used() before reading the event.
         fence(Ordering::SeqCst);
@@ -433,17 +461,17 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// Rust does not support bidirectional iterators. This is the only way to revert the effect
     /// of an iterator increment on the queue.
     pub fn go_to_previous_position(&mut self) {
-        self.next_avail -= Wrapping(1);
+        self.next_avail.dec();
     }
 
     /// Returns the index for the next descriptor in the available ring.
     pub fn next_avail(&self) -> u16 {
-        self.next_avail.0
+        self.next_avail.get()
     }
 
     /// Sets the index for the next descriptor in the available ring.
     pub fn set_next_avail(&mut self, next_avail: u16) {
-        self.next_avail = Wrapping(next_avail);
+        self.next_avail.set(next_avail);
     }
 }
 
@@ -970,7 +998,7 @@ pub(crate) mod tests {
 
         //should be ok
         q.add_used(1, 0x1000).unwrap();
-        assert_eq!(q.next_used, Wrapping(1));
+        assert_eq!(q.next_used.get(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
@@ -1000,7 +1028,7 @@ pub(crate) mod tests {
 
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
-            q.next_used = Wrapping(i);
+            q.next_used.set(i);
             assert_eq!(q.needs_notification().unwrap(), true);
         }
 
@@ -1012,7 +1040,7 @@ pub(crate) mod tests {
         let wrap = u32::from(u16::MAX) + 1;
 
         for i in 0..wrap + 12 {
-            q.next_used = Wrapping(i as u16);
+            q.next_used.set(i as u16);
             // Let's test wrapping around the maximum index value as well.
             let expected = i == 5 || i == (5 + wrap) || q.signalled_used.is_none();
             assert_eq!(q.needs_notification().unwrap(), expected);
@@ -1027,9 +1055,9 @@ pub(crate) mod tests {
         m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + 16 * 2))
             .unwrap();
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(15);
+        q.next_used.set(15);
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(0);
+        q.next_used.set(0);
         assert_eq!(q.needs_notification().unwrap(), true);
         assert_eq!(q.needs_notification().unwrap(), false);
     }
@@ -1060,13 +1088,32 @@ pub(crate) mod tests {
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(2);
+        q.next_avail.set(2);
         assert_eq!(q.enable_notification().unwrap(), false);
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(8);
+        q.next_avail.set(8);
         assert_eq!(q.enable_notification().unwrap(), false);
+    }
+
+    #[test]
+    fn test_position() {
+        let pos = Position::new(0);
+
+        assert_eq!(pos.get(), 0);
+        pos.inc();
+        assert_eq!(pos.get(), 1);
+        pos.dec();
+        assert_eq!(pos.get(), 0);
+        pos.dec();
+        assert_eq!(pos.get(), 0xffff);
+        pos.inc();
+        assert_eq!(pos.get(), 0);
+
+        let pos1 = pos.clone();
+        pos.inc();
+        assert_eq!(pos1.get(), 1);
     }
 }

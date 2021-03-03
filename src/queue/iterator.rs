@@ -14,44 +14,46 @@ use std::num::Wrapping;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestAddressSpace};
 
-use super::{DescriptorChain, Queue, VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
+use super::{
+    DescriptorChain, Position, Queue, VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE,
+};
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'b, M: GuestAddressSpace> {
+pub struct AvailIter<M: GuestAddressSpace> {
     pub(crate) mem: M::T,
     pub(crate) desc_table: GuestAddress,
     pub(crate) avail_ring: GuestAddress,
     pub(crate) last_index: Wrapping<u16>,
     pub(crate) queue_size: u16,
-    pub(crate) next_avail: &'b mut Wrapping<u16>,
+    pub(crate) next_avail: Position,
 }
 
-impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
+impl<M: GuestAddressSpace> AvailIter<M> {
     /// Create a available descriptor iterator, starting at `idx`.
-    pub fn new(queue: &'b mut Queue<M>, idx: Wrapping<u16>) -> Self {
+    pub fn new(queue: &mut Queue<M>, idx: Wrapping<u16>) -> Self {
         AvailIter {
             mem: queue.mem.memory(),
             desc_table: queue.desc_table,
             avail_ring: queue.avail_ring,
             last_index: idx,
             queue_size: queue.actual_size(),
-            next_avail: &mut queue.next_avail,
+            next_avail: queue.next_avail.clone(),
         }
     }
 }
 
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
+impl<M: GuestAddressSpace> Iterator for AvailIter<M> {
     type Item = DescriptorChain<M>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if *self.next_avail == self.last_index {
+        if self.next_avail.get() == self.last_index.0 {
             return None;
         }
 
         // This computation cannot overflow because all the values involved are actually
         // `u16`s cast to `u64`.
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE
-            + (self.next_avail.0 % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
+            + (self.next_avail.get() % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
 
         // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
         // as the index is within bounds. We do not currently enforce that a queue is only used
@@ -66,7 +68,7 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
             .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
             .ok()?;
 
-        *self.next_avail += Wrapping(1);
+        self.next_avail.inc();
 
         Some(DescriptorChain::new(
             self.mem.clone(),
