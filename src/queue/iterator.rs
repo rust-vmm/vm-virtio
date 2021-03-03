@@ -15,7 +15,8 @@ use std::num::Wrapping;
 use vm_memory::{Address, Bytes, GuestAddress, GuestAddressSpace};
 
 use super::{
-    DescriptorChain, Position, Queue, VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE,
+    DescriptorChain, Position, Queue, QueueConfigT, VIRTQ_AVAIL_ELEMENT_SIZE,
+    VIRTQ_AVAIL_RING_HEADER_SIZE,
 };
 
 /// Consuming iterator over all available descriptor chain heads in the queue.

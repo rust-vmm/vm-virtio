@@ -21,12 +21,14 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
+mod config;
 mod descriptor;
 mod descriptor_chain;
 mod iterator;
 mod sinker;
 mod source;
 
+pub use config::QueueConfigT;
 pub use descriptor::Descriptor;
 pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
 pub use iterator::AvailIter;
@@ -188,97 +190,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         }
     }
 
-    /// Gets the virtio queue maximum size.
-    pub fn max_size(&self) -> u16 {
-        self.max_size
-    }
-
-    /// Return the actual size of the queue, as the driver may not set up a
-    /// queue as big as the device allows.
-    pub fn actual_size(&self) -> u16 {
-        min(self.size, self.max_size)
-    }
-
-    /// Reset the queue to a state that is acceptable for a device reset
-    pub fn reset(&mut self) {
-        self.ready = false;
-        self.size = self.max_size;
-        self.desc_table = GuestAddress(0);
-        self.avail_ring = GuestAddress(0);
-        self.used_ring = GuestAddress(0);
-        self.next_avail = Position::new(0);
-        self.next_used = Position::new(0);
-        self.signalled_used = None;
-        self.event_idx_enabled = false;
-    }
-
-    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
-    pub fn set_event_idx(&mut self, enabled: bool) {
-        self.signalled_used = None;
-        self.event_idx_enabled = enabled;
-    }
-
-    /// Check if the virtio queue configuration is valid.
-    pub fn is_valid(&self) -> bool {
-        let mem = self.mem.memory();
-        let queue_size = self.actual_size() as u64;
-        let desc_table = self.desc_table;
-        let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
-        let avail_ring = self.avail_ring;
-        let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
-        let used_ring = self.used_ring;
-        let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
-        if !self.ready {
-            error!("attempt to use virtio queue that is not marked ready");
-            false
-        } else if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0
-        {
-            error!("virtio queue with invalid size: {}", self.size);
-            false
-        } else if desc_table
-            .checked_add(desc_table_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
-            error!(
-                "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                desc_table.raw_value(),
-                desc_table_size
-            );
-            false
-        } else if avail_ring
-            .checked_add(avail_ring_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
-            error!(
-                "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                avail_ring.raw_value(),
-                avail_ring_size
-            );
-            false
-        } else if used_ring
-            .checked_add(used_ring_size)
-            .map_or(true, |v| !mem.address_in_range(v))
-        {
-            error!(
-                "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
-                used_ring.raw_value(),
-                used_ring_size
-            );
-            false
-        } else if desc_table.mask(0xf) != 0 {
-            error!("virtio queue descriptor table breaks alignment contraints");
-            false
-        } else if avail_ring.mask(0x1) != 0 {
-            error!("virtio queue available ring breaks alignment contraints");
-            false
-        } else if used_ring.mask(0x3) != 0 {
-            error!("virtio queue used ring breaks alignment contraints");
-            false
-        } else {
-            true
-        }
-    }
-
     /// Reads the `idx` field from the available ring.
     pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
         let addr = self.avail_ring.unchecked_add(2);
@@ -351,6 +262,143 @@ impl<M: GuestAddressSpace> Queue<M> {
         mem.load(used_event_addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
+    }
+}
+
+impl<M: GuestAddressSpace> QueueConfigT for Queue<M> {
+    /// Gets the virtio queue maximum size.
+    fn max_size(&self) -> u16 {
+        self.max_size
+    }
+
+    /// Return the actual size of the queue, as the driver may not set up a
+    /// queue as big as the device allows.
+    fn actual_size(&self) -> u16 {
+        min(self.size, self.max_size)
+    }
+
+    fn queue_size(&self) -> u16 {
+        self.size
+    }
+
+    fn set_queue_size(&mut self, size: u16) {
+        self.size = size;
+    }
+
+    fn desc_table_address(&self) -> GuestAddress {
+        self.desc_table
+    }
+
+    fn set_desc_table_address(&mut self, addr: GuestAddress) {
+        self.desc_table = addr;
+    }
+
+    fn avail_ring_address(&self) -> GuestAddress {
+        self.avail_ring
+    }
+
+    fn set_avail_ring_address(&mut self, addr: GuestAddress) {
+        self.avail_ring = addr;
+    }
+
+    fn used_ring_address(&self) -> GuestAddress {
+        self.used_ring
+    }
+
+    fn set_used_ring_address(&mut self, addr: GuestAddress) {
+        self.used_ring = addr;
+    }
+
+    fn event_idx(&self) -> bool {
+        self.event_idx_enabled
+    }
+
+    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
+    fn set_event_idx(&mut self, enabled: bool) {
+        self.signalled_used = None;
+        self.event_idx_enabled = enabled;
+    }
+
+    fn ready(&self) -> bool {
+        self.ready
+    }
+
+    fn set_ready(&mut self, ready: bool) {
+        self.ready = ready;
+    }
+
+    /// Reset the queue to a state that is acceptable for a device reset
+    fn reset(&mut self) {
+        self.ready = false;
+        self.size = self.max_size;
+        self.desc_table = GuestAddress(0);
+        self.avail_ring = GuestAddress(0);
+        self.used_ring = GuestAddress(0);
+        self.next_avail = Position::new(0);
+        self.next_used = Position::new(0);
+        self.signalled_used = None;
+        self.event_idx_enabled = false;
+    }
+
+    /// Check if the virtio queue configuration is valid.
+    fn is_valid(&self) -> bool {
+        let mem = self.mem.memory();
+        let queue_size = self.actual_size() as u64;
+        let desc_table = self.desc_table;
+        let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
+        let avail_ring = self.avail_ring;
+        let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
+        let used_ring = self.used_ring;
+        let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
+        if !self.ready {
+            error!("attempt to use virtio queue that is not marked ready");
+            false
+        } else if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0
+        {
+            error!("virtio queue with invalid size: {}", self.size);
+            false
+        } else if desc_table
+            .checked_add(desc_table_size)
+            .map_or(true, |v| !mem.address_in_range(v))
+        {
+            error!(
+                "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                desc_table.raw_value(),
+                desc_table_size
+            );
+            false
+        } else if avail_ring
+            .checked_add(avail_ring_size)
+            .map_or(true, |v| !mem.address_in_range(v))
+        {
+            error!(
+                "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                avail_ring.raw_value(),
+                avail_ring_size
+            );
+            false
+        } else if used_ring
+            .checked_add(used_ring_size)
+            .map_or(true, |v| !mem.address_in_range(v))
+        {
+            error!(
+                "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                used_ring.raw_value(),
+                used_ring_size
+            );
+            false
+        } else if desc_table.mask(0xf) != 0 {
+            error!("virtio queue descriptor table breaks alignment contraints");
+            false
+        } else if avail_ring.mask(0x1) != 0 {
+            error!("virtio queue available ring breaks alignment contraints");
+            false
+        } else if used_ring.mask(0x3) != 0 {
+            error!("virtio queue used ring breaks alignment contraints");
+            false
+        } else {
+            true
+        }
     }
 }
 
