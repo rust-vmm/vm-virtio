@@ -140,6 +140,48 @@ impl<S: QueueSourceT> QueueSourceT for RefCell<S> {
     }
 }
 
+/// A default implementation of [QueueSourceT](trait.QueueSourceT.html).
+pub struct QueueSource<M: GuestAddressSpace>(pub(crate) Arc<Mutex<Queue<M>>>);
+
+impl<M: GuestAddressSpace> Clone for QueueSource<M> {
+    fn clone(&self) -> Self {
+        QueueSource(self.0.clone())
+    }
+}
+
+impl<M: GuestAddressSpace> QueueSourceT for QueueSource<M> {
+    type M = M;
+    type I = AvailIter<M>;
+
+    fn source_ready(&self) -> bool {
+        self.0.lock().unwrap().source_ready()
+    }
+
+    fn next_avail(&self) -> u16 {
+        self.0.lock().unwrap().next_avail()
+    }
+
+    fn set_next_avail(&mut self, next_avail: u16) {
+        self.0.lock().unwrap().set_next_avail(next_avail)
+    }
+
+    fn iter(&mut self) -> Result<Self::I, Error> {
+        self.0.lock().unwrap().iter()
+    }
+
+    fn go_to_previous_position(&mut self) {
+        panic!("no support of 'go_to_previous_position', it should be removed!");
+    }
+
+    fn enable_notification(&mut self) -> Result<bool, Error> {
+        self.0.lock().unwrap().enable_notification()
+    }
+
+    fn disable_notification(&mut self) -> Result<(), Error> {
+        self.0.lock().unwrap().disable_notification()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::QueueConfigT;

@@ -15,7 +15,7 @@ use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, AtomicU16, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
@@ -28,12 +28,12 @@ mod iterator;
 mod sinker;
 mod source;
 
-pub use config::QueueConfigT;
+pub use config::{QueueConfig, QueueConfigT};
 pub use descriptor::Descriptor;
 pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
 pub use iterator::AvailIter;
-pub use sinker::QueueSinkerT;
-pub use source::QueueSourceT;
+pub use sinker::{QueueSinker, QueueSinkerT};
+pub use source::{QueueSource, QueueSourceT};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -92,6 +92,21 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A common interface to access virtio queues.
+///
+/// A queue includes two endpoints, one is used to receive available descriptors from the driver,
+/// the other is used to send used descriptors to the driver.
+pub trait QueueT: QueueSourceT + QueueSinkerT {
+    /// Check whether the queue is ready to process descriptors.
+    fn queue_ready(&self) -> bool;
+}
+
+impl<Q: QueueSourceT + QueueSinkerT> QueueT for Q {
+    fn queue_ready(&self) -> bool {
+        self.source_ready() && self.sinker_ready()
+    }
+}
+
 /// Represents the contents of an element from the used virtqueue ring.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -140,7 +155,33 @@ impl Position {
 }
 
 #[derive(Clone)]
-/// A virtio queue's parameters.
+/// A virtio queue to consume available descriptors and produce used descriptors.
+///
+/// A virtio queue is a duplex communication channel, it receives available descriptors from the
+/// driver and sends used descriptor to the driver. So it could be abstracted as a receive endpoint
+/// and a sender endpoint.
+///
+/// With virtio split queue, the receiver endpoint receives available descriptors from the driver
+/// by accessing the descriptor table and available ring. It also updates device event suppression
+/// status when receiving available descriptors. For the sender endpoint, it puts used descriptors
+/// into the used ring. It also queries driver event suppression status when sending used
+/// descriptors.
+///
+/// For virtio packed queue, it includes a descriptor table, a driver event suppression block and
+/// a device event suppression block. So packed queue could be abstracted in the same way as split
+/// queue.
+///
+/// Previously the `Queue` implementation is optimized for single thread environment, where a
+/// single thread worker receives available descriptors, handles these descriptors and then sends
+/// backed used descriptors in sequence. This mode limits the performance of high IO virtio
+/// backends, such as virtio-fs.
+///
+/// Now the `Queue` is split into two parts: the `QueueSource` for receiver and the
+/// `QueueSink` for sender. The `Queue::split_into_config_source_sinker()` method split a `Queue`
+/// struct into `QueueConfig`, `QueueSource` and `QueueSinker`.
+///
+/// But to simplify the implementation, the `Queue` struct is reused to implement source and sinker.
+/// Essentially QueueSource and QueueSinker are `Arc<Mutex<Queue>>`.
 pub struct Queue<M: GuestAddressSpace> {
     mem: M,
 
@@ -188,6 +229,30 @@ impl<M: GuestAddressSpace> Queue<M> {
             event_idx_enabled: false,
             signalled_used: None,
         }
+    }
+
+    /// Convert a `Queue` into `QueueConfig` and `Arc<Mutex<Queue>>`.
+    pub fn split_into_config_queue(self) -> (QueueConfig<M>, Arc<Mutex<Queue<M>>>) {
+        let max_size = self.max_size;
+        let queue = Arc::new(Mutex::new(self));
+        let source = QueueSource(queue.clone());
+        let sinker = QueueSinker(queue.clone());
+        let config = QueueConfig::new(max_size, source, sinker);
+
+        (config, queue)
+    }
+
+    /// Convert a `Queue` into `QueueConfig`, `QueueSource` and `QueueSinker`.
+    pub fn split_into_config_source_sinker(
+        self,
+    ) -> (QueueConfig<M>, QueueSource<M>, QueueSinker<M>) {
+        let max_size = self.max_size;
+        let queue = Arc::new(Mutex::new(self));
+        let source = QueueSource(queue.clone());
+        let sinker = QueueSinker(queue);
+        let config = QueueConfig::new(max_size, source.clone(), sinker.clone());
+
+        (config, source, sinker)
     }
 
     /// Reads the `idx` field from the available ring.

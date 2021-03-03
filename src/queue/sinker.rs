@@ -85,6 +85,37 @@ impl<S: QueueSinkerT> QueueSinkerT for RefCell<S> {
     }
 }
 
+/// A default implementation of [QueueSinkerT](trait.QueueSinkerT.html).
+pub struct QueueSinker<M: GuestAddressSpace>(pub(crate) Arc<Mutex<Queue<M>>>);
+
+impl<M: GuestAddressSpace> Clone for QueueSinker<M> {
+    fn clone(&self) -> Self {
+        QueueSinker(self.0.clone())
+    }
+}
+
+impl<M: GuestAddressSpace> QueueSinkerT for QueueSinker<M> {
+    fn sinker_ready(&self) -> bool {
+        self.0.lock().unwrap().sinker_ready()
+    }
+
+    fn next_used(&self) -> u16 {
+        self.0.lock().unwrap().next_used()
+    }
+
+    fn set_next_used(&mut self, next_used: u16) {
+        self.0.lock().unwrap().set_next_used(next_used)
+    }
+
+    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+        self.0.lock().unwrap().add_used(head_index, len)
+    }
+
+    fn needs_notification(&mut self) -> Result<bool, Error> {
+        self.0.lock().unwrap().needs_notification()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::tests::VirtQueue;
