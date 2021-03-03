@@ -14,11 +14,26 @@ use std::cmp::min;
 use std::fmt::{self, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{fence, AtomicU16, Ordering};
+use std::sync::{Arc, Mutex};
 
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
+
+mod config;
+mod descriptor;
+mod descriptor_chain;
+mod iterator;
+mod sinker;
+mod source;
+
+pub use config::{QueueConfig, QueueConfigT};
+pub use descriptor::Descriptor;
+pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
+pub use iterator::AvailIter;
+pub use sinker::{QueueSinker, QueueSinkerT};
+pub use source::{QueueSource, QueueSourceT};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -77,272 +92,18 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A virtio descriptor constraints with C representation
-#[repr(C)]
-#[derive(Default, Clone, Copy)]
-pub struct Descriptor {
-    /// Guest physical address of device specific data
-    addr: u64,
-
-    /// Length of device specific data
-    len: u32,
-
-    /// Includes next, write, and indirect bits
-    flags: u16,
-
-    /// Index into the descriptor table of the next descriptor if flags has
-    /// the next bit set
-    next: u16,
+/// A common interface to access virtio queues.
+///
+/// A queue includes two endpoints, one is used to receive available descriptors from the driver,
+/// the other is used to send used descriptors to the driver.
+pub trait QueueT: QueueSourceT + QueueSinkerT {
+    /// Check whether the queue is ready to process descriptors.
+    fn queue_ready(&self) -> bool;
 }
 
-#[allow(clippy::len_without_is_empty)]
-impl Descriptor {
-    /// Return the guest physical address of descriptor buffer
-    pub fn addr(&self) -> GuestAddress {
-        GuestAddress(self.addr)
-    }
-
-    /// Return the length of descriptor buffer
-    pub fn len(&self) -> u32 {
-        self.len
-    }
-
-    /// Return the flags for this descriptor, including next, write and indirect
-    /// bits
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// Return the value stored in the `next` field of the descriptor.
-    pub fn next(&self) -> u16 {
-        self.next
-    }
-
-    /// Check whether this is an indirect descriptor.
-    pub fn is_indirect(&self) -> bool {
-        // TODO: The are a couple of restrictions in terms of which flags combinations are
-        // actually valid for indirect descriptors. Implement those checks as well somewhere.
-        self.flags() & VIRTQ_DESC_F_INDIRECT != 0
-    }
-
-    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
-    pub fn has_next(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_NEXT != 0
-    }
-
-    /// Checks if the driver designated this as a write only descriptor.
-    ///
-    /// If this is false, this descriptor is read only.
-    /// Write only means the the emulated device can write and the driver can read.
-    pub fn is_write_only(&self) -> bool {
-        self.flags & VIRTQ_DESC_F_WRITE != 0
-    }
-}
-
-unsafe impl ByteValued for Descriptor {}
-
-/// A virtio descriptor chain.
-#[derive(Clone)]
-pub struct DescriptorChain<M: GuestAddressSpace> {
-    mem: M::T,
-    desc_table: GuestAddress,
-    queue_size: u16,
-    head_index: u16,
-    next_index: u16,
-    ttl: u16,
-    is_indirect: bool,
-}
-
-impl<M: GuestAddressSpace> DescriptorChain<M> {
-    fn with_ttl(
-        mem: M::T,
-        desc_table: GuestAddress,
-        queue_size: u16,
-        ttl: u16,
-        head_index: u16,
-    ) -> Self {
-        DescriptorChain {
-            mem,
-            desc_table,
-            queue_size,
-            head_index,
-            next_index: head_index,
-            ttl,
-            is_indirect: false,
-        }
-    }
-
-    /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
-        Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
-    }
-
-    /// Get the descriptor index of the chain header
-    pub fn head_index(&self) -> u16 {
-        self.head_index
-    }
-
-    /// Return a `GuestMemory` object that can be used to access the buffers
-    /// pointed to by the descriptor chain.
-    pub fn memory(&self) -> &M::M {
-        &*self.mem
-    }
-
-    /// Returns an iterator that only yields the readable descriptors in the chain.
-    pub fn readable(self) -> DescriptorChainRwIter<M> {
-        DescriptorChainRwIter {
-            chain: self,
-            writable: false,
-        }
-    }
-
-    /// Returns an iterator that only yields the writable descriptors in the chain.
-    pub fn writable(self) -> DescriptorChainRwIter<M> {
-        DescriptorChainRwIter {
-            chain: self,
-            writable: true,
-        }
-    }
-
-    // Alters the internal state of the `DescriptorChain` to switch iterating over an
-    // indirect descriptor table defined by `desc`.
-    fn process_indirect_descriptor(&mut self, desc: Descriptor) -> Result<(), Error> {
-        if self.is_indirect {
-            return Err(Error::InvalidIndirectDescriptor);
-        }
-
-        let table_len = (desc.len as usize) / VIRTQ_DESCRIPTOR_SIZE;
-        // Check the target indirect descriptor table is correctly aligned.
-        if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
-            || (desc.len as usize) & (VIRTQ_DESCRIPTOR_SIZE - 1) != 0
-            || table_len > usize::from(std::u16::MAX)
-        {
-            return Err(Error::InvalidIndirectDescriptorTable);
-        }
-
-        self.desc_table = desc.addr();
-        self.queue_size = table_len as u16;
-        self.next_index = 0;
-        self.ttl = self.queue_size;
-        self.is_indirect = true;
-
-        Ok(())
-    }
-}
-
-impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
-    type Item = Descriptor;
-
-    /// Returns the next descriptor in this descriptor chain, if there is one.
-    ///
-    /// Note that this is distinct from the next descriptor chain returned by
-    /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
-    /// _available_ descriptor chain.
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.ttl == 0 || self.next_index >= self.queue_size {
-            return None;
-        }
-
-        // It's ok to use `unchecked_add` here because we previously verify the index does not
-        // exceed the queue size, and the descriptor table location is expected to have been
-        // validate before (for example, before activating a device). Moreover, this cannot
-        // lead to unsafety because the actual memory accesses are always checked.
-        let desc_addr = self
-            .desc_table
-            .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
-
-        let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
-
-        if desc.is_indirect() {
-            self.process_indirect_descriptor(desc).ok()?;
-            return self.next();
-        }
-
-        if desc.has_next() {
-            self.next_index = desc.next();
-            // It's ok to decrement `self.ttl` here because we check at the start of the method
-            // that it's greater than 0.
-            self.ttl -= 1;
-        } else {
-            self.ttl = 0;
-        }
-
-        Some(desc)
-    }
-}
-
-/// An iterator for readable or writable descriptors.
-pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
-    chain: DescriptorChain<M>,
-    writable: bool,
-}
-
-impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
-    type Item = Descriptor;
-
-    /// Returns the next descriptor in this descriptor chain, if there is one.
-    ///
-    /// Note that this is distinct from the next descriptor chain returned by
-    /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
-    /// _available_ descriptor chain.
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.chain.next() {
-                Some(v) => {
-                    if v.is_write_only() == self.writable {
-                        return Some(v);
-                    }
-                }
-                None => return None,
-            }
-        }
-    }
-}
-
-/// Consuming iterator over all available descriptor chain heads in the queue.
-pub struct AvailIter<'b, M: GuestAddressSpace> {
-    mem: M::T,
-    desc_table: GuestAddress,
-    avail_ring: GuestAddress,
-    last_index: Wrapping<u16>,
-    queue_size: u16,
-    next_avail: &'b mut Wrapping<u16>,
-}
-
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
-    type Item = DescriptorChain<M>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if *self.next_avail == self.last_index {
-            return None;
-        }
-
-        // This computation cannot overflow because all the values involved are actually
-        // `u16`s cast to `u64`.
-        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE
-            + (self.next_avail.0 % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
-
-        // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
-        // as the index is within bounds. We do not currently enforce that a queue is only used
-        // after checking `is_valid`, but rather expect the device implementations to do so
-        // before activation. The standard also forbids drivers to change queue parameters
-        // while the device is "running". A warp-around cannot lead to unsafe memory accesses
-        // because the memory model performs its own validations.
-        let addr = self.avail_ring.unchecked_add(offset);
-        let head_index: u16 = self
-            .mem
-            .read_obj(addr)
-            .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
-            .ok()?;
-
-        *self.next_avail += Wrapping(1);
-
-        Some(DescriptorChain::new(
-            self.mem.clone(),
-            self.desc_table,
-            self.queue_size,
-            head_index,
-        ))
+impl<Q: QueueSourceT + QueueSinkerT> QueueT for Q {
+    fn queue_ready(&self) -> bool {
+        self.source_ready() && self.sinker_ready()
     }
 }
 
@@ -366,16 +127,69 @@ impl VirtqUsedElem {
 
 unsafe impl ByteValued for VirtqUsedElem {}
 
+/// Sharable ring position for next available entry.
+#[derive(Clone, Default)]
+pub struct Position(Arc<AtomicU16>);
+
+impl Position {
+    /// Create a ring position object with specified value.
+    pub fn new(val: u16) -> Self {
+        Position(Arc::new(AtomicU16::new(val)))
+    }
+
+    fn get(&self) -> u16 {
+        self.0.load(Ordering::Acquire)
+    }
+
+    fn set(&self, val: u16) {
+        self.0.store(val, Ordering::Release);
+    }
+
+    fn inc(&self) -> u16 {
+        self.0.fetch_add(1, Ordering::Release)
+    }
+
+    fn dec(&self) -> u16 {
+        self.0.fetch_sub(1, Ordering::Release)
+    }
+}
+
 #[derive(Clone)]
-/// A virtio queue's parameters.
+/// A virtio queue to consume available descriptors and produce used descriptors.
+///
+/// A virtio queue is a duplex communication channel, it receives available descriptors from the
+/// driver and sends used descriptor to the driver. So it could be abstracted as a receive endpoint
+/// and a sender endpoint.
+///
+/// With virtio split queue, the receiver endpoint receives available descriptors from the driver
+/// by accessing the descriptor table and available ring. It also updates device event suppression
+/// status when receiving available descriptors. For the sender endpoint, it puts used descriptors
+/// into the used ring. It also queries driver event suppression status when sending used
+/// descriptors.
+///
+/// For virtio packed queue, it includes a descriptor table, a driver event suppression block and
+/// a device event suppression block. So packed queue could be abstracted in the same way as split
+/// queue.
+///
+/// Previously the `Queue` implementation is optimized for single thread environment, where a
+/// single thread worker receives available descriptors, handles these descriptors and then sends
+/// backed used descriptors in sequence. This mode limits the performance of high IO virtio
+/// backends, such as virtio-fs.
+///
+/// Now the `Queue` is split into two parts: the `QueueSource` for receiver and the
+/// `QueueSink` for sender. The `Queue::split_into_config_source_sinker()` method split a `Queue`
+/// struct into `QueueConfig`, `QueueSource` and `QueueSinker`.
+///
+/// But to simplify the implementation, the `Queue` struct is reused to implement source and sinker.
+/// Essentially QueueSource and QueueSinker are `Arc<Mutex<Queue>>`.
 pub struct Queue<M: GuestAddressSpace> {
     mem: M,
 
     /// The maximal size in elements offered by the device
     max_size: u16,
 
-    next_avail: Wrapping<u16>,
-    next_used: Wrapping<u16>,
+    next_avail: Position,
+    next_used: Position,
 
     /// VIRTIO_F_RING_EVENT_IDX negotiated
     pub event_idx_enabled: bool,
@@ -410,45 +224,189 @@ impl<M: GuestAddressSpace> Queue<M> {
             desc_table: GuestAddress(0),
             avail_ring: GuestAddress(0),
             used_ring: GuestAddress(0),
-            next_avail: Wrapping(0),
-            next_used: Wrapping(0),
+            next_avail: Position::new(0),
+            next_used: Position::new(0),
             event_idx_enabled: false,
             signalled_used: None,
         }
     }
 
+    /// Convert a `Queue` into `QueueConfig` and `Arc<Mutex<Queue>>`.
+    pub fn split_into_config_queue(self) -> (QueueConfig<M>, Arc<Mutex<Queue<M>>>) {
+        let max_size = self.max_size;
+        let queue = Arc::new(Mutex::new(self));
+        let source = QueueSource(queue.clone());
+        let sinker = QueueSinker(queue.clone());
+        let config = QueueConfig::new(max_size, source, sinker);
+
+        (config, queue)
+    }
+
+    /// Convert a `Queue` into `QueueConfig`, `QueueSource` and `QueueSinker`.
+    pub fn split_into_config_source_sinker(
+        self,
+    ) -> (QueueConfig<M>, QueueSource<M>, QueueSinker<M>) {
+        let max_size = self.max_size;
+        let queue = Arc::new(Mutex::new(self));
+        let source = QueueSource(queue.clone());
+        let sinker = QueueSinker(queue);
+        let config = QueueConfig::new(max_size, source.clone(), sinker.clone());
+
+        (config, source, sinker)
+    }
+
+    /// Reads the `idx` field from the available ring.
+    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        let addr = self.avail_ring.unchecked_add(2);
+        self.mem
+            .memory()
+            .load(addr, order)
+            .map(Wrapping)
+            .map_err(Error::GuestMemory)
+    }
+
+    // Helper method that writes `val` to the `avail_event` field of the used ring, using
+    // the provided ordering.
+    fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
+        let offset = (4 + self.actual_size() * 8) as u64;
+        let addr = self.used_ring.unchecked_add(offset);
+        self.mem
+            .memory()
+            .store(val, addr, order)
+            .map_err(Error::GuestMemory)
+    }
+
+    // Set the value of the `flags` field of the used ring, applying the specified ordering.
+    fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
+        self.mem
+            .memory()
+            .store(val, self.used_ring, order)
+            .map_err(Error::GuestMemory)
+    }
+
+    // Write the appropriate values to enable or disable notifications from the driver. Every
+    // access in this method uses `Relaxed` ordering because a fence is added by the caller
+    // when appropriate.
+    fn set_notification(&mut self, enable: bool) -> Result<(), Error> {
+        if enable {
+            if self.event_idx_enabled {
+                // We call `set_avail_event` using the `next_avail` value, instead of reading
+                // and using the current `avail_idx` to avoid missing notifications. More
+                // details in `enable_notification`.
+                self.set_avail_event(self.next_avail.get(), Ordering::Relaxed)?;
+            } else {
+                self.set_used_flags(0, Ordering::Relaxed)?;
+            }
+        }
+        // Notifications are effectively disabled by default after triggering once when
+        // `VIRTIO_F_EVENT_IDX` is negotiated, so we don't do anything in that case.
+        else if !self.event_idx_enabled {
+            self.set_used_flags(VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)?;
+        }
+        Ok(())
+    }
+
+    /// Return the value present in the used_event field of the avail ring.
+    ///
+    /// If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
+    /// ring offers a crude mechanism for the driver to inform the device that it doesn’t want
+    /// interrupts when buffers are used. Otherwise virtq_avail.used_event is a more performant
+    /// alternative where the driver specifies how far the device can progress before interrupting.
+    ///
+    /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
+    /// with the device, but they serve as useful optimizations. So we only ensure access to the
+    /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
+    fn used_event(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        // Safe because we have validated the queue and access guest memory through GuestMemory
+        // interfaces.
+        let mem = self.mem.memory();
+        let used_event_addr = self
+            .avail_ring
+            .unchecked_add((4 + self.actual_size() * 2) as u64);
+
+        mem.load(used_event_addr, order)
+            .map(Wrapping)
+            .map_err(Error::GuestMemory)
+    }
+}
+
+impl<M: GuestAddressSpace> QueueConfigT for Queue<M> {
     /// Gets the virtio queue maximum size.
-    pub fn max_size(&self) -> u16 {
+    fn max_size(&self) -> u16 {
         self.max_size
     }
 
     /// Return the actual size of the queue, as the driver may not set up a
     /// queue as big as the device allows.
-    pub fn actual_size(&self) -> u16 {
+    fn actual_size(&self) -> u16 {
         min(self.size, self.max_size)
     }
 
+    fn queue_size(&self) -> u16 {
+        self.size
+    }
+
+    fn set_queue_size(&mut self, size: u16) {
+        self.size = size;
+    }
+
+    fn desc_table_address(&self) -> GuestAddress {
+        self.desc_table
+    }
+
+    fn set_desc_table_address(&mut self, addr: GuestAddress) {
+        self.desc_table = addr;
+    }
+
+    fn avail_ring_address(&self) -> GuestAddress {
+        self.avail_ring
+    }
+
+    fn set_avail_ring_address(&mut self, addr: GuestAddress) {
+        self.avail_ring = addr;
+    }
+
+    fn used_ring_address(&self) -> GuestAddress {
+        self.used_ring
+    }
+
+    fn set_used_ring_address(&mut self, addr: GuestAddress) {
+        self.used_ring = addr;
+    }
+
+    fn event_idx(&self) -> bool {
+        self.event_idx_enabled
+    }
+
+    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
+    fn set_event_idx(&mut self, enabled: bool) {
+        self.signalled_used = None;
+        self.event_idx_enabled = enabled;
+    }
+
+    fn ready(&self) -> bool {
+        self.ready
+    }
+
+    fn set_ready(&mut self, ready: bool) {
+        self.ready = ready;
+    }
+
     /// Reset the queue to a state that is acceptable for a device reset
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         self.ready = false;
         self.size = self.max_size;
         self.desc_table = GuestAddress(0);
         self.avail_ring = GuestAddress(0);
         self.used_ring = GuestAddress(0);
-        self.next_avail = Wrapping(0);
-        self.next_used = Wrapping(0);
+        self.next_avail = Position::new(0);
+        self.next_used = Position::new(0);
         self.signalled_used = None;
         self.event_idx_enabled = false;
     }
 
-    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
-    pub fn set_event_idx(&mut self, enabled: bool) {
-        self.signalled_used = None;
-        self.event_idx_enabled = enabled;
-    }
-
     /// Check if the virtio queue configuration is valid.
-    pub fn is_valid(&self) -> bool {
+    fn is_valid(&self) -> bool {
         let mem = self.mem.memory();
         let queue_size = self.actual_size() as u64;
         let desc_table = self.desc_table;
@@ -457,6 +415,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
         let used_ring = self.used_ring;
         let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
+
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
@@ -507,100 +466,42 @@ impl<M: GuestAddressSpace> Queue<M> {
             true
         }
     }
+}
 
-    /// Reads the `idx` field from the available ring.
-    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        let addr = self.avail_ring.unchecked_add(2);
-        self.mem
-            .memory()
-            .load(addr, order)
-            .map(Wrapping)
-            .map_err(Error::GuestMemory)
+impl<M: GuestAddressSpace> QueueSourceT for Queue<M> {
+    type M = M;
+    type I = AvailIter<M>;
+
+    fn source_ready(&self) -> bool {
+        self.ready
+    }
+
+    /// Returns the index for the next descriptor in the available ring.
+    fn next_avail(&self) -> u16 {
+        self.next_avail.get()
+    }
+
+    /// Sets the index for the next descriptor in the available ring.
+    fn set_next_avail(&mut self, next_avail: u16) {
+        self.next_avail.set(next_avail);
     }
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
-        self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
-            mem: self.mem.memory(),
-            desc_table: self.desc_table,
-            avail_ring: self.avail_ring,
-            last_index: idx,
-            queue_size: self.actual_size(),
-            next_avail: &mut self.next_avail,
-        })
+    fn iter(&mut self) -> Result<<Self as QueueSourceT>::I, Error> {
+        self.avail_idx(Ordering::Acquire)
+            .map(move |idx| AvailIter::new(self, idx))
     }
 
-    /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        if head_index >= self.actual_size() {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                head_index
-            );
-            return Err(Error::InvalidDescriptorIndex);
-        }
-
-        let mem = self.mem.memory();
-        let next_used_index = u64::from(self.next_used.0 % self.actual_size());
-        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
-        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
-            .map_err(Error::GuestMemory)?;
-
-        self.next_used += Wrapping(1);
-
-        mem.store(
-            self.next_used.0,
-            self.used_ring.unchecked_add(2),
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
-    }
-
-    // Helper method that writes `val` to the `avail_event` field of the used ring, using
-    // the provided ordering.
-    fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
-        let offset = (4 + self.actual_size() * 8) as u64;
-        let addr = self.used_ring.unchecked_add(offset);
-        self.mem
-            .memory()
-            .store(val, addr, order)
-            .map_err(Error::GuestMemory)
-    }
-
-    // Set the value of the `flags` field of the used ring, applying the specified ordering.
-    fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
-        self.mem
-            .memory()
-            .store(val, self.used_ring, order)
-            .map_err(Error::GuestMemory)
-    }
-
-    // Write the appropriate values to enable or disable notifications from the driver. Every
-    // access in this method uses `Relaxed` ordering because a fence is added by the caller
-    // when appropriate.
-    fn set_notification(&mut self, enable: bool) -> Result<(), Error> {
-        if enable {
-            if self.event_idx_enabled {
-                // We call `set_avail_event` using the `next_avail` value, instead of reading
-                // and using the current `avail_idx` to avoid missing notifications. More
-                // details in `enable_notification`.
-                self.set_avail_event(self.next_avail.0, Ordering::Relaxed)?;
-            } else {
-                self.set_used_flags(0, Ordering::Relaxed)?;
-            }
-        }
-        // Notifications are effectively disabled by default after triggering once when
-        // `VIRTIO_F_EVENT_IDX` is negotiated, so we don't do anything in that case.
-        else if !self.event_idx_enabled {
-            self.set_used_flags(VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)?;
-        }
-        Ok(())
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    fn go_to_previous_position(&mut self) {
+        self.next_avail.dec();
     }
 
     /// Enable notification events from the guest driver. Returns true if one or more descriptors
     /// can be consumed from the available ring after notifications were enabled (and thus it's
     /// possible there will be no corresponding notification).
-
     // TODO: Turn this into a doc comment/example.
     // With the current implementation, a common way of consuming entries from the available ring
     // while also leveraging notification suppression is to use a loop, for example:
@@ -621,8 +522,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     //         break;
     //     }
     // }
-    #[inline]
-    pub fn enable_notification(&mut self) -> Result<bool, Error> {
+    fn enable_notification(&mut self) -> Result<bool, Error> {
         self.set_notification(true)?;
         // Ensures the following read is not reordered before any previous write operation.
         fence(Ordering::SeqCst);
@@ -634,36 +534,52 @@ impl<M: GuestAddressSpace> Queue<M> {
         // available ring (which will cause this method to return `true`), but in that case we'll
         // probably not re-enable notifications as we already know there are pending entries.
         self.avail_idx(Ordering::Relaxed)
-            .map(|idx| idx != self.next_avail)
+            .map(|idx| idx.0 != self.next_avail.get())
     }
 
     /// Disable notification events from the guest driver.
-    #[inline]
-    pub fn disable_notification(&mut self) -> Result<(), Error> {
+    fn disable_notification(&mut self) -> Result<(), Error> {
         self.set_notification(false)
     }
+}
 
-    /// Return the value present in the used_event field of the avail ring.
-    ///
-    /// If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
-    /// ring offers a crude mechanism for the driver to inform the device that it doesn’t want
-    /// interrupts when buffers are used. Otherwise virtq_avail.used_event is a more performant
-    /// alternative where the driver specifies how far the device can progress before interrupting.
-    ///
-    /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
-    /// with the device, but they serve as useful optimizations. So we only ensure access to the
-    /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
-    fn used_event(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        // Safe because we have validated the queue and access guest memory through GuestMemory
-        // interfaces.
+impl<M: GuestAddressSpace> QueueSinkerT for Queue<M> {
+    fn sinker_ready(&self) -> bool {
+        self.ready
+    }
+
+    fn next_used(&self) -> u16 {
+        self.next_used.get()
+    }
+
+    fn set_next_used(&mut self, next_used: u16) {
+        self.next_used.set(next_used);
+    }
+
+    /// Puts an available descriptor head into the used ring for use by the guest.
+    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+        if head_index >= self.actual_size() {
+            error!(
+                "attempted to add out of bounds descriptor to used ring: {}",
+                head_index
+            );
+            return Err(Error::InvalidDescriptorIndex);
+        }
+
         let mem = self.mem.memory();
-        let used_event_addr = self
-            .avail_ring
-            .unchecked_add((4 + self.actual_size() * 2) as u64);
+        let next_used_index = u64::from(self.next_used.get() % self.actual_size());
+        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+            .map_err(Error::GuestMemory)?;
 
-        mem.load(used_event_addr, order)
-            .map(Wrapping)
-            .map_err(Error::GuestMemory)
+        self.next_used.inc();
+
+        mem.store(
+            self.next_used.get(),
+            self.used_ring.unchecked_add(2),
+            Ordering::Release,
+        )
+        .map_err(Error::GuestMemory)
     }
 
     /// Check whether a notification to the guest is needed.
@@ -672,8 +588,8 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// driver will actually be notified, remember the associated index in the used ring, and
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
-    pub fn needs_notification(&mut self) -> Result<bool, Error> {
-        let used_idx = self.next_used;
+    fn needs_notification(&mut self) -> Result<bool, Error> {
+        let used_idx = Wrapping(self.next_used.get());
 
         // Complete all the writes in add_used() before reading the event.
         fence(Ordering::SeqCst);
@@ -695,23 +611,6 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         Ok(true)
     }
-
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.next_avail -= Wrapping(1);
-    }
-
-    /// Returns the index for the next descriptor in the available ring.
-    pub fn next_avail(&self) -> u16 {
-        self.next_avail.0
-    }
-
-    /// Sets the index for the next descriptor in the available ring.
-    pub fn set_next_avail(&mut self, next_avail: u16) {
-        self.next_avail = Wrapping(next_avail);
-    }
 }
 
 #[cfg(test)]
@@ -720,6 +619,9 @@ pub(crate) mod tests {
 
     use std::marker::PhantomData;
     use std::mem;
+    use std::mem::transmute;
+    use std::sync::atomic::AtomicU64;
+    use std::time::Duration;
 
     use vm_memory::{
         GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
@@ -750,7 +652,7 @@ pub(crate) mod tests {
     }
 
     impl<'a> VirtqDesc<'a> {
-        fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
+        pub fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
             let desc = dtable
                 .get_slice((i as usize) * Self::dtable_len(1), Self::dtable_len(1))
                 .unwrap();
@@ -780,7 +682,7 @@ pub(crate) mod tests {
             self.next().store(next);
         }
 
-        fn dtable_len(nelem: u16) -> usize {
+        pub fn dtable_len(nelem: u16) -> usize {
             16 * nelem as usize
         }
     }
@@ -873,7 +775,7 @@ pub(crate) mod tests {
         start: GuestAddress,
         dtable: VolatileSlice<'a>,
         avail: VirtqAvail<'a>,
-        used: VirtqUsed<'a>,
+        pub used: VirtqUsed<'a>,
     }
 
     impl<'a> VirtQueue<'a> {
@@ -955,65 +857,6 @@ pub(crate) mod tests {
         assert_eq!(offset_of!(Descriptor, len), 8);
         assert_eq!(offset_of!(Descriptor, flags), 12);
         assert_eq!(offset_of!(Descriptor, next), 14);
-    }
-
-    #[test]
-    fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
-
-        assert!(vq.end().0 < 0x1000);
-
-        // index >= queue_size
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16)
-                .next()
-                .is_none()
-        );
-
-        // desc_table address is way off
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
-                .next()
-                .is_none()
-        );
-
-        {
-            // the first desc has a normal len, and the next_descriptor flag is set
-            vq.dtable(0).addr().store(0x1000);
-            vq.dtable(0).len().store(0x1000);
-            vq.dtable(0).flags().store(VIRTQ_DESC_F_NEXT);
-            //..but the the index of the next descriptor is too large
-            vq.dtable(0).next().store(16);
-
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
-            c.next().unwrap();
-            assert!(c.next().is_none());
-        }
-
-        // finally, let's test an ok chain
-        {
-            vq.dtable(0).next().store(1);
-            vq.dtable(1).set(0x2000, 0x1000, 0, 0);
-
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
-
-            assert_eq!(
-                c.memory() as *const GuestMemoryMmap,
-                m as *const GuestMemoryMmap
-            );
-            assert_eq!(c.desc_table, vq.dtable_start());
-            assert_eq!(c.queue_size, 16);
-            assert_eq!(c.ttl, c.queue_size);
-            let desc = c.next().unwrap();
-            assert_eq!(desc.addr(), GuestAddress(0x1000));
-            assert_eq!(desc.len(), 0x1000);
-            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-            assert_eq!(desc.next, 1);
-
-            assert!(c.next().is_some());
-            assert!(c.next().is_none());
-        }
     }
 
     #[test]
@@ -1287,7 +1130,8 @@ pub(crate) mod tests {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
-        let mut q = vq.create_queue(m);
+        let q = vq.create_queue(m);
+        let (_config, _source, mut q) = q.split_into_config_source_sinker();
         assert_eq!(vq.used.idx().load(), 0);
 
         //index too large
@@ -1296,7 +1140,7 @@ pub(crate) mod tests {
 
         //should be ok
         q.add_used(1, 0x1000).unwrap();
-        assert_eq!(q.next_used, Wrapping(1));
+        assert_eq!(q.next_used(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
@@ -1326,7 +1170,7 @@ pub(crate) mod tests {
 
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
-            q.next_used = Wrapping(i);
+            q.next_used.set(i);
             assert_eq!(q.needs_notification().unwrap(), true);
         }
 
@@ -1338,7 +1182,7 @@ pub(crate) mod tests {
         let wrap = u32::from(u16::MAX) + 1;
 
         for i in 0..wrap + 12 {
-            q.next_used = Wrapping(i as u16);
+            q.next_used.set(i as u16);
             // Let's test wrapping around the maximum index value as well.
             let expected = i == 5 || i == (5 + wrap) || q.signalled_used.is_none();
             assert_eq!(q.needs_notification().unwrap(), expected);
@@ -1353,9 +1197,9 @@ pub(crate) mod tests {
         m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + 16 * 2))
             .unwrap();
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(15);
+        q.next_used.set(15);
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(0);
+        q.next_used.set(0);
         assert_eq!(q.needs_notification().unwrap(), true);
         assert_eq!(q.needs_notification().unwrap(), false);
     }
@@ -1386,13 +1230,122 @@ pub(crate) mod tests {
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(2);
+        q.next_avail.set(2);
         assert_eq!(q.enable_notification().unwrap(), false);
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(8);
+        q.next_avail.set(8);
         assert_eq!(q.enable_notification().unwrap(), false);
+    }
+
+    #[test]
+    fn test_position() {
+        let pos = Position::new(0);
+
+        assert_eq!(pos.get(), 0);
+        pos.inc();
+        assert_eq!(pos.get(), 1);
+        pos.dec();
+        assert_eq!(pos.get(), 0);
+        pos.dec();
+        assert_eq!(pos.get(), 0xffff);
+        pos.inc();
+        assert_eq!(pos.get(), 0);
+
+        let pos1 = pos.clone();
+        pos.inc();
+        assert_eq!(pos1.get(), 1);
+    }
+
+    #[test]
+    fn test_multi_thread_source_sink() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x100000)]).unwrap();
+        //let m2 = GuestMemoryAtomic::new(GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x100000)]).unwrap());
+        let vq = VirtQueue::new(GuestAddress(0), &m, 256);
+        let queue = Queue::new(
+            unsafe { transmute::<&GuestMemoryMmap, &'static GuestMemoryMmap>(&m) },
+            256,
+        );
+        let (mut config, source, sinker) = queue.split_into_config_source_sinker();
+
+        config.set_desc_table_address(vq.dtable_start());
+        config.set_used_ring_address(vq.used_start());
+        config.set_avail_ring_address(vq.avail_start());
+        config.set_queue_size(vq.size());
+        config.set_ready(true);
+        assert_eq!(config.is_valid(), true);
+
+        let counter = Arc::new(AtomicU64::new(0));
+
+        // First group of worker threads
+        let (sender1, receiver1) = std::sync::mpsc::channel();
+        let event_fd_s1 = vmm_sys_util::eventfd::EventFd::new(0).unwrap();
+        let event_fd_r1 = event_fd_s1.try_clone().unwrap();
+        let mut source1 = source.clone();
+        let mut sinker1 = sinker.clone();
+        let counter1 = counter.clone();
+        let _worker_s1 = std::thread::spawn(move || loop {
+            if let Ok(_v) = event_fd_r1.read() {
+                let mut iter = source1.iter().unwrap();
+                let desc = iter.next().unwrap();
+                sender1.send(desc.head_index()).unwrap();
+            } else {
+                break;
+            }
+        });
+        let _worker_r1 = std::thread::spawn(move || loop {
+            if let Ok(header) = receiver1.recv() {
+                sinker1.add_used(header, 0).unwrap();
+                counter1.fetch_add(1, Ordering::AcqRel);
+            } else {
+                break;
+            }
+        });
+
+        // Second group of worker threads
+        let (sender2, receiver2) = std::sync::mpsc::channel();
+        let event_fd_s2 = vmm_sys_util::eventfd::EventFd::new(0).unwrap();
+        let event_fd_r2 = event_fd_s2.try_clone().unwrap();
+        let mut source2 = source.clone();
+        let mut sinker2 = sinker.clone();
+        let counter2 = counter.clone();
+        let _worker_s2 = std::thread::spawn(move || loop {
+            if let Ok(_v) = event_fd_r2.read() {
+                let mut iter = source2.iter().unwrap();
+                let desc = iter.next().unwrap();
+                sender2.send(desc.head_index()).unwrap();
+            } else {
+                break;
+            }
+        });
+        let _worker_r2 = std::thread::spawn(move || loop {
+            if let Ok(header) = receiver2.recv() {
+                sinker2.add_used(header, 0).unwrap();
+                counter2.fetch_add(1, Ordering::AcqRel);
+            } else {
+                break;
+            }
+        });
+
+        let slice = m.get_slice(config.avail_ring_address(), 4).unwrap();
+        let pos = slice.get_atomic_ref::<AtomicU16>(2).unwrap();
+        for i in 0..1024 {
+            // Produce a descriptor
+            vq.dtable(i % config.actual_size())
+                .set(i as u64 * 0x10, 0x1, 0, 0);
+            pos.store(i + 1, Ordering::Release);
+            // Notify the worker
+            if i & 1 == 0 {
+                event_fd_s1.write(1).unwrap();
+            } else {
+                event_fd_s2.write(1).unwrap();
+            }
+            // Wait until the descriptor has been processed.
+            while counter.load(Ordering::Acquire) <= (i as u64) {
+                std::thread::sleep(Duration::new(0, 1_000_000));
+            }
+        }
     }
 }

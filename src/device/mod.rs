@@ -17,7 +17,7 @@ use std::result;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
-use crate::Queue;
+use crate::{Queue, QueueConfigT};
 
 pub use mmio::VirtioMmioDevice;
 pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};

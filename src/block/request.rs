@@ -253,7 +253,7 @@ mod tests {
     use vm_memory::{Address, GuestMemoryMmap};
 
     use crate::queue::tests::VirtQueue;
-    use crate::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::{QueueSourceT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
     impl PartialEq for Error {
         fn eq(&self, other: &Self) -> bool {
