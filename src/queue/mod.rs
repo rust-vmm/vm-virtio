@@ -24,10 +24,12 @@ use vm_memory::{
 mod descriptor;
 mod descriptor_chain;
 mod iterator;
+mod source;
 
 pub use descriptor::Descriptor;
 pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
 pub use iterator::AvailIter;
+pub use source::QueueSourceT;
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -285,12 +287,6 @@ impl<M: GuestAddressSpace> Queue<M> {
             .map_err(Error::GuestMemory)
     }
 
-    /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> Result<AvailIter<M>, Error> {
-        self.avail_idx(Ordering::Acquire)
-            .map(move |idx| AvailIter::new(self, idx))
-    }
-
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
         if head_index >= self.actual_size() {
@@ -358,52 +354,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         Ok(())
     }
 
-    /// Enable notification events from the guest driver. Returns true if one or more descriptors
-    /// can be consumed from the available ring after notifications were enabled (and thus it's
-    /// possible there will be no corresponding notification).
-
-    // TODO: Turn this into a doc comment/example.
-    // With the current implementation, a common way of consuming entries from the available ring
-    // while also leveraging notification suppression is to use a loop, for example:
-    //
-    // loop {
-    //     // We have to explicitly disable notifications if `VIRTIO_F_EVENT_IDX` has not been
-    //     // negotiated.
-    //     self.disable_notification()?;
-    //
-    //     for chain in self.iter()? {
-    //         // Do something with each chain ...
-    //         // Let's assume we process all available chains here.
-    //     }
-    //
-    //     // If `enable_notification` returns `true`, the driver has added more entries to the
-    //     // available ring.
-    //     if !self.enable_notification()? {
-    //         break;
-    //     }
-    // }
-    #[inline]
-    pub fn enable_notification(&mut self) -> Result<bool, Error> {
-        self.set_notification(true)?;
-        // Ensures the following read is not reordered before any previous write operation.
-        fence(Ordering::SeqCst);
-
-        // We double check here to avoid the situation where the available ring has been updated
-        // just before we re-enabled notifications, and it's possible to miss one. We compare the
-        // current `avail_idx` value to `self.next_avail` because it's where we stopped processing
-        // entries. There are situations where we intentionally avoid processing everything in the
-        // available ring (which will cause this method to return `true`), but in that case we'll
-        // probably not re-enable notifications as we already know there are pending entries.
-        self.avail_idx(Ordering::Relaxed)
-            .map(|idx| idx.0 != self.next_avail.get())
-    }
-
-    /// Disable notification events from the guest driver.
-    #[inline]
-    pub fn disable_notification(&mut self) -> Result<(), Error> {
-        self.set_notification(false)
-    }
-
     /// Return the value present in the used_event field of the avail ring.
     ///
     /// If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
@@ -456,22 +406,81 @@ impl<M: GuestAddressSpace> Queue<M> {
 
         Ok(true)
     }
+}
 
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.next_avail.dec();
+impl<M: GuestAddressSpace> QueueSourceT for Queue<M> {
+    type M = M;
+    type I = AvailIter<M>;
+
+    fn source_ready(&self) -> bool {
+        self.ready
     }
 
     /// Returns the index for the next descriptor in the available ring.
-    pub fn next_avail(&self) -> u16 {
+    fn next_avail(&self) -> u16 {
         self.next_avail.get()
     }
 
     /// Sets the index for the next descriptor in the available ring.
-    pub fn set_next_avail(&mut self, next_avail: u16) {
+    fn set_next_avail(&mut self, next_avail: u16) {
         self.next_avail.set(next_avail);
+    }
+
+    /// A consuming iterator over all available descriptor chain heads offered by the driver.
+    fn iter(&mut self) -> Result<<Self as QueueSourceT>::I, Error> {
+        self.avail_idx(Ordering::Acquire)
+            .map(move |idx| AvailIter::new(self, idx))
+    }
+
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    fn go_to_previous_position(&mut self) {
+        self.next_avail.dec();
+    }
+
+    /// Enable notification events from the guest driver. Returns true if one or more descriptors
+    /// can be consumed from the available ring after notifications were enabled (and thus it's
+    /// possible there will be no corresponding notification).
+    // TODO: Turn this into a doc comment/example.
+    // With the current implementation, a common way of consuming entries from the available ring
+    // while also leveraging notification suppression is to use a loop, for example:
+    //
+    // loop {
+    //     // We have to explicitly disable notifications if `VIRTIO_F_EVENT_IDX` has not been
+    //     // negotiated.
+    //     self.disable_notification()?;
+    //
+    //     for chain in self.iter()? {
+    //         // Do something with each chain ...
+    //         // Let's assume we process all available chains here.
+    //     }
+    //
+    //     // If `enable_notification` returns `true`, the driver has added more entries to the
+    //     // available ring.
+    //     if !self.enable_notification()? {
+    //         break;
+    //     }
+    // }
+    fn enable_notification(&mut self) -> Result<bool, Error> {
+        self.set_notification(true)?;
+        // Ensures the following read is not reordered before any previous write operation.
+        fence(Ordering::SeqCst);
+
+        // We double check here to avoid the situation where the available ring has been updated
+        // just before we re-enabled notifications, and it's possible to miss one. We compare the
+        // current `avail_idx` value to `self.next_avail` because it's where we stopped processing
+        // entries. There are situations where we intentionally avoid processing everything in the
+        // available ring (which will cause this method to return `true`), but in that case we'll
+        // probably not re-enable notifications as we already know there are pending entries.
+        self.avail_idx(Ordering::Relaxed)
+            .map(|idx| idx.0 != self.next_avail.get())
+    }
+
+    /// Disable notification events from the guest driver.
+    #[inline]
+    fn disable_notification(&mut self) -> Result<(), Error> {
+        self.set_notification(false)
     }
 }
 
