@@ -415,6 +415,7 @@ impl<M: GuestAddressSpace> QueueConfigT for Queue<M> {
         let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
         let used_ring = self.used_ring;
         let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
+
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
@@ -618,6 +619,9 @@ pub(crate) mod tests {
 
     use std::marker::PhantomData;
     use std::mem;
+    use std::mem::transmute;
+    use std::sync::atomic::AtomicU64;
+    use std::time::Duration;
 
     use vm_memory::{
         GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
@@ -771,7 +775,7 @@ pub(crate) mod tests {
         start: GuestAddress,
         dtable: VolatileSlice<'a>,
         avail: VirtqAvail<'a>,
-        used: VirtqUsed<'a>,
+        pub used: VirtqUsed<'a>,
     }
 
     impl<'a> VirtQueue<'a> {
@@ -1126,7 +1130,8 @@ pub(crate) mod tests {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
-        let mut q = vq.create_queue(m);
+        let q = vq.create_queue(m);
+        let (_config, _source, mut q) = q.split_into_config_source_sinker();
         assert_eq!(vq.used.idx().load(), 0);
 
         //index too large
@@ -1135,7 +1140,7 @@ pub(crate) mod tests {
 
         //should be ok
         q.add_used(1, 0x1000).unwrap();
-        assert_eq!(q.next_used.get(), 1);
+        assert_eq!(q.next_used(), 1);
         assert_eq!(vq.used.idx().load(), 1);
         let x = vq.used.ring(0).load();
         assert_eq!(x.id, 1);
@@ -1252,5 +1257,95 @@ pub(crate) mod tests {
         let pos1 = pos.clone();
         pos.inc();
         assert_eq!(pos1.get(), 1);
+    }
+
+    #[test]
+    fn test_multi_thread_source_sink() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x100000)]).unwrap();
+        //let m2 = GuestMemoryAtomic::new(GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x100000)]).unwrap());
+        let vq = VirtQueue::new(GuestAddress(0), &m, 256);
+        let queue = Queue::new(
+            unsafe { transmute::<&GuestMemoryMmap, &'static GuestMemoryMmap>(&m) },
+            256,
+        );
+        let (mut config, source, sinker) = queue.split_into_config_source_sinker();
+
+        config.set_desc_table_address(vq.dtable_start());
+        config.set_used_ring_address(vq.used_start());
+        config.set_avail_ring_address(vq.avail_start());
+        config.set_queue_size(vq.size());
+        config.set_ready(true);
+        assert_eq!(config.is_valid(), true);
+
+        let counter = Arc::new(AtomicU64::new(0));
+
+        // First group of worker threads
+        let (sender1, receiver1) = std::sync::mpsc::channel();
+        let event_fd_s1 = vmm_sys_util::eventfd::EventFd::new(0).unwrap();
+        let event_fd_r1 = event_fd_s1.try_clone().unwrap();
+        let mut source1 = source.clone();
+        let mut sinker1 = sinker.clone();
+        let counter1 = counter.clone();
+        let _worker_s1 = std::thread::spawn(move || loop {
+            if let Ok(_v) = event_fd_r1.read() {
+                let mut iter = source1.iter().unwrap();
+                let desc = iter.next().unwrap();
+                sender1.send(desc.head_index()).unwrap();
+            } else {
+                break;
+            }
+        });
+        let _worker_r1 = std::thread::spawn(move || loop {
+            if let Ok(header) = receiver1.recv() {
+                sinker1.add_used(header, 0).unwrap();
+                counter1.fetch_add(1, Ordering::AcqRel);
+            } else {
+                break;
+            }
+        });
+
+        // Second group of worker threads
+        let (sender2, receiver2) = std::sync::mpsc::channel();
+        let event_fd_s2 = vmm_sys_util::eventfd::EventFd::new(0).unwrap();
+        let event_fd_r2 = event_fd_s2.try_clone().unwrap();
+        let mut source2 = source.clone();
+        let mut sinker2 = sinker.clone();
+        let counter2 = counter.clone();
+        let _worker_s2 = std::thread::spawn(move || loop {
+            if let Ok(_v) = event_fd_r2.read() {
+                let mut iter = source2.iter().unwrap();
+                let desc = iter.next().unwrap();
+                sender2.send(desc.head_index()).unwrap();
+            } else {
+                break;
+            }
+        });
+        let _worker_r2 = std::thread::spawn(move || loop {
+            if let Ok(header) = receiver2.recv() {
+                sinker2.add_used(header, 0).unwrap();
+                counter2.fetch_add(1, Ordering::AcqRel);
+            } else {
+                break;
+            }
+        });
+
+        let slice = m.get_slice(config.avail_ring_address(), 4).unwrap();
+        let pos = slice.get_atomic_ref::<AtomicU16>(2).unwrap();
+        for i in 0..1024 {
+            // Produce a descriptor
+            vq.dtable(i % config.actual_size())
+                .set(i as u64 * 0x10, 0x1, 0, 0);
+            pos.store(i + 1, Ordering::Release);
+            // Notify the worker
+            if i & 1 == 0 {
+                event_fd_s1.write(1).unwrap();
+            } else {
+                event_fd_s2.write(1).unwrap();
+            }
+            // Wait until the descriptor has been processed.
+            while counter.load(Ordering::Acquire) <= (i as u64) {
+                std::thread::sleep(Duration::new(0, 1_000_000));
+            }
+        }
     }
 }

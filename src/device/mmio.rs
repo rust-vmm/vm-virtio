@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use vm_memory::{GuestAddress, GuestAddressSpace};
 
 use crate::device::{status, WithDriverSelect};
-use crate::Queue;
+use crate::{Queue, QueueConfigT};
 
 // Required by the Virtio MMIO device register layout at offset 0 from base. Turns out this
 // is actually the ASCII sequence for "virt" (in little endian ordering).

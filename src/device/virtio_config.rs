@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vm_memory::GuestAddressSpace;
 
 use crate::device::{VirtioDevice, WithDriverSelect};
-use crate::Queue;
+use crate::{Queue, QueueConfigT};
 
 /// An object that provides a common virtio device configuration representation. It is not part
 /// of the main `vm-virtio` set of interfaces, but rather can be used as a helper object in

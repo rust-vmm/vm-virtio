@@ -202,13 +202,15 @@ mod tests {
     fn test_source_is_valid() {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let queue = Queue::new(m, 16);
-        let (mut config, _queue) = queue.split_into_config_queue();
+        let (mut config, queue) = queue.split_into_config_queue();
 
+        assert_eq!(queue.queue_ready(), false);
         config.set_desc_table_address(GuestAddress(0x1000));
         config.set_used_ring_address(GuestAddress(0x2000));
         config.set_avail_ring_address(GuestAddress(0x3000));
         config.set_queue_size(16);
         config.set_ready(true);
+        assert_eq!(queue.queue_ready(), true);
         assert_eq!(config.is_valid(), true);
         assert_eq!(config.ready(), true);
         assert_eq!(config.desc_table_address(), GuestAddress(0x1000));
