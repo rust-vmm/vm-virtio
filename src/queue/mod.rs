@@ -24,11 +24,13 @@ use vm_memory::{
 mod descriptor;
 mod descriptor_chain;
 mod iterator;
+mod sinker;
 mod source;
 
 pub use descriptor::Descriptor;
 pub use descriptor_chain::{DescriptorChain, DescriptorChainRwIter};
 pub use iterator::AvailIter;
+pub use sinker::QueueSinkerT;
 pub use source::QueueSourceT;
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -287,32 +289,6 @@ impl<M: GuestAddressSpace> Queue<M> {
             .map_err(Error::GuestMemory)
     }
 
-    /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        if head_index >= self.actual_size() {
-            error!(
-                "attempted to add out of bounds descriptor to used ring: {}",
-                head_index
-            );
-            return Err(Error::InvalidDescriptorIndex);
-        }
-
-        let mem = self.mem.memory();
-        let next_used_index = u64::from(self.next_used.get() % self.actual_size());
-        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
-        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
-            .map_err(Error::GuestMemory)?;
-
-        self.next_used.inc();
-
-        mem.store(
-            self.next_used.get(),
-            self.used_ring.unchecked_add(2),
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
-    }
-
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
@@ -375,36 +351,6 @@ impl<M: GuestAddressSpace> Queue<M> {
         mem.load(used_event_addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
-    }
-
-    /// Check whether a notification to the guest is needed.
-    ///
-    /// Please note this method has side effects: once it returns `true`, it considers the
-    /// driver will actually be notified, remember the associated index in the used ring, and
-    /// won't return `true` again until the driver updates `used_event` and/or the notification
-    /// conditions hold once more.
-    pub fn needs_notification(&mut self) -> Result<bool, Error> {
-        let used_idx = Wrapping(self.next_used.get());
-
-        // Complete all the writes in add_used() before reading the event.
-        fence(Ordering::SeqCst);
-
-        // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
-        if self.event_idx_enabled {
-            if let Some(old_idx) = self.signalled_used.replace(used_idx) {
-                let used_event = self.used_event(Ordering::Relaxed)?;
-                // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
-                // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
-                // than or equal to the difference between `used_idx` and `old_idx`, then
-                // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
-                // we don't need to elicit another notification.
-                if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
-                    return Ok(false);
-                }
-            }
-        }
-
-        Ok(true)
     }
 }
 
@@ -478,9 +424,78 @@ impl<M: GuestAddressSpace> QueueSourceT for Queue<M> {
     }
 
     /// Disable notification events from the guest driver.
-    #[inline]
     fn disable_notification(&mut self) -> Result<(), Error> {
         self.set_notification(false)
+    }
+}
+
+impl<M: GuestAddressSpace> QueueSinkerT for Queue<M> {
+    fn sinker_ready(&self) -> bool {
+        self.ready
+    }
+
+    fn next_used(&self) -> u16 {
+        self.next_used.get()
+    }
+
+    fn set_next_used(&mut self, next_used: u16) {
+        self.next_used.set(next_used);
+    }
+
+    /// Puts an available descriptor head into the used ring for use by the guest.
+    fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+        if head_index >= self.actual_size() {
+            error!(
+                "attempted to add out of bounds descriptor to used ring: {}",
+                head_index
+            );
+            return Err(Error::InvalidDescriptorIndex);
+        }
+
+        let mem = self.mem.memory();
+        let next_used_index = u64::from(self.next_used.get() % self.actual_size());
+        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+            .map_err(Error::GuestMemory)?;
+
+        self.next_used.inc();
+
+        mem.store(
+            self.next_used.get(),
+            self.used_ring.unchecked_add(2),
+            Ordering::Release,
+        )
+        .map_err(Error::GuestMemory)
+    }
+
+    /// Check whether a notification to the guest is needed.
+    ///
+    /// Please note this method has side effects: once it returns `true`, it considers the
+    /// driver will actually be notified, remember the associated index in the used ring, and
+    /// won't return `true` again until the driver updates `used_event` and/or the notification
+    /// conditions hold once more.
+    fn needs_notification(&mut self) -> Result<bool, Error> {
+        let used_idx = Wrapping(self.next_used.get());
+
+        // Complete all the writes in add_used() before reading the event.
+        fence(Ordering::SeqCst);
+
+        // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
+        if self.event_idx_enabled {
+            if let Some(old_idx) = self.signalled_used.replace(used_idx) {
+                let used_event = self.used_event(Ordering::Relaxed)?;
+                // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
+                // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
+                // than or equal to the difference between `used_idx` and `old_idx`, then
+                // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
+                // we don't need to elicit another notification.
+                if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
+                    return Ok(false);
+                }
+            }
+        }
+
+        Ok(true)
     }
 }
 
