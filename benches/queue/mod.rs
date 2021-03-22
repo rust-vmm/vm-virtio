@@ -31,7 +31,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
         c.bench_function(bench_name, move |b| {
             b.iter_batched(
                 setup.clone(),
-                |q| black_box(routine(q)),
+                |q| routine(black_box(q)),
                 BatchSize::SmallInput,
             )
         });
@@ -80,14 +80,9 @@ pub fn benchmark_queue(c: &mut Criterion) {
         );
     }
 
-    bench_queue(
-        c,
-        "add used",
-        || empty_queue(),
-        |mut q| {
-            for _ in 0..128 {
-                q.add_used(123, 0x1000).unwrap();
-            }
-        },
-    );
+    bench_queue(c, "add used", empty_queue, |mut q| {
+        for _ in 0..128 {
+            q.add_used(123, 0x1000).unwrap();
+        }
+    });
 }

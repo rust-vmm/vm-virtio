@@ -355,9 +355,9 @@ pub(crate) mod tests {
         assert_eq!(d.cfg.config_space, config_space);
 
         d.write_config(len / 2, v1.as_slice());
-        for i in 0..len {
+        for (i, &value) in config_space.iter().enumerate().take(len) {
             if i < len / 2 {
-                assert_eq!(d.cfg.config_space[i], config_space[i]);
+                assert_eq!(d.cfg.config_space[i], value);
             } else {
                 assert_eq!(d.cfg.config_space[i], 0);
             }

@@ -351,9 +351,9 @@ mod tests {
             let delta = 6;
             d.write(0x100 + delta, &buf);
 
-            for i in 0..config_space.len() {
+            for (i, &value) in config_space.iter().enumerate() {
                 if i < delta as usize {
-                    assert_eq!(d.cfg.config_space[i], config_space[i]);
+                    assert_eq!(d.cfg.config_space[i], value);
                 } else {
                     assert_eq!(d.cfg.config_space[i], 1);
                 }
