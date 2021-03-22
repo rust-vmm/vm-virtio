@@ -249,9 +249,9 @@ mod tests {
 
         // Write buffer of non-zero bytes to offsets 256 and 1024.
         f.seek(SeekFrom::Start(0x100)).unwrap();
-        f.write(&[NON_ZERO_VALUE; 0x200]).unwrap();
+        f.write_all(&[NON_ZERO_VALUE; 0x200]).unwrap();
         f.seek(SeekFrom::Start(0x400)).unwrap();
-        f.write(&[NON_ZERO_VALUE + 1; 0x80]).unwrap();
+        f.write_all(&[NON_ZERO_VALUE + 1; 0x80]).unwrap();
 
         let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         let flush_req = Request::new(

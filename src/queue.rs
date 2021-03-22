@@ -745,7 +745,7 @@ pub(crate) mod tests {
 
     macro_rules! offset_of {
         ($ty:ty, $field:ident) => {
-            unsafe { &(*(0 as *const $ty)).$field as *const _ as usize }
+            unsafe { &(*std::ptr::null::<$ty>()).$field as *const _ as usize }
         };
     }
 
@@ -865,7 +865,7 @@ pub(crate) mod tests {
     }
     impl GuestAddressExt for GuestAddress {
         fn align_up(&self, x: GuestUsize) -> GuestAddress {
-            return Self((self.0 + (x - 1)) & !(x - 1));
+            Self((self.0 + (x - 1)) & !(x - 1))
         }
     }
 
@@ -1253,7 +1253,7 @@ pub(crate) mod tests {
             let c = i.next().unwrap();
             assert_eq!(c.head_index(), 0);
 
-            let mut iter = c.into_iter();
+            let mut iter = c;
             assert!(iter.next().is_some());
             assert!(iter.next().is_some());
             assert!(iter.next().is_none());
