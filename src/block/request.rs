@@ -164,11 +164,11 @@ impl Request {
 
         // Check that the address of the status descriptor is valid in guest memory.
         // We will write an u8 status here after executing the request.
-        let _ = mem
-            .checked_offset(desc.addr(), mem::size_of::<u8>())
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
+        if !mem.check_range(desc.addr(), mem::size_of::<u8>()) {
+            return Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
+                desc.addr(),
+            )));
+        }
         Ok(())
     }
 
@@ -187,11 +187,11 @@ impl Request {
         }
 
         // Check that the address of the data descriptor is valid in guest memory.
-        let _ = mem
-            .checked_offset(desc.addr(), desc.len() as usize)
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
+        if !mem.check_range(desc.addr(), desc.len() as usize) {
+            return Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
+                desc.addr(),
+            )));
+        }
         Ok(())
     }
 
