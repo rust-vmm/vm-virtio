@@ -24,14 +24,14 @@
 //! add separate modules for those abstractions as well.
 
 use std::fmt::{self, Display};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::{io, result};
 
 use vm_memory::{Bytes, GuestMemory, GuestMemoryError};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroes};
 
-use crate::block::request::VIRTIO_BLK_T_FLUSH;
+use crate::block::request::{VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_T_GET_ID};
 use crate::block::request::{Request, RequestType};
 
 /// Read-only device.
@@ -63,6 +63,8 @@ pub enum Error {
     ReadOnly,
     /// Error during write request execution.
     Write(GuestMemoryError),
+    /// Error during get ID request execution.
+    GetId(GuestMemoryError),
     /// Error during file seek execution.
     Seek(io::Error),
     /// Can't execute an unsupported request.
@@ -83,6 +85,7 @@ impl Display for Error {
                 "can't execute an operation other than `read` on a read-only device"
             ),
             Write(ref err) => write!(f, "error during write request execution: {}", err),
+            GetId(ref err) => write!(f, "error during get id request execution: {}", err),
             Seek(ref err) => write!(f, "file seek execution failed: {}", err),
             Unsupported(t) => write!(f, "can't execute unsupported request {}", t),
         }
@@ -106,6 +109,8 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct StdIoBackend<B: Backend> {
     /// The block device backing file.
     inner: B,
+    /// The device identifier.
+    id: Option<[u8; VIRTIO_BLK_ID_BYTES]>,
     /// The number of sectors of `inner`.
     num_sectors: u64,
     /// The disk features.
@@ -118,7 +123,8 @@ impl<B: Backend> StdIoBackend<B> {
     /// # Arguments
     /// * `inner` - The block device backend.
     /// * `features` - The features that were negotiated between driver and device.
-    pub fn new(mut inner: B, features: u64) -> Result<Self> {
+    /// * `id` - Kernel id for this device. On Linux one can read this information from /sys/block/<device>/serial
+    pub fn new(mut inner: B, features: u64, id: Option<[u8; VIRTIO_BLK_ID_BYTES]>) -> Result<Self> {
         let disk_size = inner.seek(SeekFrom::End(0)).map_err(Error::Seek)?;
         // This check makes sense only if VIRTIO_BLK_F_BLK_SIZE feature is
         // unsupported, which might be okay to assume for now.
@@ -134,6 +140,7 @@ impl<B: Backend> StdIoBackend<B> {
 
         Ok(Self {
             inner,
+            id,
             num_sectors: disk_size >> SECTOR_SHIFT,
             features,
         })
@@ -207,6 +214,21 @@ impl<B: Backend> StdIoBackend<B> {
                     bytes_to_dev += data_len;
                 }
             }
+            RequestType::GetId => {
+                match self.id {
+                    Some(ref id) => {
+                        let mut buf = Cursor::new(id);
+                        for (data_addr, data_len) in request.data() {
+                            mem.read_exact_from(*data_addr, &mut buf, *data_len as usize)
+                               .map_err(Error::GetId)?;
+                            bytes_from_dev += data_len;
+                        }
+                    },
+                    None => {
+                        return Err(Error::Unsupported(VIRTIO_BLK_T_GET_ID))
+                    }
+                }
+            },
             RequestType::Flush => return self.inner.fsync().map(|_| 0).map_err(Error::Flush),
             RequestType::Unsupported(t) => return Err(Error::Unsupported(t)),
         };

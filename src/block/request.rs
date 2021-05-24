@@ -37,6 +37,12 @@ pub const VIRTIO_BLK_T_IN: u32 = 0;
 pub const VIRTIO_BLK_T_OUT: u32 = 1;
 /// Flush request.
 pub const VIRTIO_BLK_T_FLUSH: u32 = 4;
+/// Device ID request.
+pub const VIRTIO_BLK_T_GET_ID: u32 = 8;
+
+/// Device ID string length.
+pub const VIRTIO_BLK_ID_BYTES: usize = 20;
+
 
 /// Block request parsing errors.
 #[derive(Debug)]
@@ -82,6 +88,8 @@ pub enum RequestType {
     Out,
     /// Flush request.
     Flush,
+    /// Get ID request.
+    GetId,
     /// Unknown request.
     Unsupported(u32),
 }
@@ -92,6 +100,7 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
+            VIRTIO_BLK_T_GET_ID => RequestType::GetId,
             t => RequestType::Unsupported(t),
         }
     }
