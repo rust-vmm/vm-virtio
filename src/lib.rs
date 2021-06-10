@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 #![deny(missing_docs)]
+#![warn(missing_debug_implementations)]
 
 //! Implements virtio devices, queues, and transport mechanisms.
 
