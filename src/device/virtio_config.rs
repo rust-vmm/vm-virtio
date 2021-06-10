@@ -20,6 +20,7 @@ use crate::Queue;
 // Adding the `M` generic parameter that's also required by `VirtioDevice` for the time being.
 // The various members have `pub` visibility until we determine whether it makes sense to drop
 // this in favor of adding accessors.
+#[derive(Debug)]
 pub struct VirtioConfig<M: GuestAddressSpace> {
     /// The set of features exposed by the device.
     pub device_features: u64,

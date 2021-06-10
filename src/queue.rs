@@ -11,7 +11,7 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::cmp::min;
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
@@ -79,7 +79,7 @@ impl std::error::Error for Error {}
 
 /// A virtio descriptor constraints with C representation
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct Descriptor {
     /// Guest physical address of device specific data
     addr: u64,
@@ -142,7 +142,7 @@ impl Descriptor {
 unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DescriptorChain<M: GuestAddressSpace> {
     mem: M::T,
     desc_table: GuestAddress,
@@ -299,7 +299,22 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
     }
 }
 
+// We can't derive Debug, because rustc doesn't generate the M::T: Debug
+// constraint
+impl<M: Debug + GuestAddressSpace> Debug for DescriptorChainRwIter<M>
+where
+    M::T: Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DescriptorChainRwIter")
+            .field("chain", &self.chain)
+            .field("writable", &self.writable)
+            .finish()
+    }
+}
+
 /// Consuming iterator over all available descriptor chain heads in the queue.
+#[derive(Debug)]
 pub struct AvailIter<'b, M: GuestAddressSpace> {
     mem: M::T,
     desc_table: GuestAddress,
@@ -348,7 +363,7 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
 
 /// Represents the contents of an element from the used virtqueue ring.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct VirtqUsedElem {
     id: u32,
     len: u32,
@@ -366,7 +381,7 @@ impl VirtqUsedElem {
 
 unsafe impl ByteValued for VirtqUsedElem {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// A virtio queue's parameters.
 pub struct Queue<M: GuestAddressSpace> {
     mem: M,

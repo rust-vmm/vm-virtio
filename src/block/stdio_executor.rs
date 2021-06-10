@@ -174,6 +174,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// let file = TempFile::new().unwrap();
 /// let request_exec = StdIoBackend::new(file.into_file(), 1 << VIRTIO_BLK_F_FLUSH).unwrap();
 /// ```
+#[derive(Debug)]
 pub struct StdIoBackend<B: Backend> {
     /// The block device backing file.
     inner: B,
