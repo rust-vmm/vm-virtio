@@ -103,6 +103,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// let file = File::create("foo.txt").unwrap();
 /// let request_exec = StdIoBackend::new(file, 1 << VIRTIO_BLK_F_FLUSH).unwrap();
 /// ```
+#[derive(Debug)]
 pub struct StdIoBackend<B: Backend> {
     /// The block device backing file.
     inner: B,
