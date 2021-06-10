@@ -272,6 +272,7 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
 }
 
 /// An iterator for readable or writable descriptors.
+#[derive(Clone)]
 pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
     chain: DescriptorChain<M>,
     writable: bool,
