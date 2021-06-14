@@ -9,7 +9,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v9"
+          image: "rustvmm/dev:v12"
           always-pull: true
 
   - label: "build-musl-x86-backend-stdio"
@@ -22,7 +22,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v9"
+          image: "rustvmm/dev:v12"
           always-pull: true
 
   - label: "build-gnu-arm-backend-stdio"
@@ -35,7 +35,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v9"
+          image: "rustvmm/dev:v12"
           always-pull: true
 
   - label: "build-musl-arm-backend-stdio"
@@ -48,5 +48,5 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          image: "rustvmm/dev:v9"
+          image: "rustvmm/dev:v12"
           always-pull: true
