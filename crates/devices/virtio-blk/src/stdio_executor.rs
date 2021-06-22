@@ -27,19 +27,19 @@ use std::fmt::{self, Display};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::{io, mem, result};
 
+use log::{error, warn};
+
 use vm_memory::{Address, ByteValued, Bytes, GuestMemory, GuestMemoryError};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroesAt};
 
-use crate::block::defs::VIRTIO_BLK_T_GET_ID;
-use crate::block::{
-    defs::{
-        SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
-        VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK,
-        VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_WRITE_ZEROES,
-    },
-    request::{Request, RequestType},
+use crate::defs::VIRTIO_BLK_T_GET_ID;
+use crate::defs::{
+    SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
+    VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK,
+    VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_WRITE_ZEROES,
 };
+use crate::request::{Request, RequestType};
 
 /// Trait that keeps as supertraits the ones that are necessary for the `StdIoBackend` abstraction
 /// used for the virtio block request execution.
@@ -166,7 +166,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// # Example
 ///
 /// ```rust
-/// # use vm_virtio::block::{
+/// # use virtio_blk::{
 /// #     defs::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_ID_BYTES},
 /// #     stdio_executor::StdIoBackend,
 /// # };

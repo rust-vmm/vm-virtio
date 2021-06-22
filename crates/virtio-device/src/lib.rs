@@ -6,7 +6,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-//! A module that offers building blocks for virtio devices.
+//! A crate that offers building blocks for virtio devices.
+
+#![deny(missing_docs)]
 
 mod mmio;
 mod virtio_config;
@@ -17,7 +19,8 @@ use std::result;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
-use crate::Queue;
+use log::warn;
+use virtio_queue::Queue;
 
 pub use mmio::VirtioMmioDevice;
 pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};
@@ -238,8 +241,8 @@ pub trait WithDriverSelect<M: GuestAddressSpace>: VirtioDevice<M> {
 
 #[cfg(test)]
 mod tests {
-    use crate::device::status::*;
-    use crate::device::virtio_config::tests::Dummy;
+    use crate::status::*;
+    use crate::virtio_config::tests::Dummy;
 
     use super::*;
 

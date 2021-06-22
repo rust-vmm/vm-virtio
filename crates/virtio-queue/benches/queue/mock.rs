@@ -6,7 +6,7 @@ use std::mem::size_of;
 
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory};
 
-use vm_virtio::Queue;
+use virtio_queue::Queue;
 
 struct Ref<'a, M, T> {
     mem: &'a M,
@@ -156,10 +156,12 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
         assert_eq!(indices.len(), len as usize);
 
         for (pos, index_value) in indices.iter().copied().enumerate() {
-            let mut desc = Descriptor::default();
             // Addresses and lens constant for now.
-            desc.addr = 0x1000;
-            desc.len = 0x1000;
+            let mut desc = Descriptor {
+                addr: 0x1000,
+                len: 0x1000,
+                ..Descriptor::default()
+            };
 
             // It's not the last descriptor in the chain.
             if pos < indices.len() - 1 {

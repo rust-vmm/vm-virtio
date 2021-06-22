@@ -1,0 +1,24 @@
+[package]
+name = "virtio-blk"
+version = "0.1.0"
+authors = ["The Chromium OS Authors"]
+description = "virtio block device implementation"
+repository = "https://github.com/rust-vmm/vm-virtio"
+keywords = ["virtio"]
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+edition = "2018"
+
+[features]
+backend-stdio = []
+
+[dependencies]
+vm-memory = ">=0.4.0"
+vmm-sys-util = ">=0.8.0"
+log = ">=0.4.6"
+virtio-queue = { path = "../../virtio-queue" }
+virtio-device = { path = "../../virtio-device" }
+
+[dev-dependencies]
+vm-memory = { version = ">=0.4.0", features = ["backend-mmap", "backend-atomic"] }
+virtio-queue = { path = "../../virtio-queue", features = ["test-utils"] }

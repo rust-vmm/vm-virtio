@@ -9,10 +9,11 @@
 use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 
+use log::warn;
 use vm_memory::{GuestAddress, GuestAddressSpace};
 
-use crate::device::{status, WithDriverSelect};
-use crate::Queue;
+use crate::{status, WithDriverSelect};
+use virtio_queue::Queue;
 
 // Required by the Virtio MMIO device register layout at offset 0 from base. Turns out this
 // is actually the ASCII sequence for "virt" (in little endian ordering).
@@ -203,8 +204,8 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
 
 #[cfg(test)]
 mod tests {
-    use crate::device::status;
-    use crate::device::virtio_config::tests::Dummy;
+    use crate::status;
+    use crate::virtio_config::tests::Dummy;
 
     use super::*;
     use vm_memory::ByteValued;
