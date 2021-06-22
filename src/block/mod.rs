@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+/// Contains virtio block constant definitions.
+pub mod defs;
 /// Contains block request parsing abstraction.
 pub mod request;
 /// Contains a block request execution abstraction that is based on

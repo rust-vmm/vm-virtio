@@ -24,19 +24,19 @@
 //! approach.
 
 use std::fmt::{self, Display};
-use std::{mem, result};
+use std::result;
 
-use crate::{queue::DescriptorChain, Descriptor};
+use crate::{
+    block::defs::{
+        VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+        VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
+    },
+    queue::DescriptorChain,
+    Descriptor,
+};
 use vm_memory::{
     ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
-
-/// Read request.
-pub const VIRTIO_BLK_T_IN: u32 = 0;
-/// Write request.
-pub const VIRTIO_BLK_T_OUT: u32 = 1;
-/// Flush request.
-pub const VIRTIO_BLK_T_FLUSH: u32 = 4;
 
 /// Block request parsing errors.
 #[derive(Debug)]
@@ -82,6 +82,12 @@ pub enum RequestType {
     Out,
     /// Flush request.
     Flush,
+    /// Get device ID request.
+    GetDeviceID,
+    /// Discard request.
+    Discard,
+    /// Write zeroes request.
+    WriteZeroes,
     /// Unknown request.
     Unsupported(u32),
 }
@@ -92,6 +98,9 @@ impl From<u32> for RequestType {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
             VIRTIO_BLK_T_FLUSH => RequestType::Flush,
+            VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
+            VIRTIO_BLK_T_DISCARD => RequestType::Discard,
+            VIRTIO_BLK_T_WRITE_ZEROES => RequestType::WriteZeroes,
             t => RequestType::Unsupported(t),
         }
     }
@@ -145,8 +154,10 @@ impl Request {
     }
 
     /// Returns the total length of request data.
-    pub fn total_data_len(&self) -> u32 {
-        self.data.iter().map(|&x| x.1).sum()
+    pub fn total_data_len(&self) -> u64 {
+        // The maximum queue size is 32768 (2^15), which is the maximum  possible descriptor chain
+        // length and since data length is an u32, this sum can not overflow an u64.
+        self.data.iter().map(|x| x.1 as u64).sum()
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid status descriptor.
@@ -162,22 +173,16 @@ impl Request {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        // Check that the address of the status descriptor is valid in guest memory.
+        // Check that the address of the status is valid in guest memory.
         // We will write an u8 status here after executing the request.
-        let _ = mem
-            .checked_offset(desc.addr(), mem::size_of::<u8>())
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
+        let _ = mem.check_address(desc.addr()).ok_or_else(|| {
+            Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
+        })?;
         Ok(())
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid data descriptor.
-    fn check_data_desc<M: GuestMemory>(
-        mem: &M,
-        desc: Descriptor,
-        request_type: RequestType,
-    ) -> Result<()> {
+    fn check_data_desc(desc: Descriptor, request_type: RequestType) -> Result<()> {
         // We do this check only for the device-readable buffers, as opposed to
         // also check that the device doesn't want to read a device-writable buffer
         // because this one is not a MUST (the device MAY do that for debugging or
@@ -185,13 +190,6 @@ impl Request {
         if !desc.is_write_only() && request_type == RequestType::In {
             return Err(Error::UnexpectedReadOnlyDescriptor);
         }
-
-        // Check that the address of the data descriptor is valid in guest memory.
-        let _ = mem
-            .checked_offset(desc.addr(), desc.len() as usize)
-            .ok_or_else(|| {
-                Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-            })?;
         Ok(())
     }
 
@@ -232,7 +230,7 @@ impl Request {
         let mut desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
         while desc.has_next() {
-            Request::check_data_desc::<<M>::M>(desc_chain.memory(), desc, request.request_type)?;
+            Request::check_data_desc(desc, request.request_type)?;
 
             request.data.push((desc.addr(), desc.len()));
             desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
@@ -417,31 +415,6 @@ mod tests {
         assert_eq!(
             Request::parse(&mut chain).unwrap_err(),
             Error::UnexpectedReadOnlyDescriptor
-        );
-
-        // Invalid data buffer address.
-        let v = vec![
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0xFFF_FFF0, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x200, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x40_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-        ];
-        let req_header = RequestHeader {
-            request_type: VIRTIO_BLK_T_OUT,
-            _reserved: 0,
-            sector: 2,
-        };
-        mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
-            .unwrap();
-
-        let mut chain = build_desc_chain(&mem, &v[..4]);
-
-        // The first data descriptor would cause a write beyond memory capacity.
-        assert_eq!(
-            Request::parse(&mut chain).unwrap_err(),
-            Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(GuestAddress(
-                0xFFF_FFF0,
-            )))
         );
 
         // Invalid status address.
