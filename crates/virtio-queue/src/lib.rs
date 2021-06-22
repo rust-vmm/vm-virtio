@@ -10,6 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
+//! A crate that exposes the virtio queue API.
+
+#![deny(missing_docs)]
+
 use std::cmp::min;
 use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
@@ -20,9 +24,14 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
-pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
-pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
-pub(super) const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
+use log::error;
+
+/// Marks a buffer as continuing via the next field.
+pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
+/// Marks a buffer as device write-only.
+pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
+/// Shows that the buffer contains a list of buffer descriptors.
+pub const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 const VIRTQ_USED_ELEMENT_SIZE: u64 = 8;
 // Used ring header: flags (u16) + idx (u16)
@@ -730,16 +739,17 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[allow(missing_docs)]
+#[cfg(feature = "test-utils")]
+pub mod test_utils {
     use super::*;
 
     use std::marker::PhantomData;
     use std::mem;
 
     use vm_memory::{
-        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
-        VolatileMemory, VolatileRef, VolatileSlice,
+        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, VolatileMemory, VolatileRef,
+        VolatileSlice,
     };
 
     impl Descriptor {
@@ -759,14 +769,17 @@ pub(crate) mod tests {
         desc: VolatileSlice<'a>,
     }
 
+    /// Extracts the displacement of a field in a struct
+    #[macro_export]
     macro_rules! offset_of {
         ($ty:ty, $field:ident) => {
             unsafe { &(*std::ptr::null::<$ty>()).$field as *const _ as usize }
         };
     }
 
+    #[allow(clippy::len_without_is_empty)]
     impl<'a> VirtqDesc<'a> {
-        fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
+        pub fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
             let desc = dtable
                 .get_slice((i as usize) * Self::dtable_len(1), Self::dtable_len(1))
                 .unwrap();
@@ -796,7 +809,7 @@ pub(crate) mod tests {
             self.next().store(next);
         }
 
-        fn dtable_len(nelem: u16) -> usize {
+        pub fn dtable_len(nelem: u16) -> usize {
             16 * nelem as usize
         }
     }
@@ -888,8 +901,8 @@ pub(crate) mod tests {
     pub struct VirtQueue<'a> {
         start: GuestAddress,
         dtable: VolatileSlice<'a>,
-        avail: VirtqAvail<'a>,
-        used: VirtqUsed<'a>,
+        pub avail: VirtqAvail<'a>,
+        pub used: VirtqUsed<'a>,
     }
 
     impl<'a> VirtQueue<'a> {
@@ -964,6 +977,15 @@ pub(crate) mod tests {
             self.used.end()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use test_utils::*;
+
+    use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion, MemoryRegionAddress};
 
     #[test]
     pub fn test_offset() {
@@ -1055,13 +1077,13 @@ pub(crate) mod tests {
             .get_slice(MemoryRegionAddress(0x1000u64), VirtqDesc::dtable_len(4))
             .unwrap();
         // create an indirect table with 4 chained descriptors
-        let mut indirect_table = Vec::with_capacity(4 as usize);
+        let mut indirect_table = Vec::with_capacity(4_usize);
         for j in 0..4 {
             let desc = VirtqDesc::new(&dtable, j);
             if j < 3 {
                 desc.set(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, (j + 1) as u16);
             } else {
-                desc.set(0x1000, 0x1000, 0, 0 as u16);
+                desc.set(0x1000, 0x1000, 0, 0_u16);
             }
             indirect_table.push(desc);
         }

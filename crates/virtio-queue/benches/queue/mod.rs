@@ -4,8 +4,8 @@
 mod mock;
 
 use criterion::{black_box, BatchSize, Criterion};
+use virtio_queue::Queue;
 use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryAtomic, GuestMemoryMmap};
-use vm_virtio::Queue;
 
 use mock::MockSplitQueue;
 

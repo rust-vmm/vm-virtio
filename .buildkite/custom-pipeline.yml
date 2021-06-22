@@ -1,7 +1,7 @@
 steps:
   - label: "build-gnu-x86-backend-stdio"
     commands:
-      - cargo build --release --features=backend-stdio
+      - cargo build --release --workspace --features virtio-blk/backend-stdio
     retry:
       automatic: false
     agents:
@@ -14,7 +14,7 @@ steps:
 
   - label: "build-musl-x86-backend-stdio"
     commands:
-      - cargo build --release --features=backend-stdio --target x86_64-unknown-linux-musl
+      - cargo build --release --workspace --features virtio-blk/backend-stdio --target x86_64-unknown-linux-musl
     retry:
       automatic: false
     agents:
@@ -27,7 +27,7 @@ steps:
 
   - label: "build-gnu-arm-backend-stdio"
     commands:
-      - cargo build --release --features=backend-stdio
+      - cargo build --release --workspace --features virtio-blk/backend-stdio
     retry:
       automatic: false
     agents:
@@ -40,7 +40,7 @@ steps:
 
   - label: "build-musl-arm-backend-stdio"
     commands:
-      - cargo build --release --features=backend-stdio --target aarch64-unknown-linux-musl
+      - cargo build --release --workspace --features virtio-blk/backend-stdio --target aarch64-unknown-linux-musl
     retry:
       automatic: false
     agents:

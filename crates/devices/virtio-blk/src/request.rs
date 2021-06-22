@@ -26,14 +26,12 @@
 use std::fmt::{self, Display};
 use std::result;
 
-use crate::{
-    block::defs::{
-        VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
-        VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
-    },
-    queue::DescriptorChain,
-    Descriptor,
+use crate::defs::{
+    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
+    VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
 };
+
+use virtio_queue::{Descriptor, DescriptorChain};
 use vm_memory::{
     ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
@@ -250,8 +248,8 @@ mod tests {
 
     use vm_memory::{Address, GuestMemoryMmap};
 
-    use crate::queue::tests::VirtQueue;
-    use crate::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use virtio_queue::test_utils::VirtQueue;
+    use virtio_queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
     impl PartialEq for Error {
         fn eq(&self, other: &Self) -> bool {
