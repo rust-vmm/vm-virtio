@@ -6,6 +6,7 @@ use std::mem::size_of;
 
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory};
 
+use virtio_queue::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
 use virtio_queue::Queue;
 
 struct Ref<'a, M, T> {
@@ -188,10 +189,6 @@ pub struct MockSplitQueue<'a, M> {
     _used: UsedRing<'a, M>,
     indirect_addr: GuestAddress,
 }
-
-// Move to a defs module in vm-virtio?
-const VIRTQ_DESC_F_NEXT: u16 = 0x1;
-const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 
 impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     pub fn new(mem: &'a M, len: u16) -> Self {

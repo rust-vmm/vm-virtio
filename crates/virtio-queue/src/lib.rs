@@ -14,46 +14,25 @@
 
 #![deny(missing_docs)]
 
+pub mod defs;
+
 use std::cmp::min;
 use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
+use defs::{
+    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
+    VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_META_SIZE,
+};
+
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
 use log::error;
-
-/// Marks a buffer as continuing via the next field.
-pub const VIRTQ_DESC_F_NEXT: u16 = 0x1;
-/// Marks a buffer as device write-only.
-pub const VIRTQ_DESC_F_WRITE: u16 = 0x2;
-/// Shows that the buffer contains a list of buffer descriptors.
-pub const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
-
-const VIRTQ_USED_ELEMENT_SIZE: u64 = 8;
-// Used ring header: flags (u16) + idx (u16)
-const VIRTQ_USED_RING_HEADER_SIZE: u64 = 4;
-// This is the size of the used ring metadata: header + used_event (u16).
-// The total size of the used ring is:
-// VIRTQ_USED_RING_HMETA_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size
-const VIRTQ_USED_RING_META_SIZE: u64 = VIRTQ_USED_RING_HEADER_SIZE + 2;
-// Used flags
-const VIRTQ_USED_F_NO_NOTIFY: u16 = 0x1;
-
-const VIRTQ_AVAIL_ELEMENT_SIZE: u64 = 2;
-// Avail ring header: flags(u16) + idx(u16)
-const VIRTQ_AVAIL_RING_HEADER_SIZE: u64 = 4;
-// This is the size of the available ring metadata: header + avail_event (u16).
-// The total size of the available ring is:
-// VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size
-const VIRTQ_AVAIL_RING_META_SIZE: u64 = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
-
-// The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
-// which fulfills the explicit constraint of GuestMemory::read_obj().
-const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
 
 /// Virtio Queue related errors.
 #[derive(Debug)]

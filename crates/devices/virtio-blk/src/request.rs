@@ -248,8 +248,8 @@ mod tests {
 
     use vm_memory::{Address, GuestMemoryMmap};
 
+    use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use virtio_queue::test_utils::VirtQueue;
-    use virtio_queue::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
     impl PartialEq for Error {
         fn eq(&self, other: &Self) -> bool {
