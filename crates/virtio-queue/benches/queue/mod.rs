@@ -1,13 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-mod mock;
-
 use criterion::{black_box, BatchSize, Criterion};
 use virtio_queue::Queue;
 use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryAtomic, GuestMemoryMmap};
 
-use mock::MockSplitQueue;
+use virtio_queue::mock::MockSplitQueue;
 
 pub fn benchmark_queue(c: &mut Criterion) {
     fn walk_queue<A: GuestAddressSpace>(q: &mut Queue<A>) -> (usize, usize) {

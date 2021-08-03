@@ -1,15 +1,21 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+//! Utilities used by unit tests and benchmarks for mocking the driver side
+//! of the virtio protocol.
+
 use std::marker::PhantomData;
 use std::mem::size_of;
 
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
+};
 
-use virtio_queue::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
-use virtio_queue::Queue;
+use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
+use crate::{Descriptor, Queue};
 
-struct Ref<'a, M, T> {
+/// Wrapper struct used for accesing a particular address of a GuestMemory area.
+pub struct Ref<'a, M, T> {
     mem: &'a M,
     addr: GuestAddress,
     phantom: PhantomData<*const T>,
@@ -24,16 +30,19 @@ impl<'a, M: GuestMemory, T: ByteValued> Ref<'a, M, T> {
         }
     }
 
-    fn load(&self) -> T {
+    /// Read an object of type T from the underlying memory found at self.addr.
+    pub fn load(&self) -> T {
         self.mem.read_obj(self.addr).unwrap()
     }
 
-    fn store(&self, val: T) {
+    /// Write an object of type T from the underlying memory found at self.addr.
+    pub fn store(&self, val: T) {
         self.mem.write_obj(val, self.addr).unwrap()
     }
 }
 
-struct ArrayRef<'a, M, T> {
+/// Wrapper struct used for accesing a subregion of a GuestMemory area.
+pub struct ArrayRef<'a, M, T> {
     mem: &'a M,
     addr: GuestAddress,
     len: usize,
@@ -50,7 +59,9 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
         }
     }
 
-    fn ref_at(&self, index: usize) -> Ref<'a, M, T> {
+    /// Return a `Ref` object pointing to an address defined by a particular
+    /// index offset in the region.
+    pub fn ref_at(&self, index: usize) -> Ref<'a, M, T> {
         // TODO: add better error handling to the mock logic.
         assert!(index < self.len);
 
@@ -58,30 +69,25 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
             .addr
             .checked_add((index * size_of::<T>()) as u64)
             .unwrap();
+
         Ref::new(self.mem, addr)
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct Descriptor {
-    pub addr: u64,
-    pub len: u32,
-    pub flags: u16,
-    pub next: u16,
-}
-
-unsafe impl ByteValued for Descriptor {}
-
+/// Represents one element of a used ring.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct UsedRingElement {
+    /// Starting index of the used descriptor chain.
     pub id: u32,
+    /// Total length of the descriptor chain which was written to.
     pub len: u32,
 }
 
 unsafe impl ByteValued for UsedRingElement {}
 
+/// Represents a virtio queue ring. The only difference between the used and available rings,
+/// is the ring element type.
 pub struct SplitQueueRing<'a, M, T: ByteValued> {
     flags: Ref<'a, M, u16>,
     idx: Ref<'a, M, u16>,
@@ -91,6 +97,7 @@ pub struct SplitQueueRing<'a, M, T: ByteValued> {
 }
 
 impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
+    /// Create a new `SplitQueueRing` instance
     pub fn new(mem: &'a M, base: GuestAddress, len: u16) -> Self {
         let event_addr = base
             .checked_add(4)
@@ -110,11 +117,34 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
 
         split_queue_ring
     }
+
+    /// Return the starting address of the `SplitQueueRing`.
+    pub fn start(&self) -> GuestAddress {
+        self.ring.addr
+    }
+
+    /// Return the end address of the `SplitQueueRing`.
+    pub fn end(&self) -> GuestAddress {
+        self.start().unchecked_add(self.ring.len as GuestUsize)
+    }
+
+    /// Return a reference to the idx field.
+    pub fn idx(&self) -> &Ref<'a, M, u16> {
+        &self.idx
+    }
+
+    /// Return a reference to the ring field.
+    pub fn ring(&self) -> &ArrayRef<'a, M, T> {
+        &self.ring
+    }
 }
 
+/// The available ring is used by the driver to offer buffers to the device.
 pub type AvailRing<'a, M> = SplitQueueRing<'a, M, u16>;
+/// The used ring is where the device returns buffers once it is done with them.
 pub type UsedRing<'a, M> = SplitQueueRing<'a, M, UsedRingElement>;
 
+/// Refers to the buffers the driver is using for the device.
 pub struct DescriptorTable<'a, M> {
     table: ArrayRef<'a, M, Descriptor>,
     len: u16,
@@ -122,6 +152,7 @@ pub struct DescriptorTable<'a, M> {
 }
 
 impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
+    /// Create a new `DescriptorTable` instance
     pub fn new(mem: &'a M, addr: GuestAddress, len: u16) -> Self {
         let table = ArrayRef::new(mem, addr, len as usize);
         let free_descriptors = (0..len).rev().collect();
@@ -133,18 +164,22 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
         }
     }
 
+    /// Read one descriptor from the specified index.
     pub fn load(&self, index: u16) -> Descriptor {
         self.table.ref_at(index as usize).load()
     }
 
+    /// Write one descriptor at the specified index.
     pub fn store(&self, index: u16, value: Descriptor) {
         self.table.ref_at(index as usize).store(value)
     }
 
+    /// Return the total size of the DescriptorTable in bytes.
     pub fn total_size(&self) -> u64 {
         (self.len as usize * size_of::<Descriptor>()) as u64
     }
 
+    /// Create a chain of descriptors
     pub fn build_chain(&mut self, len: u16) -> u16 {
         let indices = self
             .free_descriptors
@@ -178,6 +213,17 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
     }
 }
 
+trait GuestAddressExt {
+    fn align_up(&self, x: GuestUsize) -> GuestAddress;
+}
+
+impl GuestAddressExt for GuestAddress {
+    fn align_up(&self, x: GuestUsize) -> GuestAddress {
+        Self((self.0 + (x - 1)) & !(x - 1))
+    }
+}
+
+/// A mock version of the virtio queue implemented from the perspective of the driver.
 pub struct MockSplitQueue<'a, M> {
     mem: &'a M,
     len: u16,
@@ -186,29 +232,86 @@ pub struct MockSplitQueue<'a, M> {
     avail_addr: GuestAddress,
     avail: AvailRing<'a, M>,
     used_addr: GuestAddress,
-    _used: UsedRing<'a, M>,
+    used: UsedRing<'a, M>,
     indirect_addr: GuestAddress,
 }
 
 impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
+    /// Create a new `MockSplitQueue` instance with 0 as the default guest
+    /// physical starting address.
     pub fn new(mem: &'a M, len: u16) -> Self {
-        // Use these hard-coded addresses for now.
-        let desc_table_addr = GuestAddress(0);
-        let avail_addr = GuestAddress(0x1000_0000);
-        let used_addr = GuestAddress(0x2000_0000);
+        Self::create(mem, GuestAddress(0), len)
+    }
+
+    /// Create a new `MockSplitQueue` instance.
+    pub fn create(mem: &'a M, start: GuestAddress, len: u16) -> Self {
+        const AVAIL_ALIGN: GuestUsize = 2;
+        const USED_ALIGN: GuestUsize = 4;
+
+        let desc_table_addr = start;
+        let desc_table = DescriptorTable::new(mem, desc_table_addr, len);
+
+        let avail_addr = start
+            .unchecked_add(16 * len as GuestUsize)
+            .align_up(AVAIL_ALIGN);
+        let avail = AvailRing::new(mem, avail_addr, len);
+
+        let used_addr = avail.end().align_up(USED_ALIGN);
+        let used = UsedRing::new(mem, used_addr, len);
+
         let indirect_addr = GuestAddress(0x3000_0000);
 
         MockSplitQueue {
             mem,
             len,
             desc_table_addr,
-            desc_table: DescriptorTable::new(mem, desc_table_addr, len),
+            desc_table,
             avail_addr,
-            avail: AvailRing::new(mem, avail_addr, len),
+            avail,
             used_addr,
-            _used: UsedRing::new(mem, used_addr, len),
+            used,
             indirect_addr,
         }
+    }
+
+    /// Return the starting address of the queue.
+    pub fn start(&self) -> GuestAddress {
+        self.desc_table_addr
+    }
+
+    /// Return the end address of the queue.
+    pub fn end(&self) -> GuestAddress {
+        self.used.end()
+    }
+
+    /// Descriptor table accesor.
+    pub fn desc_table(&self) -> &DescriptorTable<'a, M> {
+        &self.desc_table
+    }
+
+    /// Available ring accesor.
+    pub fn avail(&self) -> &AvailRing<M> {
+        &self.avail
+    }
+
+    /// Used ring accesor.
+    pub fn used(&self) -> &UsedRing<M> {
+        &self.used
+    }
+
+    /// Return the starting address of the descriptor table.
+    pub fn desc_table_addr(&self) -> GuestAddress {
+        self.desc_table_addr
+    }
+
+    /// Return the starting address of the available ring.
+    pub fn avail_addr(&self) -> GuestAddress {
+        self.avail_addr
+    }
+
+    /// Return the starting address of the used ring.
+    pub fn used_addr(&self) -> GuestAddress {
+        self.used_addr
     }
 
     fn update_avail_idx(&mut self, value: u16) {
@@ -239,11 +342,13 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         table_addr
     }
 
+    /// Add a descriptor chain to the table.
     pub fn add_chain(&mut self, len: u16) {
         let head_idx = self.desc_table.build_chain(len);
         self.update_avail_idx(head_idx);
     }
 
+    /// Add an indirect descriptor chain to the table.
     pub fn add_indirect_chain(&mut self, len: u16) {
         let head_idx = self.desc_table.build_chain(1);
 
@@ -259,8 +364,13 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.update_avail_idx(head_idx);
     }
 
+    /// Creates a new `Queue`, using the underlying memory regions represented
+    /// by the `MockSplitQueue`.
     pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A> {
         let mut q = Queue::new(a, self.len);
+
+        q.size = self.len;
+        q.ready = true;
         q.desc_table = self.desc_table_addr;
         q.avail_ring = self.avail_addr;
         q.used_ring = self.used_addr;
