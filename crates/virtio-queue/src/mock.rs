@@ -369,11 +369,11 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A> {
         let mut q = Queue::new(a, self.len);
 
-        q.size = self.len;
-        q.ready = true;
-        q.desc_table = self.desc_table_addr;
-        q.avail_ring = self.avail_addr;
-        q.used_ring = self.used_addr;
+        q.state.size = self.len;
+        q.state.ready = true;
+        q.state.desc_table = self.desc_table_addr;
+        q.state.avail_ring = self.avail_addr;
+        q.state.used_ring = self.used_addr;
         q
     }
 }
