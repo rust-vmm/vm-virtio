@@ -21,6 +21,7 @@ pub mod mock;
 
 use std::cmp::min;
 use std::fmt::{self, Debug, Display};
+use std::marker::PhantomData;
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
@@ -384,11 +385,9 @@ impl VirtqUsedElem {
 
 unsafe impl ByteValued for VirtqUsedElem {}
 
+/// Struct to maintain information and manipulate state of a virtio queue.
 #[derive(Clone, Debug)]
-/// A virtio queue's parameters.
-pub struct Queue<M: GuestAddressSpace> {
-    mem: M,
-
+pub struct QueueState<M: GuestAddressSpace> {
     /// The maximal size in elements offered by the device
     max_size: u16,
 
@@ -415,13 +414,14 @@ pub struct Queue<M: GuestAddressSpace> {
 
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
+
+    phantom: PhantomData<M>,
 }
 
-impl<M: GuestAddressSpace> Queue<M> {
-    /// Constructs an empty virtio queue with the given `max_size`.
-    pub fn new(mem: M, max_size: u16) -> Queue<M> {
-        Queue {
-            mem,
+impl<M: GuestAddressSpace> QueueState<M> {
+    /// Constructs an empty virtio queue state object with the given `max_size`.
+    pub fn new(max_size: u16) -> Self {
+        QueueState {
             max_size,
             size: max_size,
             ready: false,
@@ -432,6 +432,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             next_used: Wrapping(0),
             event_idx_enabled: false,
             signalled_used: None,
+            phantom: PhantomData,
         }
     }
 
@@ -466,8 +467,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// Check if the virtio queue configuration is valid.
-    pub fn is_valid(&self) -> bool {
-        let mem = self.mem.memory();
+    pub fn is_valid(&self, mem: &M::T) -> bool {
         let queue_size = self.actual_size() as u64;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
@@ -527,29 +527,29 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 
     /// Reads the `idx` field from the available ring.
-    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    pub fn avail_idx(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
         let addr = self.avail_ring.unchecked_add(2);
-        self.mem
-            .memory()
-            .load(addr, order)
+
+        mem.load(addr, order)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
 
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
-        self.avail_idx(Ordering::Acquire).map(move |idx| AvailIter {
-            mem: self.mem.memory(),
-            desc_table: self.desc_table,
-            avail_ring: self.avail_ring,
-            last_index: idx,
-            queue_size: self.actual_size(),
-            next_avail: &mut self.next_avail,
-        })
+    pub fn iter(&mut self, mem: M::T) -> Result<AvailIter<'_, M>, Error> {
+        self.avail_idx(&mem, Ordering::Acquire)
+            .map(move |idx| AvailIter {
+                mem,
+                desc_table: self.desc_table,
+                avail_ring: self.avail_ring,
+                last_index: idx,
+                queue_size: self.actual_size(),
+                next_avail: &mut self.next_avail,
+            })
     }
 
     /// Puts an available descriptor head into the used ring for use by the guest.
-    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+    pub fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error> {
         if head_index >= self.actual_size() {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
@@ -558,7 +558,6 @@ impl<M: GuestAddressSpace> Queue<M> {
             return Err(Error::InvalidDescriptorIndex);
         }
 
-        let mem = self.mem.memory();
         let next_used_index = u64::from(self.next_used.0 % self.actual_size());
         let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
         mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
@@ -576,41 +575,37 @@ impl<M: GuestAddressSpace> Queue<M> {
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
-    fn set_avail_event(&self, val: u16, order: Ordering) -> Result<(), Error> {
+    fn set_avail_event(&self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
         let offset = (4 + self.actual_size() * 8) as u64;
         let addr = self.used_ring.unchecked_add(offset);
-        self.mem
-            .memory()
-            .store(val, addr, order)
-            .map_err(Error::GuestMemory)
+
+        mem.store(val, addr, order).map_err(Error::GuestMemory)
     }
 
     // Set the value of the `flags` field of the used ring, applying the specified ordering.
-    fn set_used_flags(&mut self, val: u16, order: Ordering) -> Result<(), Error> {
-        self.mem
-            .memory()
-            .store(val, self.used_ring, order)
+    fn set_used_flags(&mut self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
+        mem.store(val, self.used_ring, order)
             .map_err(Error::GuestMemory)
     }
 
     // Write the appropriate values to enable or disable notifications from the driver. Every
     // access in this method uses `Relaxed` ordering because a fence is added by the caller
     // when appropriate.
-    fn set_notification(&mut self, enable: bool) -> Result<(), Error> {
+    fn set_notification(&mut self, mem: &M::T, enable: bool) -> Result<(), Error> {
         if enable {
             if self.event_idx_enabled {
                 // We call `set_avail_event` using the `next_avail` value, instead of reading
                 // and using the current `avail_idx` to avoid missing notifications. More
                 // details in `enable_notification`.
-                self.set_avail_event(self.next_avail.0, Ordering::Relaxed)?;
+                self.set_avail_event(mem, self.next_avail.0, Ordering::Relaxed)?;
             } else {
-                self.set_used_flags(0, Ordering::Relaxed)?;
+                self.set_used_flags(mem, 0, Ordering::Relaxed)?;
             }
         }
         // Notifications are effectively disabled by default after triggering once when
         // `VIRTIO_F_EVENT_IDX` is negotiated, so we don't do anything in that case.
         else if !self.event_idx_enabled {
-            self.set_used_flags(VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)?;
+            self.set_used_flags(mem, VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)?;
         }
         Ok(())
     }
@@ -640,8 +635,8 @@ impl<M: GuestAddressSpace> Queue<M> {
     //     }
     // }
     #[inline]
-    pub fn enable_notification(&mut self) -> Result<bool, Error> {
-        self.set_notification(true)?;
+    pub fn enable_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
+        self.set_notification(mem, true)?;
         // Ensures the following read is not reordered before any previous write operation.
         fence(Ordering::SeqCst);
 
@@ -651,14 +646,14 @@ impl<M: GuestAddressSpace> Queue<M> {
         // entries. There are situations where we intentionally avoid processing everything in the
         // available ring (which will cause this method to return `true`), but in that case we'll
         // probably not re-enable notifications as we already know there are pending entries.
-        self.avail_idx(Ordering::Relaxed)
+        self.avail_idx(mem, Ordering::Relaxed)
             .map(|idx| idx != self.next_avail)
     }
 
     /// Disable notification events from the guest driver.
     #[inline]
-    pub fn disable_notification(&mut self) -> Result<(), Error> {
-        self.set_notification(false)
+    pub fn disable_notification(&mut self, mem: &M::T) -> Result<(), Error> {
+        self.set_notification(mem, false)
     }
 
     /// Return the value present in the used_event field of the avail ring.
@@ -671,10 +666,8 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
     /// with the device, but they serve as useful optimizations. So we only ensure access to the
     /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
-    fn used_event(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        // Safe because we have validated the queue and access guest memory through GuestMemory
-        // interfaces.
-        let mem = self.mem.memory();
+    fn used_event(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        // Safe because we have validated the queue and access guest memory through GuestMemory interfaces.
         let used_event_addr = self
             .avail_ring
             .unchecked_add((4 + self.actual_size() * 2) as u64);
@@ -690,7 +683,7 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// driver will actually be notified, remember the associated index in the used ring, and
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
-    pub fn needs_notification(&mut self) -> Result<bool, Error> {
+    pub fn needs_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
         let used_idx = self.next_used;
 
         // Complete all the writes in add_used() before reading the event.
@@ -699,7 +692,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
         if self.event_idx_enabled {
             if let Some(old_idx) = self.signalled_used.replace(used_idx) {
-                let used_event = self.used_event(Ordering::Relaxed)?;
+                let used_event = self.used_event(mem, Ordering::Relaxed)?;
                 // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
                 // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
                 // than or equal to the difference between `used_idx` and `old_idx`, then
@@ -729,6 +722,103 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// Sets the index for the next descriptor in the available ring.
     pub fn set_next_avail(&mut self, next_avail: u16) {
         self.next_avail = Wrapping(next_avail);
+    }
+}
+
+#[derive(Clone, Debug)]
+/// Struct to access a virtio queue.
+pub struct Queue<M: GuestAddressSpace> {
+    mem: M,
+    state: QueueState<M>,
+}
+
+impl<M: GuestAddressSpace> Queue<M> {
+    /// Constructs an empty virtio queue with the given `max_size`.
+    pub fn new(mem: M, max_size: u16) -> Self {
+        Queue {
+            mem,
+            state: QueueState::new(max_size),
+        }
+    }
+
+    /// Gets the virtio queue maximum size.
+    pub fn max_size(&self) -> u16 {
+        self.state.max_size()
+    }
+
+    /// Return the actual size of the queue, as the driver may not set up a
+    /// queue as big as the device allows.
+    pub fn actual_size(&self) -> u16 {
+        self.state.actual_size()
+    }
+
+    /// Reset the queue to a state that is acceptable for a device reset
+    pub fn reset(&mut self) {
+        self.state.reset()
+    }
+
+    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.
+    pub fn set_event_idx(&mut self, enabled: bool) {
+        self.state.set_event_idx(enabled)
+    }
+
+    /// Check if the virtio queue configuration is valid.
+    pub fn is_valid(&self) -> bool {
+        self.state.is_valid(&self.mem.memory())
+    }
+
+    /// Reads the `idx` field from the available ring.
+    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        self.state.avail_idx(&self.mem.memory(), order)
+    }
+
+    /// A consuming iterator over all available descriptor chain heads offered by the driver.
+    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
+        self.state.iter(self.mem.memory())
+    }
+
+    /// Puts an available descriptor head into the used ring for use by the guest.
+    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+        self.state.add_used(&self.mem.memory(), head_index, len)
+    }
+
+    /// Enable notification events from the guest driver. Returns true if one or more descriptors
+    /// can be consumed from the available ring after notifications were enabled (and thus it's
+    /// possible there will be no corresponding notification).
+    pub fn enable_notification(&mut self) -> Result<bool, Error> {
+        self.state.enable_notification(&self.mem.memory())
+    }
+
+    /// Disable notification events from the guest driver.
+    pub fn disable_notification(&mut self) -> Result<(), Error> {
+        self.state.disable_notification(&self.mem.memory())
+    }
+
+    /// Check whether a notification to the guest is needed.
+    ///
+    /// Please note this method has side effects: once it returns `true`, it considers the
+    /// driver will actually be notified, remember the associated index in the used ring, and
+    /// won't return `true` again until the driver updates `used_event` and/or the notification
+    /// conditions hold once more.
+    pub fn needs_notification(&mut self) -> Result<bool, Error> {
+        self.state.needs_notification(&self.mem.memory())
+    }
+
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    pub fn go_to_previous_position(&mut self) {
+        self.state.go_to_previous_position()
+    }
+
+    /// Returns the index for the next descriptor in the available ring.
+    pub fn next_avail(&self) -> u16 {
+        self.state.next_avail()
+    }
+
+    /// Sets the index for the next descriptor in the available ring.
+    pub fn set_next_avail(&mut self, next_avail: u16) {
+        self.state.set_next_avail(next_avail);
     }
 }
 
@@ -905,53 +995,53 @@ mod tests {
         assert!(q.is_valid());
 
         // shouldn't be valid when not marked as ready
-        q.ready = false;
+        q.state.ready = false;
         assert!(!q.is_valid());
-        q.ready = true;
+        q.state.ready = true;
 
         // or when size > max_size
-        q.size = q.max_size << 1;
+        q.state.size = q.state.max_size << 1;
         assert!(!q.is_valid());
-        q.size = q.max_size;
+        q.state.size = q.state.max_size;
 
         // or when size is 0
-        q.size = 0;
+        q.state.size = 0;
         assert!(!q.is_valid());
-        q.size = q.max_size;
+        q.state.size = q.state.max_size;
 
         // or when size is not a power of 2
-        q.size = 11;
+        q.state.size = 11;
         assert!(!q.is_valid());
-        q.size = q.max_size;
+        q.state.size = q.state.max_size;
 
         // or if the various addresses are off
 
-        q.desc_table = GuestAddress(0xffff_ffff);
+        q.state.desc_table = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.desc_table = GuestAddress(0x1001);
+        q.state.desc_table = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.desc_table = vq.desc_table_addr();
+        q.state.desc_table = vq.desc_table_addr();
 
-        q.avail_ring = GuestAddress(0xffff_ffff);
+        q.state.avail_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.avail_ring = GuestAddress(0x1001);
+        q.state.avail_ring = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.avail_ring = vq.avail_addr();
+        q.state.avail_ring = vq.avail_addr();
 
-        q.used_ring = GuestAddress(0xffff_ffff);
+        q.state.used_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
-        q.used_ring = GuestAddress(0x1001);
+        q.state.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.used_ring = vq.used_addr();
+        q.state.used_ring = vq.used_addr();
 
         {
             // an invalid queue should return an iterator with no next
-            q.ready = false;
+            q.state.ready = false;
             let mut i = q.iter().unwrap();
             assert!(i.next().is_none());
         }
 
-        q.ready = true;
+        q.state.ready = true;
 
         // now let's create two simple descriptor chains
         // the chains are (0, 1) and (2, 3, 4)
@@ -1083,7 +1173,7 @@ mod tests {
 
         // should be ok
         q.add_used(1, 0x1000).unwrap();
-        assert_eq!(q.next_used, Wrapping(1));
+        assert_eq!(q.state.next_used, Wrapping(1));
         assert_eq!(vq.used().idx().load(), 1);
 
         let x = vq.used().ring().ref_at(0).load();
@@ -1097,11 +1187,11 @@ mod tests {
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
-        q.size = 8;
-        q.ready = true;
-        q.reset();
-        assert_eq!(q.size, 16);
-        assert_eq!(q.ready, false);
+        q.state.size = 8;
+        q.state.ready = true;
+        q.state.reset();
+        assert_eq!(q.state.size, 16);
+        assert_eq!(q.state.ready, false);
     }
 
     #[test]
@@ -1115,21 +1205,21 @@ mod tests {
 
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
-            q.next_used = Wrapping(i);
+            q.state.next_used = Wrapping(i);
             assert_eq!(q.needs_notification().unwrap(), true);
         }
 
         m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
-        q.set_event_idx(true);
+        q.state.set_event_idx(true);
 
         // Incrementing up to this value causes an `u16` to wrap back to 0.
         let wrap = u32::from(u16::MAX) + 1;
 
         for i in 0..wrap + 12 {
-            q.next_used = Wrapping(i as u16);
+            q.state.next_used = Wrapping(i as u16);
             // Let's test wrapping around the maximum index value as well.
-            let expected = i == 5 || i == (5 + wrap) || q.signalled_used.is_none();
+            let expected = i == 5 || i == (5 + wrap) || q.state.signalled_used.is_none();
             assert_eq!(q.needs_notification().unwrap(), expected);
         }
 
@@ -1143,9 +1233,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(15);
+        q.state.next_used = Wrapping(15);
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.next_used = Wrapping(0);
+        q.state.next_used = Wrapping(0);
         assert_eq!(q.needs_notification().unwrap(), true);
         assert_eq!(q.needs_notification().unwrap(), false);
     }
@@ -1158,7 +1248,7 @@ mod tests {
         let mut q = vq.create_queue(m);
         let used_addr = vq.used_addr();
 
-        assert_eq!(q.event_idx_enabled, false);
+        assert_eq!(q.state.event_idx_enabled, false);
 
         q.enable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).unwrap();
@@ -1177,13 +1267,13 @@ mod tests {
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(2);
+        q.state.next_avail = Wrapping(2);
         assert_eq!(q.enable_notification().unwrap(), false);
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.next_avail = Wrapping(8);
+        q.state.next_avail = Wrapping(8);
         assert_eq!(q.enable_notification().unwrap(), false);
     }
 }
