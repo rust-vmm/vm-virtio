@@ -249,7 +249,7 @@ mod tests {
     use vm_memory::{Address, GuestMemoryMmap};
 
     use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use virtio_queue::test_utils::VirtQueue;
+    use virtio_queue::mock::MockSplitQueue;
 
     impl PartialEq for Error {
         fn eq(&self, other: &Self) -> bool {
@@ -297,33 +297,31 @@ mod tests {
         descs: &[Descriptor],
     ) -> DescriptorChain<&'a GuestMemoryMmap> {
         // Support a max of 16 descriptors for now.
-        let vq = VirtQueue::new(GuestAddress(0), mem, 16);
+        let vq = MockSplitQueue::new(mem, 16);
         for (idx, desc) in descs.iter().enumerate() {
             let i = idx as u16;
-            vq.dtable(i).addr().store(desc.addr().0);
-            vq.dtable(i).len().store(desc.len());
-
-            if idx == descs.len() - 1 {
+            let addr = desc.addr().0;
+            let len = desc.len();
+            let (flags, next) = if idx == descs.len() - 1 {
                 // Clear the NEXT flag if it was set. The value of the next field of the
                 // Descriptor doesn't matter at this point.
-                vq.dtable(i)
-                    .flags()
-                    .store(desc.flags() & !VIRTQ_DESC_F_NEXT);
+                (desc.flags() & !VIRTQ_DESC_F_NEXT, 0)
             } else {
-                // Ensure the next flag is set.
-                vq.dtable(i).flags().store(desc.flags() | VIRTQ_DESC_F_NEXT);
-                // Ensure we are referring the following descriptor. This ignores
-                // any value is actually present in `desc.next`.
-                vq.dtable(i).next().store(i + 1);
-            }
+                // Ensure that the next flag is set and that we are referring the following
+                // descriptor. This ignores any value is actually present in `desc.next`.
+                (desc.flags() | VIRTQ_DESC_F_NEXT, i + 1)
+            };
+
+            let desc = Descriptor::new(addr, len, flags, next);
+            vq.desc_table().store(i, desc);
         }
 
         // Put the descriptor index 0 in the first available ring position.
-        mem.write_obj(0u16, vq.avail_start().unchecked_add(4))
+        mem.write_obj(0u16, vq.avail_addr().unchecked_add(4))
             .unwrap();
 
         // Set `avail_idx` to 1.
-        mem.write_obj(1u16, vq.avail_start().unchecked_add(2))
+        mem.write_obj(1u16, vq.avail_addr().unchecked_add(2))
             .unwrap();
 
         vq.create_queue(mem)
