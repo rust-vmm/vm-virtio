@@ -12,7 +12,7 @@ use vm_memory::{
 };
 
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
-use crate::{Descriptor, Queue};
+use crate::{Descriptor, Queue, QueueState};
 
 /// Wrapper struct used for accesing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
@@ -366,8 +366,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
-    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A> {
-        let mut q = Queue::new(a, self.len);
+    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A, QueueState<A>> {
+        let mut q = Queue::<A, QueueState<A>>::new(a, self.len);
 
         q.state.size = self.len;
         q.state.ready = true;

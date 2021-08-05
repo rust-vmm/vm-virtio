@@ -10,7 +10,7 @@ use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 
 use log::warn;
-use vm_memory::{GuestAddress, GuestAddressSpace};
+use vm_memory::GuestAddressSpace;
 
 use crate::{status, WithDriverSelect};
 use virtio_queue::Queue;
@@ -51,16 +51,6 @@ where
     }
 }
 
-// Helper function that rewrites the most significant 4 bytes of the provided `GuestAddress`.
-fn set_high(v: &mut GuestAddress, hi: u32) {
-    *v = (*v & 0xffff_ffff) | (u64::from(hi) << 32)
-}
-
-// Helper function that rewrites the least significant 4 bytes of the provided `GuestAddress`.
-fn set_low(v: &mut GuestAddress, lo: u32) {
-    *v = (*v & !0xffff_ffff) | u64::from(lo)
-}
-
 /// A common interface for Virtio devices that use the MMIO transport, which also provides a
 /// default implementation of read and write operations from/to the device registers and
 /// configuration space.
@@ -99,7 +89,7 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                         .into(),
                     0x44 => self
                         .selected_queue()
-                        .map(|q| q.ready)
+                        .map(|q| q.ready())
                         .unwrap_or(false)
                         .into(),
                     0x60 => self.interrupt_status().load(Ordering::SeqCst).into(),
@@ -159,8 +149,8 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                     // data type specified by the virtio standard (we simply use `as` conversion
                     // for now).
                     0x30 => self.set_queue_select(v as u16),
-                    0x38 => update_queue_field(self, |q| q.size = v as u16),
-                    0x44 => update_queue_field(self, |q| q.ready = v == 1),
+                    0x38 => update_queue_field(self, |q| q.set_size(v as u16)),
+                    0x44 => update_queue_field(self, |q| q.set_ready(v == 1)),
                     0x50 => self.queue_notify(v),
                     0x64 => {
                         if self.check_device_status(status::DRIVER_OK, 0) {
@@ -169,12 +159,12 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                         }
                     }
                     0x70 => self.ack_device_status(v as u8),
-                    0x80 => update_queue_field(self, |q| set_low(&mut q.desc_table, v)),
-                    0x84 => update_queue_field(self, |q| set_high(&mut q.desc_table, v)),
-                    0x90 => update_queue_field(self, |q| set_low(&mut q.avail_ring, v)),
-                    0x94 => update_queue_field(self, |q| set_high(&mut q.avail_ring, v)),
-                    0xa0 => update_queue_field(self, |q| set_low(&mut q.used_ring, v)),
-                    0xa4 => update_queue_field(self, |q| set_high(&mut q.used_ring, v)),
+                    0x80 => update_queue_field(self, |q| q.set_desc_table_address(Some(v), None)),
+                    0x84 => update_queue_field(self, |q| q.set_desc_table_address(None, Some(v))),
+                    0x90 => update_queue_field(self, |q| q.set_avail_ring_address(Some(v), None)),
+                    0x94 => update_queue_field(self, |q| q.set_avail_ring_address(None, Some(v))),
+                    0xa0 => update_queue_field(self, |q| q.set_used_ring_address(Some(v), None)),
+                    0xa4 => update_queue_field(self, |q| q.set_used_ring_address(None, Some(v))),
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                     }
