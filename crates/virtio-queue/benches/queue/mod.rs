@@ -37,7 +37,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
         });
     }
 
-    let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), 0x1_0000_0000)]).unwrap();
+    let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0x0), 0x1_0000_0000)]).unwrap();
 
     let queue_with_chains = |num_chains, len, indirect| {
         let mut mq = MockSplitQueue::new(&mem, 256);
