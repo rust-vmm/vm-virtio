@@ -518,7 +518,7 @@ mod tests {
         f.seek(SeekFrom::Start(0x400)).unwrap();
         f.write_all(&[NON_ZERO_VALUE + 1; 0x80]).unwrap();
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         let flush_req = Request::new(
             RequestType::Flush,
             vec![(GuestAddress(0x100), 0x400)],
@@ -571,7 +571,7 @@ mod tests {
             assert_eq!(mem.read_obj::<u8>(GuestAddress(addr)).unwrap(), 0x00);
         }
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         let out_req = Request::new(
             RequestType::Out,
             vec![(GuestAddress(0x100), 0x400), (GuestAddress(0x800), 0x200)],
@@ -745,7 +745,7 @@ mod tests {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1000).unwrap();
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
 
         let mut req_exec = StdIoBackend::new(
             f,
@@ -1050,7 +1050,7 @@ mod tests {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1000).unwrap();
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         let dev_id = [
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x00A, 0x0B, 0x0C, 0x0D, 0x0E,
             0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
@@ -1128,7 +1128,7 @@ mod tests {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1000).unwrap();
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         let flush_req = Request::new(
             RequestType::Flush,
             vec![(GuestAddress(0x100), 0x400)],

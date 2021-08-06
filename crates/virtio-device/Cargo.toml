@@ -10,9 +10,9 @@ license = "Apache-2.0 OR MIT"
 edition = "2018"
 
 [dependencies]
-vm-memory = ">=0.4.0"
+vm-memory = "0.6.0"
 log = ">=0.4.6"
 virtio-queue = { path = "../virtio-queue" }
 
 [dev-dependencies]
-vm-memory = { version = ">=0.4.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.6.0", features = ["backend-mmap", "backend-atomic"] }
