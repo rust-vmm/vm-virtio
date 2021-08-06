@@ -328,6 +328,19 @@ pub struct AvailIter<'b, M: GuestAddressSpace> {
     next_avail: &'b mut Wrapping<u16>,
 }
 
+impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
+    /// Goes back one position in the available descriptor chain offered by the driver.
+    ///
+    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
+    /// of an iterator increment on the queue.
+    ///
+    /// Note: this method assumes there's only one thread manipulating the queue, so it should only
+    /// be invoked in single-threaded context.
+    pub fn go_to_previous_position(&mut self) {
+        *self.next_avail -= Wrapping(1);
+    }
+}
+
 impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
     type Item = DescriptorChain<M>;
 
@@ -707,13 +720,6 @@ impl<M: GuestAddressSpace> QueueState<M> {
         Ok(true)
     }
 
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.next_avail -= Wrapping(1);
-    }
-
     /// Returns the index for the next descriptor in the available ring.
     pub fn next_avail(&self) -> u16 {
         self.next_avail.0
@@ -802,13 +808,6 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// conditions hold once more.
     pub fn needs_notification(&mut self) -> Result<bool, Error> {
         self.state.needs_notification(&self.mem.memory())
-    }
-
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.state.go_to_previous_position()
     }
 
     /// Returns the index for the next descriptor in the available ring.
@@ -1082,17 +1081,17 @@ mod tests {
                 assert!(c.next().is_none());
                 assert_eq!(c.head_index(), 2);
             }
-        }
 
-        // also test go_to_previous_position() works as expected
-        {
-            assert!(q.iter().unwrap().next().is_none());
-            q.go_to_previous_position();
-            let mut c = q.iter().unwrap().next().unwrap();
-            c.next().unwrap();
-            c.next().unwrap();
-            c.next().unwrap();
-            assert!(c.next().is_none());
+            // also test go_to_previous_position() works as expected
+            {
+                assert!(i.next().is_none());
+                i.go_to_previous_position();
+                let mut c = q.iter().unwrap().next().unwrap();
+                c.next().unwrap();
+                c.next().unwrap();
+                c.next().unwrap();
+                assert!(c.next().is_none());
+            }
         }
     }
 
