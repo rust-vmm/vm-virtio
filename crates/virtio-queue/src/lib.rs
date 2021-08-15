@@ -16,6 +16,9 @@
 
 pub mod defs;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod mock;
+
 use std::cmp::min;
 use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
@@ -85,6 +88,17 @@ pub struct Descriptor {
 
 #[allow(clippy::len_without_is_empty)]
 impl Descriptor {
+    /// Creates a new descriptor
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
+        Descriptor {
+            addr,
+            len,
+            flags,
+            next,
+        }
+    }
+
     /// Return the guest physical address of descriptor buffer
     pub fn addr(&self) -> GuestAddress {
         GuestAddress(self.addr)
@@ -718,253 +732,19 @@ impl<M: GuestAddressSpace> Queue<M> {
     }
 }
 
-#[allow(missing_docs)]
-#[cfg(feature = "test-utils")]
-pub mod test_utils {
+#[cfg(test)]
+mod tests {
     use super::*;
+    use mock::{DescriptorTable, MockSplitQueue};
 
-    use std::marker::PhantomData;
-    use std::mem;
-
-    use vm_memory::{
-        GuestAddress, GuestMemoryMmap, GuestMemoryRegion, GuestUsize, VolatileMemory, VolatileRef,
-        VolatileSlice,
-    };
-
-    impl Descriptor {
-        // Only available to unit tests within the local crate.
-        pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
-            Descriptor {
-                addr,
-                len,
-                flags,
-                next,
-            }
-        }
-    }
-
-    // Represents a virtio descriptor in guest memory.
-    pub struct VirtqDesc<'a> {
-        desc: VolatileSlice<'a>,
-    }
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     /// Extracts the displacement of a field in a struct
-    #[macro_export]
     macro_rules! offset_of {
         ($ty:ty, $field:ident) => {
             unsafe { &(*std::ptr::null::<$ty>()).$field as *const _ as usize }
         };
     }
-
-    #[allow(clippy::len_without_is_empty)]
-    impl<'a> VirtqDesc<'a> {
-        pub fn new(dtable: &'a VolatileSlice<'a>, i: u16) -> Self {
-            let desc = dtable
-                .get_slice((i as usize) * Self::dtable_len(1), Self::dtable_len(1))
-                .unwrap();
-            VirtqDesc { desc }
-        }
-
-        pub fn addr(&self) -> VolatileRef<u64> {
-            self.desc.get_ref(offset_of!(Descriptor, addr)).unwrap()
-        }
-
-        pub fn len(&self) -> VolatileRef<u32> {
-            self.desc.get_ref(offset_of!(Descriptor, len)).unwrap()
-        }
-
-        pub fn flags(&self) -> VolatileRef<u16> {
-            self.desc.get_ref(offset_of!(Descriptor, flags)).unwrap()
-        }
-
-        pub fn next(&self) -> VolatileRef<u16> {
-            self.desc.get_ref(offset_of!(Descriptor, next)).unwrap()
-        }
-
-        pub fn set(&self, addr: u64, len: u32, flags: u16, next: u16) {
-            self.addr().store(addr);
-            self.len().store(len);
-            self.flags().store(flags);
-            self.next().store(next);
-        }
-
-        pub fn dtable_len(nelem: u16) -> usize {
-            16 * nelem as usize
-        }
-    }
-
-    // Represents a virtio queue ring. The only difference between the used and available rings,
-    // is the ring element type.
-    pub struct VirtqRing<'a, T> {
-        ring: VolatileSlice<'a>,
-        start: GuestAddress,
-        qsize: u16,
-        _marker: PhantomData<*const T>,
-    }
-
-    impl<'a, T> VirtqRing<'a, T>
-    where
-        T: vm_memory::ByteValued,
-    {
-        fn new(
-            start: GuestAddress,
-            mem: &'a GuestMemoryMmap,
-            qsize: u16,
-            alignment: GuestUsize,
-        ) -> Self {
-            assert_eq!(start.0 & (alignment - 1), 0);
-
-            let (region, addr) = mem.to_region_addr(start).unwrap();
-            let size = Self::ring_len(qsize);
-            let ring = region.get_slice(addr, size).unwrap();
-
-            let result = VirtqRing {
-                ring,
-                start,
-                qsize,
-                _marker: PhantomData,
-            };
-
-            result.flags().store(0);
-            result.idx().store(0);
-            result.event().store(0);
-            result
-        }
-
-        pub fn start(&self) -> GuestAddress {
-            self.start
-        }
-
-        pub fn end(&self) -> GuestAddress {
-            self.start.unchecked_add(self.ring.len() as GuestUsize)
-        }
-
-        pub fn flags(&self) -> VolatileRef<u16> {
-            self.ring.get_ref(0).unwrap()
-        }
-
-        pub fn idx(&self) -> VolatileRef<u16> {
-            self.ring.get_ref(2).unwrap()
-        }
-
-        fn ring_offset(i: u16) -> usize {
-            4 + mem::size_of::<T>() * (i as usize)
-        }
-
-        pub fn ring(&self, i: u16) -> VolatileRef<T> {
-            assert!(i < self.qsize);
-            self.ring.get_ref(Self::ring_offset(i)).unwrap()
-        }
-
-        pub fn event(&self) -> VolatileRef<u16> {
-            self.ring.get_ref(Self::ring_offset(self.qsize)).unwrap()
-        }
-
-        fn ring_len(qsize: u16) -> usize {
-            Self::ring_offset(qsize) + 2
-        }
-    }
-
-    pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
-    pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;
-
-    trait GuestAddressExt {
-        fn align_up(&self, x: GuestUsize) -> GuestAddress;
-    }
-    impl GuestAddressExt for GuestAddress {
-        fn align_up(&self, x: GuestUsize) -> GuestAddress {
-            Self((self.0 + (x - 1)) & !(x - 1))
-        }
-    }
-
-    pub struct VirtQueue<'a> {
-        start: GuestAddress,
-        dtable: VolatileSlice<'a>,
-        pub avail: VirtqAvail<'a>,
-        pub used: VirtqUsed<'a>,
-    }
-
-    impl<'a> VirtQueue<'a> {
-        // We try to make sure things are aligned properly :-s
-        pub fn new(start: GuestAddress, mem: &'a GuestMemoryMmap, qsize: u16) -> Self {
-            // power of 2?
-            assert!(qsize > 0 && qsize & (qsize - 1) == 0);
-
-            let (region, addr) = mem.to_region_addr(start).unwrap();
-            let dtable = region
-                .get_slice(addr, VirtqDesc::dtable_len(qsize))
-                .unwrap();
-
-            const AVAIL_ALIGN: GuestUsize = 2;
-
-            let avail_addr = start
-                .unchecked_add(VirtqDesc::dtable_len(qsize) as GuestUsize)
-                .align_up(AVAIL_ALIGN);
-            let avail = VirtqAvail::new(avail_addr, mem, qsize, AVAIL_ALIGN);
-
-            const USED_ALIGN: GuestUsize = 4;
-
-            let used_addr = avail.end().align_up(USED_ALIGN);
-            let used = VirtqUsed::new(used_addr, mem, qsize, USED_ALIGN);
-
-            VirtQueue {
-                start,
-                dtable,
-                avail,
-                used,
-            }
-        }
-
-        pub fn size(&self) -> u16 {
-            (self.dtable.len() / VirtqDesc::dtable_len(1)) as u16
-        }
-
-        pub fn dtable(&self, i: u16) -> VirtqDesc {
-            VirtqDesc::new(&self.dtable, i)
-        }
-
-        pub fn dtable_start(&self) -> GuestAddress {
-            self.start
-        }
-
-        pub fn avail_start(&self) -> GuestAddress {
-            self.avail.start()
-        }
-
-        pub fn used_start(&self) -> GuestAddress {
-            self.used.start()
-        }
-
-        // Creates a new Queue, using the underlying memory regions represented by the VirtQueue.
-        pub fn create_queue(&self, mem: &'a GuestMemoryMmap) -> Queue<&'a GuestMemoryMmap> {
-            let mut q = Queue::new(mem, self.size());
-
-            q.size = self.size();
-            q.ready = true;
-            q.desc_table = self.dtable_start();
-            q.avail_ring = self.avail_start();
-            q.used_ring = self.used_start();
-
-            q
-        }
-
-        pub fn start(&self) -> GuestAddress {
-            self.dtable_start()
-        }
-
-        pub fn end(&self) -> GuestAddress {
-            self.used.end()
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use test_utils::*;
-
-    use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion, MemoryRegionAddress};
 
     #[test]
     pub fn test_offset() {
@@ -976,8 +756,8 @@ mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
 
         assert!(vq.end().0 < 0x1000);
 
@@ -997,11 +777,9 @@ mod tests {
 
         {
             // the first desc has a normal len, and the next_descriptor flag is set
-            vq.dtable(0).addr().store(0x1000);
-            vq.dtable(0).len().store(0x1000);
-            vq.dtable(0).flags().store(VIRTQ_DESC_F_NEXT);
-            //..but the the index of the next descriptor is too large
-            vq.dtable(0).next().store(16);
+            // but the the index of the next descriptor is too large
+            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 16);
+            vq.desc_table().store(0, desc);
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
             c.next().unwrap();
@@ -1010,8 +788,11 @@ mod tests {
 
         // finally, let's test an ok chain
         {
-            vq.dtable(0).next().store(1);
-            vq.dtable(1).set(0x2000, 0x1000, 0, 0);
+            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            vq.desc_table().store(0, desc);
+
+            let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
+            vq.desc_table().store(1, desc);
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
 
@@ -1019,14 +800,16 @@ mod tests {
                 c.memory() as *const GuestMemoryMmap,
                 m as *const GuestMemoryMmap
             );
-            assert_eq!(c.desc_table, vq.dtable_start());
+
+            assert_eq!(c.desc_table, vq.start());
             assert_eq!(c.queue_size, 16);
             assert_eq!(c.ttl, c.queue_size);
+
             let desc = c.next().unwrap();
             assert_eq!(desc.addr(), GuestAddress(0x1000));
             assert_eq!(desc.len(), 0x1000);
             assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-            assert_eq!(desc.next, 1);
+            assert_eq!(desc.next(), 1);
 
             assert!(c.next().is_some());
             assert!(c.next().is_none());
@@ -1035,43 +818,38 @@ mod tests {
 
     #[test]
     fn test_new_from_indirect_descriptor() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+        let dtable = vq.desc_table();
 
-        // create a chain with two descriptor pointing to an indirect tables
-        let desc = vq.dtable(0);
-        desc.set(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 1);
-        let desc = vq.dtable(1);
-        desc.set(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
-        let desc = vq.dtable(2);
-        desc.set(0x3000, 0x1000, 0, 0);
+        // Create a chain with two descriptors pointing to an indirect table.
+        let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 1);
+        dtable.store(0, desc);
+        let desc = Descriptor::new(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
+        dtable.store(1, desc);
+        let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
+        dtable.store(2, desc);
 
         let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
 
         // The chain logic hasn't parsed the indirect descriptor yet.
         assert!(!c.is_indirect);
 
-        let region = m.find_region(GuestAddress(0)).unwrap();
-        let dtable = region
-            .get_slice(MemoryRegionAddress(0x1000u64), VirtqDesc::dtable_len(4))
-            .unwrap();
         // create an indirect table with 4 chained descriptors
-        let mut indirect_table = Vec::with_capacity(4_usize);
+        let idtable = DescriptorTable::new(m, GuestAddress(0x1000), 4);
         for j in 0..4 {
-            let desc = VirtqDesc::new(&dtable, j);
+            let desc: Descriptor;
             if j < 3 {
-                desc.set(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, (j + 1) as u16);
+                desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, j + 1);
             } else {
-                desc.set(0x1000, 0x1000, 0, 0_u16);
+                desc = Descriptor::new(0x1000, 0x1000, 0, 0);
             }
-            indirect_table.push(desc);
+            idtable.store(j, desc);
         }
 
-        let dtable2 = region
-            .get_slice(MemoryRegionAddress(0x2000u64), VirtqDesc::dtable_len(1))
-            .unwrap();
-        let desc2 = VirtqDesc::new(&dtable2, 0);
-        desc2.set(0x8000, 0x1000, 0, 0);
+        let idtable2 = DescriptorTable::new(m, GuestAddress(0x2000), 1);
+        let desc2 = Descriptor::new(0x8000, 0x1000, 0, 0);
+        idtable2.store(0, desc2);
 
         assert_eq!(c.head_index(), 0);
         // try to iterate through the first indirect descriptor chain
@@ -1088,12 +866,12 @@ mod tests {
     #[test]
     fn test_indirect_descriptor_err() {
         {
-            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-            let vq = VirtQueue::new(GuestAddress(0), m, 16);
+            let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let vq = MockSplitQueue::new(m, 16);
 
             // create a chain with a descriptor pointing to an indirect table
-            let desc = vq.dtable(0);
-            desc.set(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            vq.desc_table().store(0, desc);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -1103,11 +881,11 @@ mod tests {
 
         {
             let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-            let vq = VirtQueue::new(GuestAddress(0), m, 16);
+            let vq = MockSplitQueue::new(m, 16);
 
             // create a chain with a descriptor pointing to an indirect table
-            let desc = vq.dtable(0);
-            desc.set(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
+            vq.desc_table().store(0, desc);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -1118,8 +896,8 @@ mod tests {
 
     #[test]
     fn test_queue_and_iterator() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
 
@@ -1152,19 +930,19 @@ mod tests {
         assert!(!q.is_valid());
         q.desc_table = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.desc_table = vq.dtable_start();
+        q.desc_table = vq.desc_table_addr();
 
         q.avail_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
         q.avail_ring = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.avail_ring = vq.avail_start();
+        q.avail_ring = vq.avail_addr();
 
         q.used_ring = GuestAddress(0xffff_ffff);
         assert!(!q.is_valid());
         q.used_ring = GuestAddress(0x1001);
         assert!(!q.is_valid());
-        q.used_ring = vq.used_start();
+        q.used_ring = vq.used_addr();
 
         {
             // an invalid queue should return an iterator with no next
@@ -1176,23 +954,21 @@ mod tests {
         q.ready = true;
 
         // now let's create two simple descriptor chains
-
+        // the chains are (0, 1) and (2, 3, 4)
         {
-            for j in 0..5 {
-                vq.dtable(j).set(
-                    0x1000 * (j + 1) as u64,
-                    0x1000,
-                    VIRTQ_DESC_F_NEXT,
-                    (j + 1) as u16,
-                );
+            for j in 0..5u16 {
+                let flags = match j {
+                    1 | 4 => 0,
+                    _ => VIRTQ_DESC_F_NEXT,
+                };
+
+                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
+                vq.desc_table().store(j, desc);
             }
 
-            // the chains are (0, 1) and (2, 3, 4)
-            vq.dtable(1).flags().store(0);
-            vq.dtable(4).flags().store(0);
-            vq.avail.ring(0).store(0);
-            vq.avail.ring(1).store(2);
-            vq.avail.idx().store(2);
+            vq.avail().ring().ref_at(0).store(0);
+            vq.avail().ring().ref_at(1).store(2);
+            vq.avail().idx().store(2);
 
             let mut i = q.iter().unwrap();
 
@@ -1232,37 +1008,30 @@ mod tests {
 
     #[test]
     fn test_descriptor_and_iterator() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
 
+        // the chains are (0, 1), (2, 3, 4) and (5, 6)
         for j in 0..7 {
-            vq.dtable(j).set(
-                0x1000 * (j + 1) as u64,
-                0x1000,
-                VIRTQ_DESC_F_NEXT,
-                (j + 1) as u16,
-            );
+            let flags = match j {
+                1 | 6 => 0,
+                2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+                _ => VIRTQ_DESC_F_NEXT,
+            };
+
+            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
+            vq.desc_table().store(j, desc);
         }
 
-        // the chains are (0, 1), (2, 3, 4) and (5, 6)
-        vq.dtable(1).flags().store(0);
-        vq.dtable(2)
-            .flags()
-            .store(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        vq.dtable(4).flags().store(VIRTQ_DESC_F_WRITE);
-        vq.dtable(5)
-            .flags()
-            .store(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-        vq.dtable(6).flags().store(0);
-        vq.avail.ring(0).store(0);
-        vq.avail.ring(1).store(2);
-        vq.avail.ring(2).store(5);
-        vq.avail.idx().store(3);
+        vq.avail().ring().ref_at(0).store(0);
+        vq.avail().ring().ref_at(1).store(2);
+        vq.avail().ring().ref_at(2).store(5);
+        vq.avail().idx().store(3);
 
         let mut i = q.iter().unwrap();
 
@@ -1301,29 +1070,31 @@ mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
-        assert_eq!(vq.used.idx().load(), 0);
 
-        //index too large
+        assert_eq!(vq.used().idx().load(), 0);
+
+        // index too large
         assert!(q.add_used(16, 0x1000).is_err());
-        assert_eq!(vq.used.idx().load(), 0);
+        assert_eq!(vq.used().idx().load(), 0);
 
-        //should be ok
+        // should be ok
         q.add_used(1, 0x1000).unwrap();
         assert_eq!(q.next_used, Wrapping(1));
-        assert_eq!(vq.used.idx().load(), 1);
-        let x = vq.used.ring(0).load();
+        assert_eq!(vq.used().idx().load(), 1);
+
+        let x = vq.used().ring().ref_at(0).load();
         assert_eq!(x.id, 1);
         assert_eq!(x.len, 0x1000);
     }
 
     #[test]
     fn test_reset_queue() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
         q.size = 8;
@@ -1335,11 +1106,12 @@ mod tests {
 
     #[test]
     fn test_needs_notification() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let qsize = 16;
-        let vq = VirtQueue::new(GuestAddress(0), m, qsize);
-        let mut q = vq.create_queue(&m);
-        let avail_addr = vq.avail_start();
+        let vq = MockSplitQueue::new(m, qsize);
+
+        let mut q = vq.create_queue(m);
+        let avail_addr = vq.avail_addr();
 
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
@@ -1361,14 +1133,15 @@ mod tests {
             assert_eq!(q.needs_notification().unwrap(), expected);
         }
 
-        m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + 16 * 2))
+        m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
 
         // Returns `false` because `signalled_used` already passed this value.
         assert_eq!(q.needs_notification().unwrap(), false);
 
-        m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + 16 * 2))
+        m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
+
         assert_eq!(q.needs_notification().unwrap(), false);
         q.next_used = Wrapping(15);
         assert_eq!(q.needs_notification().unwrap(), false);
@@ -1379,10 +1152,11 @@ mod tests {
 
     #[test]
     fn test_enable_disable_notification() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), m, 16);
-        let mut q = vq.create_queue(&m);
-        let used_addr = vq.used_start();
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+
+        let mut q = vq.create_queue(m);
+        let used_addr = vq.used_addr();
 
         assert_eq!(q.event_idx_enabled, false);
 
@@ -1399,7 +1173,7 @@ mod tests {
         assert_eq!(v, 0);
 
         q.set_event_idx(true);
-        let avail_addr = vq.avail_start();
+        let avail_addr = vq.avail_addr();
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
