@@ -28,7 +28,8 @@ use std::sync::atomic::{fence, Ordering};
 use defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
     VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_META_SIZE,
+    VIRTQ_MSI_NO_VECTOR, VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY,
+    VIRTQ_USED_RING_META_SIZE,
 };
 
 use vm_memory::{
@@ -415,6 +416,9 @@ pub struct Queue<M: GuestAddressSpace> {
 
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
+
+    /// Interrupt vector
+    pub vector: u16,
 }
 
 impl<M: GuestAddressSpace> Queue<M> {
@@ -432,6 +436,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             next_used: Wrapping(0),
             event_idx_enabled: false,
             signalled_used: None,
+            vector: VIRTQ_MSI_NO_VECTOR,
         }
     }
 
@@ -457,6 +462,7 @@ impl<M: GuestAddressSpace> Queue<M> {
         self.next_used = Wrapping(0);
         self.signalled_used = None;
         self.event_idx_enabled = false;
+        self.vector = VIRTQ_MSI_NO_VECTOR;
     }
 
     /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature.

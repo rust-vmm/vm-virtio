@@ -41,3 +41,6 @@ pub(crate) const VIRTQ_AVAIL_RING_META_SIZE: u64 = VIRTQ_AVAIL_RING_HEADER_SIZE 
 /// The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 /// which fulfills the explicit constraint of GuestMemory::read_obj().
 pub(crate) const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
+
+/// Vector value used to disable MSI for a queue.
+pub const VIRTQ_MSI_NO_VECTOR: u16 = 0xffff;
