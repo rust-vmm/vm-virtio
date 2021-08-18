@@ -256,6 +256,8 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
             .desc_table
             .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
 
+        // The guest device driver should not touch the descriptor once submitted, so it's safe
+        // to use read_obj() here.
         let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
 
         if desc.is_indirect() {
@@ -365,7 +367,7 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
         let addr = self.avail_ring.unchecked_add(offset);
         let head_index: u16 = self
             .mem
-            .read_obj(addr)
+            .load(addr, Ordering::Acquire)
             .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
             .ok()?;
 
