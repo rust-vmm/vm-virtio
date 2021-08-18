@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-//! A crate that exposes the virtio queue API.
+//! Virtio queue API for backend device drivers to access virtio queues.
 
 #![deny(missing_docs)]
 
@@ -28,17 +28,16 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{fence, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use defs::{
-    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
-    VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_META_SIZE,
-};
-
+use log::error;
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
-use log::error;
+use self::defs::{
+    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
+    VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_META_SIZE,
+};
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
@@ -71,7 +70,7 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A virtio descriptor constraints with C representation
+/// A virtio descriptor constraints with C representation.
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Descriptor {
