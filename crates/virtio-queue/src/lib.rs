@@ -24,6 +24,7 @@ use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
+use std::sync::Arc;
 
 use defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
@@ -36,6 +37,13 @@ use vm_memory::{
 };
 
 use log::error;
+
+/// Trait for devices with access to data in memory being limited and/or
+/// translated.
+pub trait AccessPlatform: Debug {
+    /// Provide a way to translate address ranges.
+    fn translate(&self, base: u64, size: u64) -> std::result::Result<u64, std::io::Error>;
+}
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
@@ -153,6 +161,7 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     next_index: u16,
     ttl: u16,
     is_indirect: bool,
+    access_platform: Option<Arc<dyn AccessPlatform>>,
 }
 
 impl<M: GuestAddressSpace> DescriptorChain<M> {
@@ -162,6 +171,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         queue_size: u16,
         ttl: u16,
         head_index: u16,
+        access_platform: Option<Arc<dyn AccessPlatform>>,
     ) -> Self {
         DescriptorChain {
             mem,
@@ -171,12 +181,26 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
             next_index: head_index,
             ttl,
             is_indirect: false,
+            access_platform,
         }
     }
 
     /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
-        Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
+    fn new(
+        mem: M::T,
+        desc_table: GuestAddress,
+        queue_size: u16,
+        head_index: u16,
+        access_platform: Option<Arc<dyn AccessPlatform>>,
+    ) -> Self {
+        Self::with_ttl(
+            mem,
+            desc_table,
+            queue_size,
+            queue_size,
+            head_index,
+            access_platform,
+        )
     }
 
     /// Get the descriptor index of the chain header
@@ -253,7 +277,14 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
             .desc_table
             .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
 
-        let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
+        let mut desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
+        // When needed, it's very important to translate the decriptor address
+        // before returning the Descriptor to the consumer.
+        if let Some(access_platform) = &self.access_platform {
+            desc.addr = access_platform
+                .translate(desc.addr, u64::from(desc.len))
+                .ok()?;
+        }
 
         if desc.is_indirect() {
             self.process_indirect_descriptor(desc).ok()?;
@@ -325,6 +356,7 @@ pub struct AvailIter<'b, M: GuestAddressSpace> {
     last_index: Wrapping<u16>,
     queue_size: u16,
     next_avail: &'b mut Wrapping<u16>,
+    access_platform: &'b Option<Arc<dyn AccessPlatform>>,
 }
 
 impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
@@ -360,6 +392,7 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
             self.desc_table,
             self.queue_size,
             head_index,
+            self.access_platform.clone(),
         ))
     }
 }
@@ -415,6 +448,9 @@ pub struct Queue<M: GuestAddressSpace> {
 
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
+
+    /// Access platform handler
+    pub access_platform: Option<Arc<dyn AccessPlatform>>,
 }
 
 impl<M: GuestAddressSpace> Queue<M> {
@@ -432,6 +468,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             next_used: Wrapping(0),
             event_idx_enabled: false,
             signalled_used: None,
+            access_platform: None,
         }
     }
 
@@ -545,6 +582,7 @@ impl<M: GuestAddressSpace> Queue<M> {
             last_index: idx,
             queue_size: self.actual_size(),
             next_avail: &mut self.next_avail,
+            access_platform: &self.access_platform,
         })
     }
 
@@ -763,17 +801,21 @@ mod tests {
 
         // index >= queue_size
         assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16)
+            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16, None)
                 .next()
                 .is_none()
         );
 
         // desc_table address is way off
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
-                .next()
-                .is_none()
-        );
+        assert!(DescriptorChain::<&GuestMemoryMmap>::new(
+            m,
+            GuestAddress(0x00ff_ffff_ffff),
+            16,
+            0,
+            None
+        )
+        .next()
+        .is_none());
 
         {
             // the first desc has a normal len, and the next_descriptor flag is set
@@ -781,7 +823,7 @@ mod tests {
             let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 16);
             vq.desc_table().store(0, desc);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0, None);
             c.next().unwrap();
             assert!(c.next().is_none());
         }
@@ -794,7 +836,7 @@ mod tests {
             let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
             vq.desc_table().store(1, desc);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0, None);
 
             assert_eq!(
                 c.memory() as *const GuestMemoryMmap,
@@ -830,7 +872,8 @@ mod tests {
         let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
         dtable.store(2, desc);
 
-        let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
+        let mut c: DescriptorChain<&GuestMemoryMmap> =
+            DescriptorChain::new(m, vq.start(), 16, 0, None);
 
         // The chain logic hasn't parsed the indirect descriptor yet.
         assert!(!c.is_indirect);
@@ -874,7 +917,7 @@ mod tests {
             vq.desc_table().store(0, desc);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+                DescriptorChain::new(m, vq.start(), 16, 0, None);
 
             assert!(c.next().is_none());
         }
@@ -888,7 +931,7 @@ mod tests {
             vq.desc_table().store(0, desc);
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+                DescriptorChain::new(m, vq.start(), 16, 0, None);
 
             assert!(c.next().is_none());
         }

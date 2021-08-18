@@ -1,5 +1,5 @@
 {
-  "coverage_score": 90.6,
+  "coverage_score": 90.4,
   "exclude_path": "",
   "crate_features": "virtio-blk/backend-stdio"
 }
