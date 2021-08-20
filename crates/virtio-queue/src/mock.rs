@@ -4,6 +4,8 @@
 //! Utilities used by unit tests and benchmarks for mocking the driver side
 //! of the virtio protocol.
 
+#![allow(missing_docs)]
+
 use std::marker::PhantomData;
 use std::mem::size_of;
 
@@ -11,7 +13,7 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
 };
 
-use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
+use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::{Descriptor, Queue};
 
 /// Wrapper struct used for accesing a particular address of a GuestMemory area.
@@ -177,6 +179,77 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
     /// Return the total size of the DescriptorTable in bytes.
     pub fn total_size(&self) -> u64 {
         (self.len as usize * size_of::<Descriptor>()) as u64
+    }
+
+
+    // let direct_chain = vec![MockDescriptor::new().index(2).addr(0x1000).len(0x1000),
+    //                         MockDescriptor::new().index(4).len(0x100),
+    //                         MockDescriptor::new().index(10).addr(0x3000).len(0x1000).indirect(),
+    //                         MockDescriptor::new().len(0x100).writeable()];
+    // dt.store_chain(direct_chain);
+
+    /// Takes a vector of MockDescriptors, converts them to real descriptors and stores
+    /// them in the descriptor table.
+    pub fn store_chain(&self, chain: Vec<MockDescriptor>) {
+        let mut prev = MockDescriptor::new();
+        for (i, md) in chain.iter().enumerate() {
+            let addr = match md.addr {
+                None => {
+                    if i == 0 {
+                        0
+                    } else {
+                        prev.addr.unwrap() + prev.len as u64
+                    }
+                }
+                Some(address) => address,
+            };
+
+            let len = if md.len == 0 { 0x1000 } else { md.len };
+
+            let mut flags: u16;
+            if i == (chain.len() - 1) as usize {
+                flags = 0;
+            } else {
+                flags = VIRTQ_DESC_F_NEXT;
+            }
+
+            if md.indirect {
+                flags |= VIRTQ_DESC_F_INDIRECT;
+            }
+
+            if md.writeable {
+                flags |= VIRTQ_DESC_F_WRITE;
+            }
+
+            let index = match md.index {
+                None => {
+                    if i == 0 {
+                        0
+                    } else {
+                        prev.index.unwrap()
+                    }
+                }
+                Some(idx) => idx,
+            };
+
+            let next = if i == (chain.len() - 1) as usize {
+                0
+            } else {
+                match chain[i + 1].index {
+                    None => index + 1,
+                    Some(idx) => idx,
+                }
+            };
+
+            let desc = Descriptor::new(addr, len, flags, next);
+            self.store(index, desc);
+
+            prev = MockDescriptor {
+                addr: Some(addr),
+                index: Some(index),
+                ..*md
+            };
+        }
     }
 
     /// Create a chain of descriptors
@@ -375,5 +448,58 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         q.avail_ring = self.avail_addr;
         q.used_ring = self.used_addr;
         q
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct MockDescriptor {
+    pub index: Option<u16>,
+    pub addr: Option<u64>,
+    pub len: u32,
+    pub writeable: bool,
+    pub indirect: bool,
+}
+
+impl MockDescriptor {
+    pub fn new() -> Self {
+        Self {
+            index: None,
+            addr: None,
+            len: 0,
+            writeable: false,
+            indirect: false,
+        }
+    }
+
+    pub fn index(self, index: u16) -> Self {
+        Self {
+            index: Some(index),
+            ..self
+        }
+    }
+
+    pub fn addr(self, addr: u64) -> Self {
+        Self {
+            addr: Some(addr),
+            ..self
+        }
+    }
+
+    pub fn len(self, len: u32) -> Self {
+        Self { len, ..self }
+    }
+
+    pub fn writeable(self) -> Self {
+        Self {
+            writeable: true,
+            ..self
+        }
+    }
+
+    pub fn indirect(self) -> Self {
+        Self {
+            indirect: true,
+            ..self
+        }
     }
 }
