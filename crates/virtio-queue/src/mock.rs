@@ -6,9 +6,11 @@
 
 #![allow(missing_docs)]
 
+use std::cmp::min;
 use std::marker::PhantomData;
 use std::mem::size_of;
 
+use vm_memory::guest_memory::Error as GuestMemError;
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
 };
@@ -181,64 +183,60 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
         (self.len as usize * size_of::<Descriptor>()) as u64
     }
 
-
-    // let direct_chain = vec![MockDescriptor::new().index(2).addr(0x1000).len(0x1000),
-    //                         MockDescriptor::new().index(4).len(0x100),
-    //                         MockDescriptor::new().index(10).addr(0x3000).len(0x1000).indirect(),
-    //                         MockDescriptor::new().len(0x100).writeable()];
-    // dt.store_chain(direct_chain);
-
-    /// Takes a vector of MockDescriptors, converts them to real descriptors and stores
-    /// them in the descriptor table.
-    pub fn store_chain(&self, chain: Vec<MockDescriptor>) {
+    /// Takes a vector of MockDescriptors, converts them to real descriptors by adding
+    /// all the missing fields and stores them in the descriptor table.
+    ///
+    /// # Example:
+    /// ```
+    /// use vm_memory::{GuestAddress, GuestMemoryMmap};
+    /// use virtio_queue::mock::{DescriptorTable, MockDescriptor, MockDescriptorChain};
+    ///
+    /// // This creates the descriptor chain: [2, 4, 10, 11].
+    /// let v = vec![MockDescriptor::new().with_index(2).with_addr(0x1000).with_len(0x1000),
+    ///              MockDescriptor::new().with_index(4).with_len(0x100),
+    ///              MockDescriptor::new().with_index(10).with_addr(0x3000).with_len(0x1000).indirect(),
+    ///              MockDescriptor::new().with_len(0x100).writeable()];
+    ///
+    /// let direct_chain = MockDescriptorChain::new(v);
+    ///
+    /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    /// let dt = DescriptorTable::new(m, GuestAddress(0x1000), 11);
+    /// dt.add_chain(direct_chain);
+    /// ```
+    pub fn add_chain(&self, mdc: MockDescriptorChain) -> u16 {
         let mut prev = MockDescriptor::new();
-        for (i, md) in chain.iter().enumerate() {
-            let addr = match md.addr {
-                None => {
-                    if i == 0 {
-                        0
-                    } else {
-                        prev.addr.unwrap() + prev.len as u64
-                    }
-                }
-                Some(address) => address,
-            };
+        for (i, md) in mdc.chain.iter().enumerate() {
+            let addr = md.addr().unwrap_or_else(|| match i {
+                0 => 0,
+                _ => prev.addr().unwrap() + prev.len().unwrap() as u64,
+            });
 
-            let len = if md.len == 0 { 0x1000 } else { md.len };
+            let len = md.len().unwrap_or(0x1000);
 
             let mut flags: u16;
-            if i == (chain.len() - 1) as usize {
+            if i == (mdc.len() - 1) as usize {
                 flags = 0;
             } else {
                 flags = VIRTQ_DESC_F_NEXT;
             }
 
-            if md.indirect {
+            if md.is_indirect() {
                 flags |= VIRTQ_DESC_F_INDIRECT;
             }
 
-            if md.writeable {
+            if md.is_writeable() {
                 flags |= VIRTQ_DESC_F_WRITE;
             }
 
-            let index = match md.index {
-                None => {
-                    if i == 0 {
-                        0
-                    } else {
-                        prev.index.unwrap()
-                    }
-                }
-                Some(idx) => idx,
-            };
+            let index = md.index().unwrap_or_else(|| match i {
+                0 => 0,
+                _ => prev.index().unwrap(),
+            });
 
-            let next = if i == (chain.len() - 1) as usize {
+            let next = if i == (mdc.len() - 1) as usize {
                 0
             } else {
-                match chain[i + 1].index {
-                    None => index + 1,
-                    Some(idx) => idx,
-                }
+                mdc.chain[i + 1].index().unwrap_or(index + 1)
             };
 
             let desc = Descriptor::new(addr, len, flags, next);
@@ -247,9 +245,13 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
             prev = MockDescriptor {
                 addr: Some(addr),
                 index: Some(index),
+                len: Some(len),
                 ..*md
             };
         }
+
+        // Returns the index of the first descriptor
+        mdc.chain[0].index().unwrap_or(0)
     }
 
     /// Create a chain of descriptors
@@ -451,13 +453,76 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     }
 }
 
+pub struct MockDescriptorChain {
+    pub chain: Vec<MockDescriptor>,
+}
+
+impl MockDescriptorChain {
+    pub fn new(chain: Vec<MockDescriptor>) -> Self {
+        Self { chain }
+    }
+
+    pub fn with_len(len: u16) -> Self {
+        let mut chain = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let md = MockDescriptor::new()
+                .with_index(i)
+                .with_addr((0x1000 * i) as u64)
+                .with_len(0x1000);
+
+            chain.push(md);
+        }
+
+        MockDescriptorChain::new(chain)
+    }
+
+    pub fn len(&self) -> u16 {
+        self.chain.len() as u16
+    }
+
+    pub fn write_slice<M: GuestMemory>(&self, buffer: &[u8], mem: &M) -> Result<(), GuestMemError> {
+        let mut prev = MockDescriptor::new();
+        let (mut start, mut end) = (0, 0);
+        let mut to_write = buffer.len();
+
+        for (index, md) in self.chain.iter().enumerate() {
+            if to_write == 0 {
+                return Ok(());
+            }
+
+            let addr = md.addr().unwrap_or_else(|| match index {
+                0 => 0,
+                _ => prev.addr().unwrap() + prev.len().unwrap() as u64,
+            });
+            let len = md.len().unwrap_or(0x1000);
+
+            start = match index {
+                0 => addr as usize,
+                _ => end,
+            };
+            end = min(start + len as usize, start + to_write);
+
+            mem.write(&buffer[start..end], GuestAddress(addr))?;
+            to_write -= end - start;
+
+            prev = MockDescriptor {
+                addr: Some(addr),
+                len: Some(len),
+                ..*md
+            };
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct MockDescriptor {
-    pub index: Option<u16>,
-    pub addr: Option<u64>,
-    pub len: u32,
-    pub writeable: bool,
-    pub indirect: bool,
+    index: Option<u16>,
+    addr: Option<u64>,
+    len: Option<u32>,
+    writeable: bool,
+    indirect: bool,
 }
 
 impl MockDescriptor {
@@ -465,28 +530,31 @@ impl MockDescriptor {
         Self {
             index: None,
             addr: None,
-            len: 0,
+            len: None,
             writeable: false,
             indirect: false,
         }
     }
 
-    pub fn index(self, index: u16) -> Self {
+    pub fn with_index(self, index: u16) -> Self {
         Self {
             index: Some(index),
             ..self
         }
     }
 
-    pub fn addr(self, addr: u64) -> Self {
+    pub fn with_addr(self, addr: u64) -> Self {
         Self {
             addr: Some(addr),
             ..self
         }
     }
 
-    pub fn len(self, len: u32) -> Self {
-        Self { len, ..self }
+    pub fn with_len(self, len: u32) -> Self {
+        Self {
+            len: Some(len),
+            ..self
+        }
     }
 
     pub fn writeable(self) -> Self {
@@ -501,5 +569,31 @@ impl MockDescriptor {
             indirect: true,
             ..self
         }
+    }
+
+    pub fn index(&self) -> Option<u16> {
+        self.index
+    }
+
+    pub fn addr(&self) -> Option<u64> {
+        self.addr
+    }
+
+    pub fn len(&self) -> Option<u32> {
+        self.len
+    }
+
+    pub fn is_writeable(&self) -> bool {
+        self.writeable
+    }
+
+    pub fn is_indirect(&self) -> bool {
+        self.indirect
+    }
+}
+
+impl Default for MockDescriptor {
+    fn default() -> Self {
+        Self::new()
     }
 }
