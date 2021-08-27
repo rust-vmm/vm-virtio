@@ -1,0 +1,14 @@
+{
+  "tests": [
+    {
+      "test_name": "build-gnu-backend-stdio",
+      "command": "cargo build --release --workspace --features virtio-blk/backend-stdio",
+      "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "build-musl-backend-stdio",
+      "command": "cargo build --release --workspace --features virtio-blk/backend-stdio --target {target_platform}-unknown-linux-musl",
+      "platform": ["x86_64", "aarch64"]
+    }
+  ]
+}
