@@ -21,7 +21,6 @@ pub mod mock;
 
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
-use std::marker::PhantomData;
 use std::mem::size_of;
 use std::num::Wrapping;
 use std::ops::{Deref, DerefMut};
@@ -423,15 +422,15 @@ impl VirtqUsedElem {
 unsafe impl ByteValued for VirtqUsedElem {}
 
 /// Struct to hold an exclusive reference to the underlying `QueueState` object.
-pub enum QueueStateGuard<'a, M: GuestAddressSpace> {
+pub enum QueueStateGuard<'a> {
     /// A reference to a `QueueState` object.
-    StateObject(&'a mut QueueState<M>),
+    StateObject(&'a mut QueueState),
     /// A `MutexGuard` for a `QueueState` object.
-    MutexGuard(MutexGuard<'a, QueueState<M>>),
+    MutexGuard(MutexGuard<'a, QueueState>),
 }
 
-impl<'a, M: GuestAddressSpace> Deref for QueueStateGuard<'a, M> {
-    type Target = QueueState<M>;
+impl<'a> Deref for QueueStateGuard<'a> {
+    type Target = QueueState;
 
     fn deref(&self) -> &Self::Target {
         match self {
@@ -441,7 +440,7 @@ impl<'a, M: GuestAddressSpace> Deref for QueueStateGuard<'a, M> {
     }
 }
 
-impl<'a, M: GuestAddressSpace> DerefMut for QueueStateGuard<'a, M> {
+impl<'a> DerefMut for QueueStateGuard<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             QueueStateGuard::StateObject(v) => v,
@@ -454,12 +453,12 @@ impl<'a, M: GuestAddressSpace> DerefMut for QueueStateGuard<'a, M> {
 ///
 /// To optimize for performance, different implementations of the `QueueStateT` trait may be
 /// provided for single-threaded context and multi-threaded context.
-pub trait QueueStateT<M: GuestAddressSpace> {
+pub trait QueueStateT {
     /// Construct an empty virtio queue state object with the given `max_size`.
     fn new(max_size: u16) -> Self;
 
     /// Check whether the queue configuration is valid.
-    fn is_valid(&self, mem: &M::T) -> bool;
+    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool;
 
     /// Reset the queue to the initial state.
     fn reset(&mut self);
@@ -468,7 +467,7 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     ///
     /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
     /// The lock will be released when the returned object gets dropped.
-    fn lock(&mut self) -> QueueStateGuard<'_, M>;
+    fn lock(&mut self) -> QueueStateGuard;
 
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
@@ -507,20 +506,21 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     fn set_event_idx(&mut self, enabled: bool);
 
     /// Read the `idx` field from the available ring.
-    fn avail_idx(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error>;
+    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
 
     /// Put a used descriptor head into the used ring.
-    fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error>;
+    fn add_used<M: GuestMemory>(&mut self, mem: &M, head_index: u16, len: u32)
+        -> Result<(), Error>;
 
     /// Enable notification events from the guest driver.
     ///
     /// Return true if one or more descriptors can be consumed from the available ring after
     /// notifications were enabled (and thus it's possible there will be no corresponding
     /// notification).
-    fn enable_notification(&mut self, mem: &M::T) -> Result<bool, Error>;
+    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
 
     /// Disable notification events from the guest driver.
-    fn disable_notification(&mut self, mem: &M::T) -> Result<(), Error>;
+    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error>;
 
     /// Check whether a notification to the guest is needed.
     ///
@@ -528,7 +528,7 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     /// driver will actually be notified, remember the associated index in the used ring, and
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
-    fn needs_notification(&mut self, mem: &M::T) -> Result<bool, Error>;
+    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
 
     /// Return the index for the next descriptor in the available ring.
     fn next_avail(&self) -> u16;
@@ -543,7 +543,7 @@ const DEFAULT_USED_RING_ADDR: u64 = 0x0;
 
 /// Struct to maintain information and manipulate state of a virtio queue.
 #[derive(Clone, Debug)]
-pub struct QueueState<M: GuestAddressSpace> {
+pub struct QueueState {
     /// The maximal size in elements offered by the device
     pub max_size: u16,
 
@@ -573,14 +573,16 @@ pub struct QueueState<M: GuestAddressSpace> {
 
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
-
-    phantom: PhantomData<M>,
 }
 
-impl<M: GuestAddressSpace> QueueState<M> {
+impl QueueState {
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self, mem: M::T) -> Result<AvailIter<'_, M::T>, Error> {
-        self.avail_idx(&mem, Ordering::Acquire)
+    pub fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
+    where
+        M: Deref,
+        M::Target: GuestMemory + Sized,
+    {
+        self.avail_idx(mem.deref(), Ordering::Acquire)
             .map(move |idx| AvailIter {
                 mem,
                 desc_table: self.desc_table,
@@ -593,7 +595,12 @@ impl<M: GuestAddressSpace> QueueState<M> {
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
-    fn set_avail_event(&self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
+    fn set_avail_event<M: GuestMemory>(
+        &self,
+        mem: &M,
+        val: u16,
+        order: Ordering,
+    ) -> Result<(), Error> {
         let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
@@ -602,7 +609,12 @@ impl<M: GuestAddressSpace> QueueState<M> {
     }
 
     // Set the value of the `flags` field of the used ring, applying the specified ordering.
-    fn set_used_flags(&mut self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
+    fn set_used_flags<M: GuestMemory>(
+        &mut self,
+        mem: &M,
+        val: u16,
+        order: Ordering,
+    ) -> Result<(), Error> {
         mem.store(val, self.used_ring, order)
             .map_err(Error::GuestMemory)
     }
@@ -611,7 +623,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     //
     // Every access in this method uses `Relaxed` ordering because a fence is added by the caller
     // when appropriate.
-    fn set_notification(&mut self, mem: &M::T, enable: bool) -> Result<(), Error> {
+    fn set_notification<M: GuestMemory>(&mut self, mem: &M, enable: bool) -> Result<(), Error> {
         if enable {
             if self.event_idx_enabled {
                 // We call `set_avail_event` using the `next_avail` value, instead of reading
@@ -640,7 +652,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
     /// with the device, but they serve as useful optimizations. So we only ensure access to the
     /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
-    fn used_event(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn used_event<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // Safe because we have validated the queue and access guest
         // memory through GuestMemory interfaces.
         let elem_sz = u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
@@ -653,7 +665,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     }
 }
 
-impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
+impl QueueStateT for QueueState {
     fn new(max_size: u16) -> Self {
         QueueState {
             max_size,
@@ -666,11 +678,10 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             next_used: Wrapping(0),
             event_idx_enabled: false,
             signalled_used: None,
-            phantom: PhantomData,
         }
     }
 
-    fn is_valid(&self, mem: &M::T) -> bool {
+    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = self.size as u64;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
@@ -728,7 +739,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         self.event_idx_enabled = false;
     }
 
-    fn lock(&mut self) -> QueueStateGuard<'_, M> {
+    fn lock(&mut self) -> QueueStateGuard {
         QueueStateGuard::StateObject(self)
     }
 
@@ -793,7 +804,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         self.event_idx_enabled = enabled;
     }
 
-    fn avail_idx(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
         let addr = self.avail_ring.unchecked_add(2);
 
         mem.load(addr, order)
@@ -801,7 +812,12 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             .map_err(Error::GuestMemory)
     }
 
-    fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error> {
+    fn add_used<M: GuestMemory>(
+        &mut self,
+        mem: &M,
+        head_index: u16,
+        len: u32,
+    ) -> Result<(), Error> {
         if head_index >= self.size {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
@@ -847,7 +863,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     //         break;
     //     }
     // }
-    fn enable_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
+    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
         self.set_notification(mem, true)?;
         // Ensures the following read is not reordered before any previous write operation.
         fence(Ordering::SeqCst);
@@ -862,11 +878,11 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             .map(|idx| idx != self.next_avail)
     }
 
-    fn disable_notification(&mut self, mem: &M::T) -> Result<(), Error> {
+    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error> {
         self.set_notification(mem, false)
     }
 
-    fn needs_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
+    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
         let used_idx = self.next_used;
 
         // Complete all the writes in add_used() before reading the event.
@@ -902,18 +918,18 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
 /// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
 /// context.
 #[derive(Clone, Debug)]
-pub struct QueueStateSync<M: GuestAddressSpace> {
-    state: Arc<Mutex<QueueState<M>>>,
+pub struct QueueStateSync {
+    state: Arc<Mutex<QueueState>>,
 }
 
-impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
+impl QueueStateT for QueueStateSync {
     fn new(max_size: u16) -> Self {
         QueueStateSync {
             state: Arc::new(Mutex::new(QueueState::new(max_size))),
         }
     }
 
-    fn is_valid(&self, mem: &M::T) -> bool {
+    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         self.state.lock().unwrap().is_valid(mem)
     }
 
@@ -921,7 +937,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
         self.state.lock().unwrap().reset();
     }
 
-    fn lock(&mut self) -> QueueStateGuard<'_, M> {
+    fn lock(&mut self) -> QueueStateGuard {
         QueueStateGuard::MutexGuard(self.state.lock().unwrap())
     }
 
@@ -957,23 +973,28 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
         self.state.lock().unwrap().set_event_idx(enabled);
     }
 
-    fn avail_idx(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
         self.state.lock().unwrap().avail_idx(mem, order)
     }
 
-    fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error> {
+    fn add_used<M: GuestMemory>(
+        &mut self,
+        mem: &M,
+        head_index: u16,
+        len: u32,
+    ) -> Result<(), Error> {
         self.state.lock().unwrap().add_used(mem, head_index, len)
     }
 
-    fn enable_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
+    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
         self.state.lock().unwrap().enable_notification(mem)
     }
 
-    fn disable_notification(&mut self, mem: &M::T) -> Result<(), Error> {
+    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error> {
         self.state.lock().unwrap().disable_notification(mem)
     }
 
-    fn needs_notification(&mut self, mem: &M::T) -> Result<bool, Error> {
+    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
         self.state.lock().unwrap().needs_notification(mem)
     }
 
@@ -988,14 +1009,14 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
 
 /// A convenient wrapper struct for a virtio queue, with associated GuestMemory object.
 #[derive(Clone, Debug)]
-pub struct Queue<M: GuestAddressSpace, S: QueueStateT<M> = QueueState<M>> {
+pub struct Queue<M: GuestAddressSpace, S: QueueStateT = QueueState> {
     /// Guest memory object associated with the queue.
     pub mem: M,
     /// Virtio queue state.
     pub state: S,
 }
 
-impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
+impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
     /// Construct an empty virtio queue with the given `max_size`.
     pub fn new(mem: M, max_size: u16) -> Self {
         Queue {
@@ -1006,7 +1027,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
 
     /// Check whether the queue configuration is valid.
     pub fn is_valid(&self) -> bool {
-        self.state.is_valid(&self.mem.memory())
+        self.state.is_valid(self.mem.memory().deref())
     }
 
     /// Reset the queue to the initial state.
@@ -1018,7 +1039,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     ///
     /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
     /// The lock will be released when the returned object gets dropped.
-    pub fn lock(&mut self) -> QueueStateGuard<'_, M> {
+    pub fn lock(&mut self) -> QueueStateGuard {
         self.state.lock()
     }
 
@@ -1076,12 +1097,13 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
 
     /// Read the `idx` field from the available ring.
     pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        self.state.avail_idx(&self.mem.memory(), order)
+        self.state.avail_idx(self.mem.memory().deref(), order)
     }
 
     /// Put a used descriptor head into the used ring.
     pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
-        self.state.add_used(&self.mem.memory(), head_index, len)
+        self.state
+            .add_used(self.mem.memory().deref(), head_index, len)
     }
 
     /// Enable notification events from the guest driver.
@@ -1090,12 +1112,12 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     /// notifications were enabled (and thus it's possible there will be no corresponding
     /// notification).
     pub fn enable_notification(&mut self) -> Result<bool, Error> {
-        self.state.enable_notification(&self.mem.memory())
+        self.state.enable_notification(self.mem.memory().deref())
     }
 
     /// Disable notification events from the guest driver.
     pub fn disable_notification(&mut self) -> Result<(), Error> {
-        self.state.disable_notification(&self.mem.memory())
+        self.state.disable_notification(self.mem.memory().deref())
     }
 
     /// Check whether a notification to the guest is needed.
@@ -1105,7 +1127,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
     pub fn needs_notification(&mut self) -> Result<bool, Error> {
-        self.state.needs_notification(&self.mem.memory())
+        self.state.needs_notification(self.mem.memory().deref())
     }
 
     /// Return the index for the next descriptor in the available ring.
@@ -1119,7 +1141,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     }
 }
 
-impl<M: GuestAddressSpace> Queue<M, QueueState<M>> {
+impl<M: GuestAddressSpace> Queue<M, QueueState> {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M::T>, Error> {
         self.state.iter(self.mem.memory())

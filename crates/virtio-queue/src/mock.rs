@@ -354,8 +354,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
-    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A, QueueState<A>> {
-        let mut q = Queue::<A, QueueState<A>>::new(a, self.len);
+    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A, QueueState> {
+        let mut q = Queue::<A, QueueState>::new(a, self.len);
 
         q.state.size = self.len;
         q.state.ready = true;
