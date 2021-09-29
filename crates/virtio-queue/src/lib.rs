@@ -148,8 +148,8 @@ unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
 #[derive(Clone, Debug)]
-pub struct DescriptorChain<M: GuestAddressSpace> {
-    mem: M::T,
+pub struct DescriptorChain<M> {
+    mem: M,
     desc_table: GuestAddress,
     queue_size: u16,
     head_index: u16,
@@ -158,9 +158,13 @@ pub struct DescriptorChain<M: GuestAddressSpace> {
     is_indirect: bool,
 }
 
-impl<M: GuestAddressSpace> DescriptorChain<M> {
+impl<M> DescriptorChain<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
     fn with_ttl(
-        mem: M::T,
+        mem: M,
         desc_table: GuestAddress,
         queue_size: u16,
         ttl: u16,
@@ -178,7 +182,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
+    fn new(mem: M, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
         Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
     }
 
@@ -189,8 +193,8 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 
     /// Return a `GuestMemory` object that can be used to access the buffers
     /// pointed to by the descriptor chain.
-    pub fn memory(&self) -> &M::M {
-        &*self.mem
+    pub fn memory(&self) -> &M::Target {
+        self.mem.deref()
     }
 
     /// Returns an iterator that only yields the readable descriptors in the chain.
@@ -239,7 +243,11 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 }
 
-impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
+impl<M> Iterator for DescriptorChain<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
     type Item = Descriptor;
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
@@ -284,12 +292,16 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
 
 /// An iterator for readable or writable descriptors.
 #[derive(Clone)]
-pub struct DescriptorChainRwIter<M: GuestAddressSpace> {
+pub struct DescriptorChainRwIter<M> {
     chain: DescriptorChain<M>,
     writable: bool,
 }
 
-impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
+impl<M> Iterator for DescriptorChainRwIter<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
     type Item = Descriptor;
 
     /// Returns the next descriptor in this descriptor chain, if there is one.
@@ -313,9 +325,9 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChainRwIter<M> {
 
 // We can't derive Debug, because rustc doesn't generate the M::T: Debug
 // constraint
-impl<M: Debug + GuestAddressSpace> Debug for DescriptorChainRwIter<M>
+impl<M> Debug for DescriptorChainRwIter<M>
 where
-    M::T: Debug,
+    M: Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DescriptorChainRwIter")
@@ -327,8 +339,8 @@ where
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
 #[derive(Debug)]
-pub struct AvailIter<'b, M: GuestAddressSpace> {
-    mem: M::T,
+pub struct AvailIter<'b, M> {
+    mem: M,
     desc_table: GuestAddress,
     avail_ring: GuestAddress,
     last_index: Wrapping<u16>,
@@ -336,7 +348,7 @@ pub struct AvailIter<'b, M: GuestAddressSpace> {
     next_avail: &'b mut Wrapping<u16>,
 }
 
-impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
+impl<'b, M> AvailIter<'b, M> {
     /// Goes back one position in the available descriptor chain offered by the driver.
     ///
     /// Rust does not support bidirectional iterators. This is the only way to revert the effect
@@ -349,7 +361,11 @@ impl<'b, M: GuestAddressSpace> AvailIter<'b, M> {
     }
 }
 
-impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
+impl<'b, M> Iterator for AvailIter<'b, M>
+where
+    M: Clone + Deref,
+    M::Target: GuestMemory,
+{
     type Item = DescriptorChain<M>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -563,7 +579,7 @@ pub struct QueueState<M: GuestAddressSpace> {
 
 impl<M: GuestAddressSpace> QueueState<M> {
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self, mem: M::T) -> Result<AvailIter<'_, M>, Error> {
+    pub fn iter(&mut self, mem: M::T) -> Result<AvailIter<'_, M::T>, Error> {
         self.avail_idx(&mem, Ordering::Acquire)
             .map(move |idx| AvailIter {
                 mem,
@@ -1105,7 +1121,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
 
 impl<M: GuestAddressSpace> Queue<M, QueueState<M>> {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
-    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
+    pub fn iter(&mut self) -> Result<AvailIter<'_, M::T>, Error> {
         self.state.iter(self.mem.memory())
     }
 }
