@@ -24,6 +24,7 @@
 //! approach.
 
 use std::fmt::{self, Display};
+use std::ops::Deref;
 use std::result;
 
 use crate::defs::{
@@ -32,9 +33,7 @@ use crate::defs::{
 };
 
 use virtio_queue::{Descriptor, DescriptorChain};
-use vm_memory::{
-    ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
-};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 
 /// Block request parsing errors.
 #[derive(Debug)]
@@ -159,7 +158,10 @@ impl Request {
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid status descriptor.
-    fn check_status_desc<M: GuestMemory>(mem: &M, desc: Descriptor) -> Result<()> {
+    fn check_status_desc<M>(mem: &M, desc: Descriptor) -> Result<()>
+    where
+        M: GuestMemory + ?Sized,
+    {
         // The status MUST always be writable.
         if !desc.is_write_only() {
             return Err(Error::UnexpectedReadOnlyDescriptor);
@@ -202,7 +204,11 @@ impl Request {
     /// # Arguments
     /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the
     ///                  buffers of a virtio block request.
-    pub fn parse<M: GuestAddressSpace>(desc_chain: &mut DescriptorChain<M>) -> Result<Request> {
+    pub fn parse<M>(desc_chain: &mut DescriptorChain<M>) -> Result<Request>
+    where
+        M: Deref,
+        M::Target: GuestMemory,
+    {
         let chain_head = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
         // The head contains the request type which MUST be readable.
         if chain_head.is_write_only() {
@@ -235,7 +241,7 @@ impl Request {
         }
         let status_desc = desc;
 
-        Request::check_status_desc::<<M>::M>(desc_chain.memory(), status_desc)?;
+        Request::check_status_desc(desc_chain.memory(), status_desc)?;
 
         request.status_addr = status_desc.addr();
         Ok(request)
