@@ -220,7 +220,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         // Check the target indirect descriptor table is correctly aligned.
         if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
             || (desc.len as usize) & (VIRTQ_DESCRIPTOR_SIZE - 1) != 0
-            || table_len > usize::from(std::u16::MAX)
+            || table_len > usize::from(u16::MAX)
         {
             return Err(Error::InvalidIndirectDescriptorTable);
         }
