@@ -20,6 +20,7 @@ pub mod defs;
 pub mod mock;
 
 use std::cmp::min;
+use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -226,7 +227,8 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
         }
 
         self.desc_table = desc.addr();
-        self.queue_size = table_len as u16;
+        // try_from cannot fail as we've checked table_len above
+        self.queue_size = u16::try_from(table_len).expect("invalid table_len");
         self.next_index = 0;
         self.ttl = self.queue_size;
         self.is_indirect = true;
