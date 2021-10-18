@@ -16,7 +16,7 @@ pub const VIRTQ_DESC_F_INDIRECT: u16 = 0x4;
 /// Used flags
 pub const VIRTQ_USED_F_NO_NOTIFY: u16 = 0x1;
 
-/// This is the size of one element in the used ring.
+/// This is the size of one element in the used ring, id (le32) + len (le32).
 pub(crate) const VIRTQ_USED_ELEMENT_SIZE: u64 = 8;
 
 /// Used ring header: flags (u16) + idx (u16)
@@ -27,7 +27,7 @@ pub(crate) const VIRTQ_USED_RING_HEADER_SIZE: u64 = 4;
 /// VIRTQ_USED_RING_HMETA_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size
 pub(crate) const VIRTQ_USED_RING_META_SIZE: u64 = VIRTQ_USED_RING_HEADER_SIZE + 2;
 
-/// This is the size of one element in the available ring.
+/// This is the size of one element in the available ring (le16).
 pub(crate) const VIRTQ_AVAIL_ELEMENT_SIZE: u64 = 2;
 
 /// Avail ring header: flags(u16) + idx(u16)
