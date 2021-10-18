@@ -36,7 +36,8 @@ use vm_memory::{
 use self::defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
     VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_META_SIZE,
+    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_HEADER_SIZE,
+    VIRTQ_USED_RING_META_SIZE,
 };
 
 /// Virtio Queue related errors.
@@ -354,8 +355,8 @@ impl<'b, M: GuestAddressSpace> Iterator for AvailIter<'b, M> {
 
         // This computation cannot overflow because all the values involved are actually
         // `u16`s cast to `u64`.
-        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE
-            + (self.next_avail.0 % self.queue_size) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let elem_off = u64::from(self.next_avail.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_off;
 
         // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
         // as the index is within bounds. We do not currently enforce that a queue is only used
@@ -574,7 +575,8 @@ impl<M: GuestAddressSpace> QueueState<M> {
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event(&self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
-        let offset = (4 + self.actual_size() * 8) as u64;
+        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.actual_size());
+        let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
 
         mem.store(val, addr, order).map_err(Error::GuestMemory)
@@ -620,10 +622,11 @@ impl<M: GuestAddressSpace> QueueState<M> {
     /// with the device, but they serve as useful optimizations. So we only ensure access to the
     /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
     fn used_event(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        // Safe because we have validated the queue and access guest memory through GuestMemory interfaces.
-        let used_event_addr = self
-            .avail_ring
-            .unchecked_add((4 + self.actual_size() * 2) as u64);
+        // Safe because we have validated the queue and access guest
+        // memory through GuestMemory interfaces.
+        let elem_sz = u64::from(self.actual_size()) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_sz;
+        let used_event_addr = self.avail_ring.unchecked_add(offset);
 
         mem.load(used_event_addr, order)
             .map(Wrapping)
@@ -787,7 +790,9 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         }
 
         let next_used_index = u64::from(self.next_used.0 % self.actual_size());
-        let addr = self.used_ring.unchecked_add(4 + next_used_index * 8);
+        let elem_sz = next_used_index * VIRTQ_USED_ELEMENT_SIZE;
+        let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
+        let addr = self.used_ring.unchecked_add(offset);
         mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
             .map_err(Error::GuestMemory)?;
 
