@@ -22,7 +22,7 @@ pub(crate) const VIRTQ_USED_ELEMENT_SIZE: u64 = 8;
 /// Used ring header: flags (u16) + idx (u16)
 pub(crate) const VIRTQ_USED_RING_HEADER_SIZE: u64 = 4;
 
-/// This is the size of the used ring metadata: header + used_event (u16).
+/// This is the size of the used ring metadata: header + avail_event (le16).
 /// The total size of the used ring is:
 /// VIRTQ_USED_RING_HMETA_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size
 pub(crate) const VIRTQ_USED_RING_META_SIZE: u64 = VIRTQ_USED_RING_HEADER_SIZE + 2;
@@ -33,7 +33,7 @@ pub(crate) const VIRTQ_AVAIL_ELEMENT_SIZE: u64 = 2;
 /// Avail ring header: flags(u16) + idx(u16)
 pub(crate) const VIRTQ_AVAIL_RING_HEADER_SIZE: u64 = 4;
 
-/// This is the size of the available ring metadata: header + avail_event (u16).
+/// This is the size of the available ring metadata: header + used_event (le16).
 /// The total size of the available ring is:
 /// VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size
 pub(crate) const VIRTQ_AVAIL_RING_META_SIZE: u64 = VIRTQ_AVAIL_RING_HEADER_SIZE + 2;
