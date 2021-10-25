@@ -124,8 +124,8 @@ impl Descriptor {
         self.next
     }
 
-    /// Check whether this is an indirect descriptor.
-    pub fn is_indirect(&self) -> bool {
+    /// Check whether this descriptor contains an indirect descriptor table.
+    pub fn has_indirect_table(&self) -> bool {
         // TODO: The are a couple of restrictions in terms of which flags combinations are
         // actually valid for indirect descriptors. Implement those checks as well somewhere.
         self.flags() & VIRTQ_DESC_F_INDIRECT != 0
@@ -212,7 +212,10 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 
     // Alters the internal state of the `DescriptorChain` to switch iterating over an
     // indirect descriptor table defined by `desc`.
-    fn process_indirect_descriptor(&mut self, desc: Descriptor) -> Result<(), Error> {
+    fn switch_to_indirect_table(&mut self, desc: Descriptor) -> Result<(), Error> {
+        // Check the VIRTQ_DESC_F_INDIRECT flag (i.e., is_indirect) is not set inside
+        // an indirect descriptor.
+        // (see VIRTIO Spec, Section 2.6.5.3.1 Driver Requirements: Indirect Descriptors)
         if self.is_indirect {
             return Err(Error::InvalidIndirectDescriptor);
         }
@@ -262,8 +265,8 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
         // to use read_obj() here.
         let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
 
-        if desc.is_indirect() {
-            self.process_indirect_descriptor(desc).ok()?;
+        if desc.has_indirect_table() {
+            self.switch_to_indirect_table(desc).ok()?;
             return self.next();
         }
 
