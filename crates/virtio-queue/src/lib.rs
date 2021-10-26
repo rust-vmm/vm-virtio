@@ -1033,6 +1033,7 @@ impl<M: GuestAddressSpace> Queue<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use generic::QueueT;
     use memoffset::offset_of;
     use mock::{DescriptorTable, MockSplitQueue};
 
@@ -1195,96 +1196,98 @@ mod tests {
         assert!(q.is_valid());
 
         // shouldn't be valid when not marked as ready
-        q.state.ready = false;
+        q.with(|mut qstate| qstate.ready = false);
         assert!(!q.is_valid());
-        q.state.ready = true;
+        q.with(|mut qstate| qstate.ready = true);
+
+        let max_size = q.with(|qstate| qstate.max_size);
 
         // shouldn't be allowed to set a size > max_size
-        q.set_size(q.state.max_size << 1);
-        assert_eq!(q.state.size, q.state.max_size);
+        q.with(|mut qstate| qstate.set_size(max_size << 1));
+        assert!(q.with(|qstate| qstate.size) == max_size);
 
         // or set the size to 0
-        q.set_size(0);
-        assert_eq!(q.state.size, q.state.max_size);
+        q.with(|mut qstate| qstate.set_size(0));
+        assert!(q.with(|qstate| qstate.size) == max_size);
 
         // or set a size which is not a power of 2
-        q.set_size(11);
-        assert_eq!(q.state.size, q.state.max_size);
+        q.with(|mut qstate| qstate.set_size(11));
+        assert!(q.with(|qstate| qstate.size) == max_size);
 
         // but should be allowed to set a size if 0 < size <= max_size and size is a power of two
-        q.set_size(4);
-        assert_eq!(q.state.size, 4);
-        q.state.size = q.state.max_size;
+        q.with(|mut qstate| qstate.set_size(4));
+        q.with(|qstate| assert_eq!(qstate.size, 4));
+        q.with(|mut qstate| qstate.size = qstate.max_size);
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
-        q.set_desc_table_address(Some(0xf), None);
-        assert_eq!(q.state.desc_table.0, vq.desc_table_addr().0);
+        q.with(|mut qstate| qstate.set_desc_table_address(Some(0xf), None));
+        q.with(|qstate| assert_eq!(qstate.desc_table.0, vq.desc_table_addr().0));
         // should be allowed to set an aligned out of bounds address
-        q.set_desc_table_address(Some(0xffff_fff0), None);
-        assert_eq!(q.state.desc_table.0, 0xffff_fff0);
+        q.with(|mut qstate| qstate.set_desc_table_address(Some(0xffff_fff0), None));
+        q.with(|qstate| assert_eq!(qstate.desc_table.0, 0xffff_fff0));
         // but shouldn't be valid
         assert!(!q.is_valid());
         // but should be allowed to set a valid description table address
-        q.set_desc_table_address(Some(0x10), None);
-        assert_eq!(q.state.desc_table.0, 0x10);
+        q.with(|mut qstate| qstate.set_desc_table_address(Some(0x10), None));
+        q.with(|qstate| assert_eq!(qstate.desc_table.0, 0x10));
         assert!(q.is_valid());
-        q.state.desc_table = vq.desc_table_addr();
+        q.with(|mut qstate| qstate.desc_table = vq.desc_table_addr());
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
-        q.set_avail_ring_address(Some(0x1), None);
-        assert_eq!(q.state.avail_ring.0, vq.avail_addr().0);
+        q.with(|mut qstate| qstate.set_avail_ring_address(Some(0x1), None));
+        q.with(|qstate| assert_eq!(qstate.avail_ring.0, vq.avail_addr().0));
         // should be allowed to set an aligned out of bounds address
-        q.set_avail_ring_address(Some(0xffff_fffe), None);
-        assert_eq!(q.state.avail_ring.0, 0xffff_fffe);
+        q.with(|mut qstate| qstate.set_avail_ring_address(Some(0xffff_fffe), None));
+        q.with(|qstate| assert_eq!(qstate.avail_ring.0, 0xffff_fffe));
         // but shouldn't be valid
         assert!(!q.is_valid());
         // but should be allowed to set a valid available ring address
-        q.set_avail_ring_address(Some(0x2), None);
-        assert_eq!(q.state.avail_ring.0, 0x2);
+        q.with(|mut qstate| qstate.set_avail_ring_address(Some(0x2), None));
+        q.with(|qstate| assert_eq!(qstate.avail_ring.0, 0x2));
         assert!(q.is_valid());
-        q.state.avail_ring = vq.avail_addr();
+        q.with(|mut qstate| qstate.avail_ring = vq.avail_addr());
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
-        q.set_used_ring_address(Some(0x3), None);
-        assert_eq!(q.state.used_ring.0, vq.used_addr().0);
+        q.with(|mut qstate| qstate.set_used_ring_address(Some(0x3), None));
+        q.with(|qstate| assert_eq!(qstate.used_ring.0, vq.used_addr().0));
         // should be allowed to set an aligned out of bounds address
-        q.set_used_ring_address(Some(0xffff_fffc), None);
-        assert_eq!(q.state.used_ring.0, 0xffff_fffc);
+        q.with(|mut qstate| qstate.set_used_ring_address(Some(0xffff_fffc), None));
+        q.with(|qstate| assert_eq!(qstate.used_ring.0, 0xffff_fffc));
         // but shouldn't be valid
         assert!(!q.is_valid());
         // but should be allowed to set a valid used ring address
-        q.set_used_ring_address(Some(0x4), None);
-        assert_eq!(q.state.used_ring.0, 0x4);
+        q.with(|mut qstate| qstate.set_used_ring_address(Some(0x4), None));
+        q.with(|qstate| assert_eq!(qstate.used_ring.0, 0x4));
         assert!(q.is_valid());
-        q.state.used_ring = vq.used_addr();
+        q.with(|mut qstate| qstate.used_ring = vq.used_addr());
 
-        {
+        q.with(|mut qstate| {
             // an invalid queue should return an iterator with no next
-            q.state.ready = false;
-            let mut i = q.iter().unwrap();
+            qstate.ready = false;
+            let mut i = qstate.iter().unwrap();
             assert!(i.next().is_none());
-        }
+        });
 
-        q.state.ready = true;
+        q.with(|mut qstate| qstate.ready = true);
 
         // now let's create two simple descriptor chains
         // the chains are (0, 1) and (2, 3, 4)
-        {
-            for j in 0..5u16 {
-                let flags = match j {
-                    1 | 4 => 0,
-                    _ => VIRTQ_DESC_F_NEXT,
-                };
+        for j in 0..5u16 {
+            let flags = match j {
+                1 | 4 => 0,
+                _ => VIRTQ_DESC_F_NEXT,
+            };
 
-                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
-                vq.desc_table().store(j, desc);
-            }
+            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
+            vq.desc_table().store(j, desc);
+        }
 
-            vq.avail().ring().ref_at(0).store(0);
-            vq.avail().ring().ref_at(1).store(2);
-            vq.avail().idx().store(2);
+        vq.avail().ring().ref_at(0).store(0);
+        vq.avail().ring().ref_at(1).store(2);
+        vq.avail().idx().store(2);
 
-            let mut i = q.iter().unwrap();
+        q.with(|mut qstate| {
+            let mut i = qstate.iter().unwrap();
 
             {
                 let mut c = i.next().unwrap();
@@ -1311,13 +1314,13 @@ mod tests {
             {
                 assert!(i.next().is_none());
                 i.go_to_previous_position();
-                let mut c = q.iter().unwrap().next().unwrap();
+                let mut c = qstate.iter().unwrap().next().unwrap();
                 c.next().unwrap();
                 c.next().unwrap();
                 c.next().unwrap();
                 assert!(c.next().is_none());
             }
-        }
+        })
     }
 
     #[test]
@@ -1347,39 +1350,41 @@ mod tests {
         vq.avail().ring().ref_at(2).store(5);
         vq.avail().idx().store(3);
 
-        let mut i = q.iter().unwrap();
+        q.with(|mut qstate| {
+            let mut i = qstate.iter().unwrap();
 
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 0);
+            {
+                let c = i.next().unwrap();
+                assert_eq!(c.head_index(), 0);
 
-            let mut iter = c;
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
+                let mut iter = c;
+                assert!(iter.next().is_some());
+                assert!(iter.next().is_some());
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+            }
 
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 2);
+            {
+                let c = i.next().unwrap();
+                assert_eq!(c.head_index(), 2);
 
-            let mut iter = c.writable();
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
+                let mut iter = c.writable();
+                assert!(iter.next().is_some());
+                assert!(iter.next().is_some());
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+            }
 
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 5);
+            {
+                let c = i.next().unwrap();
+                assert_eq!(c.head_index(), 5);
 
-            let mut iter = c.readable();
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
+                let mut iter = c.readable();
+                assert!(iter.next().is_some());
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+            }
+        })
     }
 
     #[test]
@@ -1397,7 +1402,7 @@ mod tests {
 
         // should be ok
         q.add_used(1, 0x1000).unwrap();
-        assert_eq!(q.state.next_used, Wrapping(1));
+        q.with(|qstate| assert_eq!(qstate.next_used, Wrapping(1)));
         assert_eq!(vq.used().idx().load(), 1);
 
         let x = vq.used().ring().ref_at(0).load();
@@ -1425,11 +1430,13 @@ mod tests {
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
-        q.state.size = 8;
-        q.state.ready = true;
-        q.state.reset();
-        assert_eq!(q.state.size, 16);
-        assert_eq!(q.state.ready, false);
+        q.with(|mut qstate| {
+            qstate.size = 8;
+            qstate.ready = true;
+            qstate.reset();
+            assert_eq!(qstate.size, 16);
+            assert_eq!(qstate.ready, false);
+        })
     }
 
     #[test]
@@ -1443,21 +1450,24 @@ mod tests {
 
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
-            q.state.next_used = Wrapping(i);
+            q.with(|mut qstate| qstate.next_used = Wrapping(i));
             assert_eq!(q.needs_notification().unwrap(), true);
         }
 
         m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
-        q.state.set_event_idx(true);
+        q.with(|mut qstate| qstate.set_event_idx(true));
 
         // Incrementing up to this value causes an `u16` to wrap back to 0.
         let wrap = u32::from(u16::MAX) + 1;
 
         for i in 0..wrap + 12 {
-            q.state.next_used = Wrapping(i as u16);
-            // Let's test wrapping around the maximum index value as well.
-            let expected = i == 5 || i == (5 + wrap) || q.state.signalled_used.is_none();
+            let expected = q.with(|mut qstate| {
+                qstate.next_used = Wrapping(i as u16);
+                // Let's test wrapping around the maximum index value as well.
+                i == 5 || i == (5 + wrap) || qstate.signalled_used.is_none()
+            });
+
             assert_eq!(q.needs_notification().unwrap(), expected);
         }
 
@@ -1471,9 +1481,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.state.next_used = Wrapping(15);
+        q.with(|mut qstate| qstate.next_used = Wrapping(15));
         assert_eq!(q.needs_notification().unwrap(), false);
-        q.state.next_used = Wrapping(0);
+        q.with(|mut qstate| qstate.next_used = Wrapping(0));
         assert_eq!(q.needs_notification().unwrap(), true);
         assert_eq!(q.needs_notification().unwrap(), false);
     }
@@ -1486,7 +1496,7 @@ mod tests {
         let mut q: Queue<_> = vq.as_queue(m);
         let used_addr = vq.used_addr();
 
-        assert_eq!(q.state.event_idx_enabled, false);
+        q.with(|qstate| assert_eq!(qstate.event_idx_enabled, false));
 
         q.enable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).unwrap();
@@ -1505,13 +1515,13 @@ mod tests {
         m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.state.next_avail = Wrapping(2);
+        q.with(|mut qstate| qstate.next_avail = Wrapping(2));
         assert_eq!(q.enable_notification().unwrap(), false);
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
-        q.state.next_avail = Wrapping(8);
+        q.with(|mut qstate| qstate.next_avail = Wrapping(8));
         assert_eq!(q.enable_notification().unwrap(), false);
     }
 }
