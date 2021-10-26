@@ -1,5 +1,5 @@
 {
-  "coverage_score": 90.2,
+  "coverage_score": 88.8,
   "exclude_path": "crates/virtio-queue/src/mock.rs",
   "crate_features": "virtio-blk/backend-stdio"
 }
