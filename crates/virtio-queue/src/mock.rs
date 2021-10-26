@@ -12,7 +12,8 @@ use vm_memory::{
 };
 
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
-use crate::{Descriptor, Queue, VirtqUsedElem};
+use crate::generic::QueueT;
+use crate::{Descriptor, Queue, QueueState, VirtqUsedElem};
 
 /// Wrapper struct used for accesing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
@@ -352,16 +353,20 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.update_avail_idx(head_idx);
     }
 
+    /// Return a QueueT implementation for this queue.
+    pub(crate) fn as_queue<A: GuestAddressSpace, T: QueueT<A>>(&self, a: A) -> T {
+        let mut q = QueueState::new(self.len);
+        q.size = self.len;
+        q.ready = true;
+        q.desc_table = self.desc_table_addr;
+        q.avail_ring = self.avail_addr;
+        q.used_ring = self.used_addr;
+        QueueT::construct(a, q)
+    }
+
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
     pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A> {
-        let mut q = Queue::<A>::new(a, self.len);
-
-        q.state.size = self.len;
-        q.state.ready = true;
-        q.state.desc_table = self.desc_table_addr;
-        q.state.avail_ring = self.avail_addr;
-        q.state.used_ring = self.used_addr;
-        q
+        self.as_queue(a)
     }
 }

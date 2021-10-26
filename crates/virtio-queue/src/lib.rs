@@ -19,6 +19,8 @@ pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
+pub(crate) mod generic;
+
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
@@ -1189,7 +1191,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
@@ -1325,7 +1327,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
@@ -1387,7 +1389,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
 
         assert_eq!(vq.used().idx().load(), 0);
 
@@ -1424,7 +1426,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
         q.state.size = 8;
         q.state.ready = true;
         q.state.reset();
@@ -1438,7 +1440,7 @@ mod tests {
         let qsize = 16;
         let vq = MockSplitQueue::new(m, qsize);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
         let avail_addr = vq.avail_addr();
 
         // It should always return true when EVENT_IDX isn't enabled.
@@ -1483,7 +1485,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: Queue<_> = vq.as_queue(m);
         let used_addr = vq.used_addr();
 
         assert_eq!(q.state.event_idx_enabled, false);
