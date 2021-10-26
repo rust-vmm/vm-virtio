@@ -1038,6 +1038,8 @@ mod tests {
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+    type AddrSpace = GuestMemoryMmap<()>;
+
     #[test]
     pub fn test_offset() {
         assert_eq!(offset_of!(Descriptor, addr), 0);
@@ -1048,21 +1050,19 @@ mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         assert!(vq.end().0 < 0x1000);
 
         // index >= queue_size
-        assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 16)
-                .next()
-                .is_none()
-        );
+        assert!(DescriptorChain::<&AddrSpace>::new(m, vq.start(), 16, 16)
+            .next()
+            .is_none());
 
         // desc_table address is way off
         assert!(
-            DescriptorChain::<&GuestMemoryMmap>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
+            DescriptorChain::<&AddrSpace>::new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0)
                 .next()
                 .is_none()
         );
@@ -1073,7 +1073,7 @@ mod tests {
             let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 16);
             vq.desc_table().store(0, desc);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&AddrSpace>::new(m, vq.start(), 16, 0);
             c.next().unwrap();
             assert!(c.next().is_none());
         }
@@ -1086,7 +1086,7 @@ mod tests {
             let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
             vq.desc_table().store(1, desc);
 
-            let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
+            let mut c = DescriptorChain::<&AddrSpace>::new(m, vq.start(), 16, 0);
 
             assert_eq!(
                 c.memory() as *const GuestMemoryMmap,
@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn test_new_from_indirect_descriptor() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
         let dtable = vq.desc_table();
 
@@ -1122,7 +1122,7 @@ mod tests {
         let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
         dtable.store(2, desc);
 
-        let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
+        let mut c: DescriptorChain<&AddrSpace> = DescriptorChain::new(m, vq.start(), 16, 0);
 
         // The chain logic hasn't parsed the indirect descriptor yet.
         assert!(!c.is_indirect);
@@ -1158,29 +1158,27 @@ mod tests {
     #[test]
     fn test_indirect_descriptor_err() {
         {
-            let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let vq = MockSplitQueue::new(m, 16);
 
             // create a chain with a descriptor pointing to an indirect table
             let desc = Descriptor::new(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
             vq.desc_table().store(0, desc);
 
-            let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+            let mut c: DescriptorChain<&AddrSpace> = DescriptorChain::new(m, vq.start(), 16, 0);
 
             assert!(c.next().is_none());
         }
 
         {
-            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let vq = MockSplitQueue::new(m, 16);
 
             // create a chain with a descriptor pointing to an indirect table
             let desc = Descriptor::new(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
             vq.desc_table().store(0, desc);
 
-            let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
+            let mut c: DescriptorChain<&AddrSpace> = DescriptorChain::new(m, vq.start(), 16, 0);
 
             assert!(c.next().is_none());
         }
@@ -1188,7 +1186,7 @@ mod tests {
 
     #[test]
     fn test_queue_and_iterator() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
@@ -1324,7 +1322,7 @@ mod tests {
 
     #[test]
     fn test_descriptor_and_iterator() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
@@ -1386,7 +1384,7 @@ mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
@@ -1423,7 +1421,7 @@ mod tests {
 
     #[test]
     fn test_reset_queue() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
@@ -1436,7 +1434,7 @@ mod tests {
 
     #[test]
     fn test_needs_notification() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let qsize = 16;
         let vq = MockSplitQueue::new(m, qsize);
 
@@ -1482,7 +1480,7 @@ mod tests {
 
     #[test]
     fn test_enable_disable_notification() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q: Queue<_> = vq.as_queue(m);
