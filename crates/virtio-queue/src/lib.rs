@@ -21,9 +21,10 @@ pub mod mock;
 
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
+use std::marker::PhantomData;
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{fence, Ordering};
 
 use log::error;
@@ -794,6 +795,103 @@ impl QueueState {
 }
 
 /// A convenient wrapper struct for a virtio queue, with associated GuestMemory object.
+pub struct QueueGuard<'a, M: 'a + Clone + Deref, S: 'a + DerefMut<Target = QueueState>>
+where
+    M::Target: GuestMemory + Sized,
+{
+    /// Guest memory object associated with the queue.
+    pub mem: M,
+
+    /// Virtio queue state.
+    pub state: S,
+
+    _marker: PhantomData<&'a S::Target>,
+}
+
+impl<'a, M: 'a + Clone + Deref, S: 'a + DerefMut<Target = QueueState>> QueueGuard<'a, M, S>
+where
+    M::Target: GuestMemory + Sized,
+{
+    fn new(mem: M, state: S) -> QueueGuard<'a, M, S> {
+        QueueGuard {
+            mem,
+            state,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Check whether the queue configuration is valid.
+    pub fn is_valid(&self) -> bool {
+        self.state.is_valid(self.mem.deref())
+    }
+
+    /// Read the `idx` field from the available ring.
+    pub fn avail_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        self.state.avail_idx(self.mem.deref(), order)
+    }
+
+    /// Put a used descriptor head into the used ring.
+    pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
+        self.state.add_used(self.mem.deref(), head_index, len)
+    }
+
+    /// Enable notification events from the guest driver.
+    ///
+    /// Return true if one or more descriptors can be consumed from the available ring after
+    /// notifications were enabled (and thus it's possible there will be no corresponding
+    /// notification).
+    pub fn enable_notification(&mut self) -> Result<bool, Error> {
+        self.state.enable_notification(self.mem.deref())
+    }
+
+    /// Disable notification events from the guest driver.
+    pub fn disable_notification(&mut self) -> Result<(), Error> {
+        self.state.disable_notification(self.mem.deref())
+    }
+
+    /// Check whether a notification to the guest is needed.
+    ///
+    /// Please note this method has side effects: once it returns `true`, it considers the
+    /// driver will actually be notified, remember the associated index in the used ring, and
+    /// won't return `true` again until the driver updates `used_event` and/or the notification
+    /// conditions hold once more.
+    pub fn needs_notification(&mut self) -> Result<bool, Error> {
+        self.state.needs_notification(self.mem.deref())
+    }
+
+    /// A consuming iterator over all available descriptor chain heads offered by the driver.
+    pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
+        // FIXME: this is inefficient
+        self.state.iter(self.mem.clone())
+    }
+}
+
+impl<'a, M: 'a + Clone + Deref, S: 'a + DerefMut<Target = QueueState>> Deref
+    for QueueGuard<'a, M, S>
+where
+    M::Target: GuestMemory + Sized,
+{
+    type Target = QueueState;
+
+    /// Reset the queue to the initial state.
+    fn deref(&self) -> &QueueState {
+        &self.state
+    }
+}
+
+impl<'a, M: 'a + Clone + Deref, S: 'a + DerefMut<Target = QueueState>> DerefMut
+    for QueueGuard<'a, M, S>
+where
+    M::Target: GuestMemory + Sized,
+{
+    /// Reset the queue to the initial state.
+    fn deref_mut(&mut self) -> &mut QueueState {
+        &mut self.state
+    }
+}
+
+/// A convenient wrapper struct for a virtio queue, with associated GuestAddressSpace
+/// object.
 #[derive(Clone, Debug)]
 pub struct Queue<M: GuestAddressSpace> {
     /// Guest memory object associated with the queue.
@@ -809,6 +907,12 @@ impl<M: GuestAddressSpace> Queue<M> {
             mem,
             state: QueueState::new(max_size),
         }
+    }
+
+    /// Return a QueueGuard that allows to do multiple QueueState operations
+    /// using the same GuestMemory.
+    pub fn acquire(&mut self) -> QueueGuard<M::T, &mut QueueState> {
+        QueueGuard::new(self.mem.memory(), &mut self.state)
     }
 
     /// Check whether the queue configuration is valid.
@@ -1299,6 +1403,20 @@ mod tests {
         let x = vq.used().ring().ref_at(0).load();
         assert_eq!(x.id, 1);
         assert_eq!(x.len, 0x1000);
+    }
+
+    #[test]
+    fn test_queue_guard() {
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+
+        let mut q = vq.create_queue(m);
+        let mut qstate = q.acquire();
+        qstate.ready = true;
+        qstate.reset();
+        assert_eq!(qstate.ready, false);
+        let mut iter = qstate.iter().unwrap();
+        assert!(iter.next().is_none());
     }
 
     #[test]
