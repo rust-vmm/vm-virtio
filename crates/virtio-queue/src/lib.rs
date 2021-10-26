@@ -1213,12 +1213,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_queue_and_iterator() {
-        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    fn do_test_queue_and_iterator<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q: Q = vq.as_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
@@ -1352,11 +1350,21 @@ mod tests {
     }
 
     #[test]
-    fn test_descriptor_and_iterator() {
+    fn test_queue_and_iterator() {
         let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_queue_and_iterator::<Queue<&AddrSpace>>(m);
+    }
+
+    #[test]
+    fn test_queue_and_iterator_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_queue_and_iterator::<QueueSync<&AddrSpace>>(m);
+    }
+
+    fn do_test_descriptor_and_iterator<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q: Q = vq.as_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
@@ -1416,11 +1424,21 @@ mod tests {
     }
 
     #[test]
-    fn test_add_used() {
+    fn test_descriptor_and_iterator() {
         let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_descriptor_and_iterator::<Queue<&AddrSpace>>(m);
+    }
+
+    #[test]
+    fn test_descriptor_and_iterator_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_descriptor_and_iterator::<QueueSync<&AddrSpace>>(m);
+    }
+
+    fn do_test_add_used<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q: Q = vq.as_queue(m);
 
         assert_eq!(vq.used().idx().load(), 0);
 
@@ -1439,12 +1457,20 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_guard() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = MockSplitQueue::new(m, 16);
+    fn test_add_used() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_add_used::<Queue<&AddrSpace>>(m);
+    }
 
-        let mut q = vq.create_queue(m);
-        let mut qstate = q.acquire();
+    #[test]
+    fn test_add_used_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_add_used::<QueueSync<&AddrSpace>>(m);
+    }
+
+    fn do_test_queue_guard<S: DerefMut<Target = QueueState>>(
+        mut qstate: QueueGuard<&AddrSpace, S>,
+    ) {
         qstate.ready = true;
         qstate.reset();
         assert_eq!(qstate.ready, false);
@@ -1453,11 +1479,35 @@ mod tests {
     }
 
     #[test]
-    fn test_reset_queue() {
-        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    fn test_queue_guard() {
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q = vq.create_queue(m);
+        do_test_queue_guard(q.acquire());
+    }
+
+    #[test]
+    fn test_queue_guard_sync() {
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+
+        // Note how the test_queue_guard above has "let mut" here.  A singlethreaded
+        // queue can only be accessed by one thread, and that one needs to have an
+        // exclusive reference; a multithreaded queue can be accessed by many thread
+        // and therefore it has to support interior mutability (via Mutex).  On the
+        // other hand, a multithreaded queue is reference counted and therefore it
+        // cannot be accessed via an exclusive reference *at all*.  This is the
+        // the reason why only Queue has the acquire() method, and only QueueSync
+        // has a lock() method.
+        let q: QueueSync<_> = vq.as_queue(m);
+        do_test_queue_guard(q.lock());
+    }
+
+    fn do_test_reset_queue<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
+        let vq = MockSplitQueue::new(m, 16);
+
+        let mut q: Q = vq.as_queue(m);
         q.with(|mut qstate| {
             qstate.size = 8;
             qstate.ready = true;
@@ -1468,12 +1518,22 @@ mod tests {
     }
 
     #[test]
-    fn test_needs_notification() {
+    fn test_reset_queue() {
         let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_reset_queue::<Queue<&AddrSpace>>(m);
+    }
+
+    #[test]
+    fn test_reset_queue_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_reset_queue::<QueueSync<&AddrSpace>>(m);
+    }
+
+    fn do_test_needs_notification<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
         let qsize = 16;
         let vq = MockSplitQueue::new(m, qsize);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q: Q = vq.as_queue(m);
         let avail_addr = vq.avail_addr();
 
         // It should always return true when EVENT_IDX isn't enabled.
@@ -1517,11 +1577,21 @@ mod tests {
     }
 
     #[test]
-    fn test_enable_disable_notification() {
+    fn test_needs_notification() {
         let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_needs_notification::<Queue<&AddrSpace>>(m);
+    }
+
+    #[test]
+    fn test_needs_notification_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_needs_notification::<QueueSync<&AddrSpace>>(m);
+    }
+
+    fn do_test_enable_disable_notification<'a, Q: QueueT<&'a AddrSpace>>(m: &'a AddrSpace) {
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue<_> = vq.as_queue(m);
+        let mut q: Q = vq.as_queue(m);
         let used_addr = vq.used_addr();
 
         q.with(|qstate| assert_eq!(qstate.event_idx_enabled, false));
@@ -1551,5 +1621,17 @@ mod tests {
         assert_eq!(q.enable_notification().unwrap(), true);
         q.with(|mut qstate| qstate.next_avail = Wrapping(8));
         assert_eq!(q.enable_notification().unwrap(), false);
+    }
+
+    #[test]
+    fn test_enable_disable_notification() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_enable_disable_notification::<Queue<&AddrSpace>>(m);
+    }
+
+    #[test]
+    fn test_enable_disable_notification_sync() {
+        let m = &AddrSpace::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        do_test_enable_disable_notification::<QueueSync<&AddrSpace>>(m);
     }
 }
