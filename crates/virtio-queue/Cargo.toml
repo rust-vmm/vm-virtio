@@ -13,13 +13,14 @@ edition = "2018"
 test-utils = []
 
 [dependencies]
-vm-memory = "0.6.0"
+vm-memory = "0.7.0"
 vmm-sys-util = ">=0.8.0"
 log = ">=0.4.6"
 
 [dev-dependencies]
 criterion = "0.3.0"
-vm-memory = { version = "0.6.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.7.0", features = ["backend-mmap", "backend-atomic"] }
+memoffset = "~0"
 
 [[bench]]
 name = "main"

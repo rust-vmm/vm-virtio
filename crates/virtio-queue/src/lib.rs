@@ -1124,16 +1124,10 @@ impl<M: GuestAddressSpace> Queue<M, QueueState<M>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memoffset::offset_of;
     use mock::{DescriptorTable, MockSplitQueue};
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-    /// Extracts the displacement of a field in a struct
-    macro_rules! offset_of {
-        ($ty:ty, $field:ident) => {
-            unsafe { &(*std::ptr::null::<$ty>()).$field as *const _ as usize }
-        };
-    }
 
     #[test]
     pub fn test_offset() {
