@@ -23,9 +23,8 @@ use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
 use std::num::Wrapping;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::atomic::{fence, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::error;
 use vm_memory::{
@@ -421,121 +420,6 @@ impl VirtqUsedElem {
 
 unsafe impl ByteValued for VirtqUsedElem {}
 
-/// Struct to hold an exclusive reference to the underlying `QueueState` object.
-pub enum QueueStateGuard<'a> {
-    /// A reference to a `QueueState` object.
-    StateObject(&'a mut QueueState),
-    /// A `MutexGuard` for a `QueueState` object.
-    MutexGuard(MutexGuard<'a, QueueState>),
-}
-
-impl<'a> Deref for QueueStateGuard<'a> {
-    type Target = QueueState;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            QueueStateGuard::StateObject(v) => v,
-            QueueStateGuard::MutexGuard(v) => v.deref(),
-        }
-    }
-}
-
-impl<'a> DerefMut for QueueStateGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            QueueStateGuard::StateObject(v) => v,
-            QueueStateGuard::MutexGuard(v) => v.deref_mut(),
-        }
-    }
-}
-
-/// Trait to access and manipulate a virtio queue.
-///
-/// To optimize for performance, different implementations of the `QueueStateT` trait may be
-/// provided for single-threaded context and multi-threaded context.
-pub trait QueueStateT {
-    /// Construct an empty virtio queue state object with the given `max_size`.
-    fn new(max_size: u16) -> Self;
-
-    /// Check whether the queue configuration is valid.
-    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool;
-
-    /// Reset the queue to the initial state.
-    fn reset(&mut self);
-
-    /// Get an exclusive reference to the underlying `QueueState` object.
-    ///
-    /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
-    /// The lock will be released when the returned object gets dropped.
-    fn lock(&mut self) -> QueueStateGuard;
-
-    /// Get the maximum size of the virtio queue.
-    fn max_size(&self) -> u16;
-
-    /// Configure the queue size for the virtio queue.
-    ///
-    /// The `size` should power of two and less than or equal to value reported by `max_size()`,
-    /// otherwise it will panic.
-    fn set_size(&mut self, size: u16);
-
-    /// Check whether the queue is ready to be processed.
-    fn ready(&self) -> bool;
-
-    /// Configure the queue to ready for processing.
-    fn set_ready(&mut self, ready: bool);
-
-    /// Set descriptor table address for the queue.
-    ///
-    /// The descriptor table address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
-    fn set_desc_table_address(&mut self, low: Option<u32>, high: Option<u32>);
-
-    /// Set available ring address for the queue.
-    ///
-    /// The available ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
-    fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>);
-
-    /// Set used ring address for the queue.
-    ///
-    /// The used ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
-    fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>);
-
-    /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature for interrupt coalescing.
-    fn set_event_idx(&mut self, enabled: bool);
-
-    /// Read the `idx` field from the available ring.
-    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
-
-    /// Put a used descriptor head into the used ring.
-    fn add_used<M: GuestMemory>(&mut self, mem: &M, head_index: u16, len: u32)
-        -> Result<(), Error>;
-
-    /// Enable notification events from the guest driver.
-    ///
-    /// Return true if one or more descriptors can be consumed from the available ring after
-    /// notifications were enabled (and thus it's possible there will be no corresponding
-    /// notification).
-    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
-
-    /// Disable notification events from the guest driver.
-    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error>;
-
-    /// Check whether a notification to the guest is needed.
-    ///
-    /// Please note this method has side effects: once it returns `true`, it considers the
-    /// driver will actually be notified, remember the associated index in the used ring, and
-    /// won't return `true` again until the driver updates `used_event` and/or the notification
-    /// conditions hold once more.
-    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
-
-    /// Return the index for the next descriptor in the available ring.
-    fn next_avail(&self) -> u16;
-
-    /// Set the index for the next descriptor in the available ring.
-    fn set_next_avail(&mut self, next_avail: u16);
-}
 // Default addresses for each virtqueue part
 const DEFAULT_DESC_TABLE_ADDR: u64 = 0x0;
 const DEFAULT_AVAIL_RING_ADDR: u64 = 0x0;
@@ -663,9 +547,7 @@ impl QueueState {
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
-}
 
-impl QueueStateT for QueueState {
     fn new(max_size: u16) -> Self {
         QueueState {
             max_size,
@@ -737,10 +619,6 @@ impl QueueStateT for QueueState {
         self.next_used = Wrapping(0);
         self.signalled_used = None;
         self.event_idx_enabled = false;
-    }
-
-    fn lock(&mut self) -> QueueStateGuard {
-        QueueStateGuard::StateObject(self)
     }
 
     fn max_size(&self) -> u16 {
@@ -915,113 +793,21 @@ impl QueueStateT for QueueState {
     }
 }
 
-/// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
-/// context.
-#[derive(Clone, Debug)]
-pub struct QueueStateSync {
-    state: Arc<Mutex<QueueState>>,
-}
-
-impl QueueStateT for QueueStateSync {
-    fn new(max_size: u16) -> Self {
-        QueueStateSync {
-            state: Arc::new(Mutex::new(QueueState::new(max_size))),
-        }
-    }
-
-    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
-        self.state.lock().unwrap().is_valid(mem)
-    }
-
-    fn reset(&mut self) {
-        self.state.lock().unwrap().reset();
-    }
-
-    fn lock(&mut self) -> QueueStateGuard {
-        QueueStateGuard::MutexGuard(self.state.lock().unwrap())
-    }
-
-    fn max_size(&self) -> u16 {
-        self.state.lock().unwrap().max_size()
-    }
-
-    fn set_size(&mut self, size: u16) {
-        self.state.lock().unwrap().set_size(size);
-    }
-
-    fn ready(&self) -> bool {
-        self.state.lock().unwrap().ready
-    }
-
-    fn set_ready(&mut self, ready: bool) {
-        self.state.lock().unwrap().set_ready(ready)
-    }
-
-    fn set_desc_table_address(&mut self, low: Option<u32>, high: Option<u32>) {
-        self.state.lock().unwrap().set_desc_table_address(low, high);
-    }
-
-    fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
-        self.state.lock().unwrap().set_avail_ring_address(low, high);
-    }
-
-    fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
-        self.state.lock().unwrap().set_used_ring_address(low, high);
-    }
-
-    fn set_event_idx(&mut self, enabled: bool) {
-        self.state.lock().unwrap().set_event_idx(enabled);
-    }
-
-    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        self.state.lock().unwrap().avail_idx(mem, order)
-    }
-
-    fn add_used<M: GuestMemory>(
-        &mut self,
-        mem: &M,
-        head_index: u16,
-        len: u32,
-    ) -> Result<(), Error> {
-        self.state.lock().unwrap().add_used(mem, head_index, len)
-    }
-
-    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
-        self.state.lock().unwrap().enable_notification(mem)
-    }
-
-    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error> {
-        self.state.lock().unwrap().disable_notification(mem)
-    }
-
-    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
-        self.state.lock().unwrap().needs_notification(mem)
-    }
-
-    fn next_avail(&self) -> u16 {
-        self.state.lock().unwrap().next_avail()
-    }
-
-    fn set_next_avail(&mut self, next_avail: u16) {
-        self.state.lock().unwrap().set_next_avail(next_avail);
-    }
-}
-
 /// A convenient wrapper struct for a virtio queue, with associated GuestMemory object.
 #[derive(Clone, Debug)]
-pub struct Queue<M: GuestAddressSpace, S: QueueStateT = QueueState> {
+pub struct Queue<M: GuestAddressSpace> {
     /// Guest memory object associated with the queue.
     pub mem: M,
     /// Virtio queue state.
-    pub state: S,
+    pub state: QueueState,
 }
 
-impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
+impl<M: GuestAddressSpace> Queue<M> {
     /// Construct an empty virtio queue with the given `max_size`.
     pub fn new(mem: M, max_size: u16) -> Self {
         Queue {
             mem,
-            state: S::new(max_size),
+            state: QueueState::new(max_size),
         }
     }
 
@@ -1033,14 +819,6 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
     /// Reset the queue to the initial state.
     pub fn reset(&mut self) {
         self.state.reset()
-    }
-
-    /// Get an exclusive reference to the underlying `QueueState` object.
-    ///
-    /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
-    /// The lock will be released when the returned object gets dropped.
-    pub fn lock(&mut self) -> QueueStateGuard {
-        self.state.lock()
     }
 
     /// Get the maximum size of the virtio queue.
@@ -1139,9 +917,7 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
     pub fn set_next_avail(&mut self, next_avail: u16) {
         self.state.set_next_avail(next_avail);
     }
-}
 
-impl<M: GuestAddressSpace> Queue<M, QueueState> {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M::T>, Error> {
         self.state.iter(self.mem.memory())
