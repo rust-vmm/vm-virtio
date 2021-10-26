@@ -5,8 +5,9 @@
 use std::num::Wrapping;
 use std::ops::DerefMut;
 
-use crate::{Error, Queue, QueueGuard, QueueState};
+use crate::{Error, Queue, QueueGuard, QueueState, QueueSync};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, MutexGuard};
 use vm_memory::GuestAddressSpace;
 
 /// Lifetime-generic guard associated to a QueueStateT. In practice,
@@ -165,5 +166,34 @@ impl<M: GuestAddressSpace> QueueT<M> for Queue<M> {
         'a: 'g,
     {
         f(self.acquire())
+    }
+}
+
+impl<'g, M: GuestAddressSpace> QueueStateGuard<'g> for QueueSync<M> {
+    type Out = MutexGuard<'g, QueueState>;
+}
+
+impl<M: GuestAddressSpace> QueueT<M> for QueueSync<M> {
+    type Guard = Self;
+
+    fn construct(mem: M, state: QueueState) -> Self {
+        QueueSync {
+            mem,
+            state: Arc::new(Mutex::new(state)),
+        }
+    }
+    fn with<
+        'a,
+        'g,
+        U,
+        F: FnOnce(QueueGuard<M::T, <Self::Guard as QueueStateGuard<'g>>::Out>) -> U,
+    >(
+        &'a mut self,
+        f: F,
+    ) -> U
+    where
+        'a: 'g,
+    {
+        f(self.lock())
     }
 }

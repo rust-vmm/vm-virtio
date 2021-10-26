@@ -28,6 +28,7 @@ use std::mem::size_of;
 use std::num::Wrapping;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{fence, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::error;
 use vm_memory::{
@@ -1027,6 +1028,33 @@ impl<M: GuestAddressSpace> Queue<M> {
     /// A consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M::T>, Error> {
         self.state.iter(self.mem.memory())
+    }
+}
+
+/// A convenient wrapper struct for a thread-safe virtio queue, with associated GuestMemory object.
+#[derive(Clone, Debug)]
+pub struct QueueSync<M: GuestAddressSpace> {
+    /// Guest memory object associated with the queue.
+    pub mem: M,
+    /// Virtio queue state.
+    pub state: Arc<Mutex<QueueState>>,
+}
+
+impl<M: GuestAddressSpace> QueueSync<M> {
+    /// Construct an empty virtio queue with the given `max_size`.
+    pub fn new(mem: M, max_size: u16) -> Self {
+        QueueSync {
+            mem,
+            state: Arc::new(Mutex::new(QueueState::new(max_size))),
+        }
+    }
+
+    /// Get an exclusive reference to the underlying `QueueState` object.
+    ///
+    /// Logically this method will acquire the underlying lock protecting the `QueueState`
+    /// object. The lock will be released when the returned object gets dropped.
+    pub fn lock(&self) -> QueueGuard<M::T, MutexGuard<QueueState>> {
+        QueueGuard::new(self.mem.memory(), self.state.lock().unwrap())
     }
 }
 
