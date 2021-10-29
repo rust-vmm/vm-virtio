@@ -251,8 +251,9 @@ pub(crate) mod tests {
 
     impl Dummy {
         pub fn new(device_type: u32, features: u64, config_space: Vec<u8>) -> Self {
-            let mem =
-                Arc::new(GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap());
+            let mem = Arc::new(
+                GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10_0000_0000)]).unwrap(),
+            );
             let queue = Queue::new(mem, 256);
 
             let cfg = VirtioConfig::new(features, vec![queue], config_space);
