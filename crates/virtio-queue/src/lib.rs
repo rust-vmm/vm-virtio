@@ -19,7 +19,6 @@ pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
-use std::cmp::min;
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
@@ -458,11 +457,6 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
 
-    /// Return the actual size of the queue.
-    ///
-    /// The virtio driver may configure queue size smaller than the value reported by `max_size()`.
-    fn actual_size(&self) -> u16;
-
     /// Configure the queue size for the virtio queue.
     ///
     /// The `size` should power of two and less than or equal to value reported by `max_size()`,
@@ -576,7 +570,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
                 desc_table: self.desc_table,
                 avail_ring: self.avail_ring,
                 last_index: idx,
-                queue_size: self.actual_size(),
+                queue_size: self.size,
                 next_avail: &mut self.next_avail,
             })
     }
@@ -584,7 +578,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event(&self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
-        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.actual_size());
+        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
 
@@ -633,7 +627,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     fn used_event(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // Safe because we have validated the queue and access guest
         // memory through GuestMemory interfaces.
-        let elem_sz = u64::from(self.actual_size()) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let elem_sz = u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_sz;
         let used_event_addr = self.avail_ring.unchecked_add(offset);
 
@@ -661,7 +655,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     }
 
     fn is_valid(&self, mem: &M::T) -> bool {
-        let queue_size = self.actual_size() as u64;
+        let queue_size = self.size as u64;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
         let avail_ring = self.avail_ring;
@@ -724,10 +718,6 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
 
     fn max_size(&self) -> u16 {
         self.max_size
-    }
-
-    fn actual_size(&self) -> u16 {
-        min(self.size, self.max_size)
     }
 
     fn set_size(&mut self, size: u16) {
@@ -796,7 +786,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     }
 
     fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error> {
-        if head_index >= self.actual_size() {
+        if head_index >= self.size {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 head_index
@@ -804,7 +794,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             return Err(Error::InvalidDescriptorIndex);
         }
 
-        let next_used_index = u64::from(self.next_used.0 % self.actual_size());
+        let next_used_index = u64::from(self.next_used.0 % self.size);
         let elem_sz = next_used_index * VIRTQ_USED_ELEMENT_SIZE;
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
@@ -923,10 +913,6 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
         self.state.lock().unwrap().max_size()
     }
 
-    fn actual_size(&self) -> u16 {
-        self.state.lock().unwrap().actual_size()
-    }
-
     fn set_size(&mut self, size: u16) {
         self.state.lock().unwrap().set_size(size);
     }
@@ -1023,13 +1009,6 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     /// Get the maximum size of the virtio queue.
     pub fn max_size(&self) -> u16 {
         self.state.max_size()
-    }
-
-    /// Return the actual size of the queue.
-    ///
-    /// The virtio driver may configure queue size smaller than the value reported by `max_size()`.
-    pub fn actual_size(&self) -> u16 {
-        self.state.actual_size()
     }
 
     /// Configure the queue size for the virtio queue.
