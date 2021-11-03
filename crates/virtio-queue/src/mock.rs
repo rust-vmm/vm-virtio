@@ -12,7 +12,7 @@ use vm_memory::{
 };
 
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
-use crate::{Descriptor, Queue, QueueState};
+use crate::{Descriptor, Queue, QueueState, VirtqUsedElem};
 
 /// Wrapper struct used for accesing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
@@ -74,18 +74,6 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
     }
 }
 
-/// Represents one element of a used ring.
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct UsedRingElement {
-    /// Starting index of the used descriptor chain.
-    pub id: u32,
-    /// Total length of the descriptor chain which was written to.
-    pub len: u32,
-}
-
-unsafe impl ByteValued for UsedRingElement {}
-
 /// Represents a virtio queue ring. The only difference between the used and available rings,
 /// is the ring element type.
 pub struct SplitQueueRing<'a, M, T: ByteValued> {
@@ -142,7 +130,7 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
 /// The available ring is used by the driver to offer buffers to the device.
 pub type AvailRing<'a, M> = SplitQueueRing<'a, M, u16>;
 /// The used ring is where the device returns buffers once it is done with them.
-pub type UsedRing<'a, M> = SplitQueueRing<'a, M, UsedRingElement>;
+pub type UsedRing<'a, M> = SplitQueueRing<'a, M, VirtqUsedElem>;
 
 /// Refers to the buffers the driver is using for the device.
 pub struct DescriptorTable<'a, M> {
