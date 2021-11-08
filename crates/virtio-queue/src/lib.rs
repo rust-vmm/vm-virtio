@@ -703,9 +703,9 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     fn reset(&mut self) {
         self.ready = false;
         self.size = self.max_size;
-        self.desc_table = GuestAddress(0);
-        self.avail_ring = GuestAddress(0);
-        self.used_ring = GuestAddress(0);
+        self.desc_table = GuestAddress(DEFAULT_DESC_TABLE_ADDR);
+        self.avail_ring = GuestAddress(DEFAULT_AVAIL_RING_ADDR);
+        self.used_ring = GuestAddress(DEFAULT_USED_RING_ADDR);
         self.next_avail = Wrapping(0);
         self.next_used = Wrapping(0);
         self.signalled_used = None;
@@ -1182,10 +1182,41 @@ mod tests {
             assert_eq!(desc.len(), 0x1000);
             assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
             assert_eq!(desc.next(), 1);
+            assert_eq!(c.ttl, c.queue_size - 1);
 
             assert!(c.next().is_some());
+            // The descriptor above was the last from the chain, so `ttl` should be 0 now.
+            assert_eq!(c.ttl, 0);
             assert!(c.next().is_none());
+            assert_eq!(c.ttl, 0);
         }
+    }
+
+    #[test]
+    fn test_ttl_wrap_around() {
+        const QUEUE_SIZE: u16 = 16;
+
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x100000)]).unwrap();
+        let vq = MockSplitQueue::new(m, QUEUE_SIZE);
+
+        // Populate the entire descriptor table with entries. Only the last one should not have the
+        // VIRTQ_DESC_F_NEXT set.
+        for i in 0..QUEUE_SIZE - 1 {
+            let desc = Descriptor::new(0x1000 * (i + 1) as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1);
+            vq.desc_table().store(i, desc);
+        }
+        let desc = Descriptor::new((0x1000 * 16) as u64, 0x1000, 0, 0);
+        vq.desc_table().store(QUEUE_SIZE - 1, desc);
+
+        let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), QUEUE_SIZE, 0);
+        assert_eq!(c.ttl, c.queue_size);
+
+        // Validate that `ttl` wraps around even when the entire descriptor table is populated.
+        for i in 0..QUEUE_SIZE {
+            let _desc = c.next().unwrap();
+            assert_eq!(c.ttl, c.queue_size - i - 1);
+        }
+        assert!(c.next().is_none());
     }
 
     #[test]
@@ -1237,11 +1268,14 @@ mod tests {
 
     #[test]
     fn test_indirect_descriptor_err() {
+        // We are testing here different misconfigurations of the indirect table. For these error
+        // case scenarios, the iterator over the descriptor chain won't return a new descriptor.
         {
             let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let vq = MockSplitQueue::new(m, 16);
 
-            // create a chain with a descriptor pointing to an indirect table
+            // Create a chain with a descriptor pointing to an invalid indirect table: addr not a
+            // multiple of descriptor size.
             let desc = Descriptor::new(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
             vq.desc_table().store(0, desc);
 
@@ -1255,9 +1289,56 @@ mod tests {
             let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let vq = MockSplitQueue::new(m, 16);
 
-            // create a chain with a descriptor pointing to an indirect table
+            // Create a chain with a descriptor pointing to an invalid indirect table: len not a
+            // multiple of descriptor size.
             let desc = Descriptor::new(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
             vq.desc_table().store(0, desc);
+
+            let mut c: DescriptorChain<&GuestMemoryMmap> =
+                DescriptorChain::new(m, vq.start(), 16, 0);
+
+            assert!(c.next().is_none());
+        }
+
+        {
+            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let vq = MockSplitQueue::new(m, 16);
+
+            // Create a chain with a descriptor pointing to an invalid indirect table: table len >
+            // u16::MAX.
+            let desc = Descriptor::new(
+                0x1000,
+                (u16::MAX as u32 + 1) * VIRTQ_DESCRIPTOR_SIZE as u32,
+                VIRTQ_DESC_F_INDIRECT,
+                0,
+            );
+            vq.desc_table().store(0, desc);
+
+            let mut c: DescriptorChain<&GuestMemoryMmap> =
+                DescriptorChain::new(m, vq.start(), 16, 0);
+
+            assert!(c.next().is_none());
+        }
+
+        {
+            let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+            let vq = MockSplitQueue::new(m, 16);
+
+            // Create a chain with a descriptor pointing to an indirect table.
+            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            vq.desc_table().store(0, desc);
+            // It's ok for an indirect descriptor to have flags = 0.
+            let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
+            m.write_obj(desc, GuestAddress(0x1000)).unwrap();
+
+            let mut c: DescriptorChain<&GuestMemoryMmap> =
+                DescriptorChain::new(m, vq.start(), 16, 0);
+            assert!(c.next().is_some());
+
+            // But it's not allowed to have an indirect descriptor that points to another indirect
+            // table.
+            let desc = Descriptor::new(0x3000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            m.write_obj(desc, GuestAddress(0x1000)).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -1493,11 +1574,35 @@ mod tests {
         let vq = MockSplitQueue::new(m, 16);
 
         let mut q = vq.create_queue(m);
-        q.state.size = 8;
-        q.state.ready = true;
+        q.set_size(8);
+        // The address set by `MockSplitQueue` for the descriptor table is DEFAULT_DESC_TABLE_ADDR,
+        // so let's change it for testing the reset.
+        q.set_desc_table_address(Some(0x5000), None);
+        // Same for `event_idx_enabled`, `next_avail` `next_used` and `signalled_used`.
+        q.set_event_idx(true);
+        q.set_next_avail(2);
+        q.add_used(1, 200).unwrap();
+        q.state.signalled_used = Some(Wrapping(15));
+        assert_eq!(q.state.size, 8);
+        // `create_queue` also marks the queue as ready.
+        assert_eq!(q.state.ready, true);
+        assert_ne!(q.state.desc_table, GuestAddress(DEFAULT_DESC_TABLE_ADDR));
+        assert_ne!(q.state.avail_ring, GuestAddress(DEFAULT_AVAIL_RING_ADDR));
+        assert_ne!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
+        assert_ne!(q.state.next_avail, Wrapping(0));
+        assert_ne!(q.state.next_used, Wrapping(0));
+        assert_ne!(q.state.signalled_used, None);
+        assert_eq!(q.state.event_idx_enabled, true);
         q.state.reset();
         assert_eq!(q.state.size, 16);
         assert_eq!(q.state.ready, false);
+        assert_eq!(q.state.desc_table, GuestAddress(DEFAULT_DESC_TABLE_ADDR));
+        assert_eq!(q.state.avail_ring, GuestAddress(DEFAULT_AVAIL_RING_ADDR));
+        assert_eq!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
+        assert_eq!(q.state.next_avail, Wrapping(0));
+        assert_eq!(q.state.next_used, Wrapping(0));
+        assert_eq!(q.state.signalled_used, None);
+        assert_eq!(q.state.event_idx_enabled, false);
     }
 
     #[test]
@@ -1544,6 +1649,13 @@ mod tests {
         q.state.next_used = Wrapping(0);
         assert_eq!(q.needs_notification().unwrap(), true);
         assert_eq!(q.needs_notification().unwrap(), false);
+
+        m.write_obj::<u16>(u16::MAX - 3, avail_addr.unchecked_add(4 + qsize as u64 * 2))
+            .unwrap();
+        q.state.next_used = Wrapping(u16::MAX - 2);
+        // Returns `true` because the value we wrote in the `used_event` < the next used value and
+        // the last `signalled_used` is 0.
+        assert_eq!(q.needs_notification().unwrap(), true);
     }
 
     #[test]
@@ -1581,5 +1693,161 @@ mod tests {
         assert_eq!(q.enable_notification().unwrap(), true);
         q.state.next_avail = Wrapping(8);
         assert_eq!(q.enable_notification().unwrap(), false);
+    }
+
+    #[test]
+    fn test_consume_chains_with_notif() {
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+
+        let mut q = vq.create_queue(m);
+
+        // q is currently valid.
+        assert!(q.is_valid());
+
+        // The chains are (0, 1), (2, 3, 4), (5, 6), (7, 8), (9, 10, 11, 12).
+        for i in 0..13 {
+            let flags = match i {
+                1 | 4 | 6 | 8 | 12 => 0,
+                _ => VIRTQ_DESC_F_NEXT,
+            };
+
+            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+            vq.desc_table().store(i, desc);
+        }
+
+        vq.avail().ring().ref_at(0).store(0);
+        vq.avail().ring().ref_at(1).store(2);
+        vq.avail().ring().ref_at(2).store(5);
+        vq.avail().ring().ref_at(3).store(7);
+        vq.avail().ring().ref_at(4).store(9);
+        // Let the device know it can consume chains with the index < 2.
+        vq.avail().idx().store(2);
+        // No descriptor chains are consumed at this point.
+        assert_eq!(q.next_avail(), 0);
+
+        let mut i = 0;
+
+        loop {
+            i += 1;
+            q.disable_notification().unwrap();
+
+            while let Some(_chain) = q.iter().unwrap().next() {
+                // Here the device would consume entries from the available ring, add an entry in
+                // the used ring and optionally notify the driver. For the purpose of this test, we
+                // don't need to do anything with the chain, only consume it.
+            }
+            if !q.enable_notification().unwrap() {
+                break;
+            }
+        }
+        // The chains should be consumed in a single loop iteration because there's nothing updating
+        // the `idx` field of the available ring in the meantime.
+        assert_eq!(i, 1);
+        // The next chain that can be consumed should have index 2.
+        assert_eq!(q.next_avail(), 2);
+        // Let the device know it can consume one more chain.
+        vq.avail().idx().store(3);
+        i = 0;
+
+        loop {
+            i += 1;
+            q.disable_notification().unwrap();
+
+            while let Some(_chain) = q.iter().unwrap().next() {
+                // In a real use case, we would do something with the chain here.
+            }
+
+            // For the simplicity of the test we are updating here the `idx` value of the available
+            // ring. Ideally this should be done on a separate thread.
+            // Because of this update, the loop should be iterated again to consume the new
+            // available descriptor chains.
+            vq.avail().idx().store(4);
+            if !q.enable_notification().unwrap() {
+                break;
+            }
+        }
+        assert_eq!(i, 2);
+        // The next chain that can be consumed should have index 4.
+        assert_eq!(q.next_avail(), 4);
+
+        // Set an `idx` that is bigger than the number of entries added in the ring.
+        // This is an allowed scenario, but the indexes of the chain will have unexpected values.
+        vq.avail().idx().store(7);
+        loop {
+            q.disable_notification().unwrap();
+
+            while let Some(_chain) = q.iter().unwrap().next() {
+                // In a real use case, we would do something with the chain here.
+            }
+            if !q.enable_notification().unwrap() {
+                break;
+            }
+        }
+        assert_eq!(q.next_avail(), 7);
+    }
+
+    #[test]
+    fn test_invalid_avail_idx() {
+        // This is a negative test for the following MUST from the spec: `A driver MUST NOT
+        // decrement the available idx on a virtqueue (ie. there is no way to “unexpose” buffers).`.
+        // We validate that for this misconfiguration, the device does not panic.
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+
+        let mut q = vq.create_queue(m);
+
+        // q is currently valid.
+        assert!(q.is_valid());
+
+        // The chains are (0, 1), (2, 3, 4), (5, 6).
+        for i in 0..7 {
+            let flags = match i {
+                1 | 4 | 6 => 0,
+                _ => VIRTQ_DESC_F_NEXT,
+            };
+
+            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+            vq.desc_table().store(i, desc);
+        }
+
+        vq.avail().ring().ref_at(0).store(0);
+        vq.avail().ring().ref_at(1).store(2);
+        vq.avail().ring().ref_at(2).store(5);
+        // Let the device know it can consume chains with the index < 2.
+        vq.avail().idx().store(3);
+        // No descriptor chains are consumed at this point.
+        assert_eq!(q.next_avail(), 0);
+
+        loop {
+            q.disable_notification().unwrap();
+
+            while let Some(_chain) = q.iter().unwrap().next() {
+                // Here the device would consume entries from the available ring, add an entry in
+                // the used ring and optionally notify the driver. For the purpose of this test, we
+                // don't need to do anything with the chain, only consume it.
+            }
+            if !q.enable_notification().unwrap() {
+                break;
+            }
+        }
+        // The next chain that can be consumed should have index 3.
+        assert_eq!(q.next_avail(), 3);
+
+        // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
+        // test that we don't panic in case the driver decrements it.
+        vq.avail().idx().store(1);
+
+        loop {
+            q.disable_notification().unwrap();
+
+            while let Some(_chain) = q.iter().unwrap().next() {
+                // In a real use case, we would do something with the chain here.
+            }
+
+            if !q.enable_notification().unwrap() {
+                break;
+            }
+        }
     }
 }
