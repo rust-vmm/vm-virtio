@@ -125,8 +125,6 @@ impl Descriptor {
 
     /// Check whether this descriptor refers to a buffer containing an indirect descriptor table.
     pub fn refers_to_indirect_table(&self) -> bool {
-        // TODO: The are a couple of restrictions in terms of which flags combinations are
-        // actually valid for indirect descriptors. Implement those checks as well somewhere.
         self.flags() & VIRTQ_DESC_F_INDIRECT != 0
     }
 
@@ -1221,49 +1219,57 @@ mod tests {
 
     #[test]
     fn test_new_from_indirect_descriptor() {
+        // This is testing that chaining an indirect table works as expected. It is also a negative
+        // test for the following requirement from the spec:
+        // `A driver MUST NOT set both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags.`. In
+        // case the driver is setting both of these flags, we check that the device doesn't panic.
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
         let dtable = vq.desc_table();
 
-        // Create a chain with two descriptors pointing to an indirect table.
-        let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 1);
+        // Create a chain with one normal descriptor and one pointing to an indirect table.
+        let desc = Descriptor::new(0x6000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
         dtable.store(0, desc);
-        let desc = Descriptor::new(0x2000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
+        // The spec forbids setting both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags. We do
+        // not currently enforce this rule, we just ignore the VIRTQ_DESC_F_NEXT flag.
+        let desc = Descriptor::new(0x7000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
         dtable.store(1, desc);
-        let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
+        let desc = Descriptor::new(0x8000, 0x1000, 0, 0);
         dtable.store(2, desc);
 
         let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
 
+        // create an indirect table with 4 chained descriptors
+        let idtable = DescriptorTable::new(m, GuestAddress(0x7000), 4);
+        for i in 0..4u16 {
+            let desc: Descriptor;
+            if i < 3 {
+                desc = Descriptor::new(0x1000 * i as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1);
+            } else {
+                desc = Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0);
+            }
+            idtable.store(i, desc);
+        }
+
+        assert_eq!(c.head_index(), 0);
+        // Consume the first descriptor.
+        c.next().unwrap();
+
         // The chain logic hasn't parsed the indirect descriptor yet.
         assert!(!c.is_indirect);
 
-        // create an indirect table with 4 chained descriptors
-        let idtable = DescriptorTable::new(m, GuestAddress(0x1000), 4);
-        for j in 0..4 {
-            let desc: Descriptor;
-            if j < 3 {
-                desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, j + 1);
-            } else {
-                desc = Descriptor::new(0x1000, 0x1000, 0, 0);
-            }
-            idtable.store(j, desc);
-        }
-
-        let idtable2 = DescriptorTable::new(m, GuestAddress(0x2000), 1);
-        let desc2 = Descriptor::new(0x8000, 0x1000, 0, 0);
-        idtable2.store(0, desc2);
-
-        assert_eq!(c.head_index(), 0);
-        // try to iterate through the first indirect descriptor chain
-        for j in 0..4 {
+        // Try to iterate through the indirect descriptor chain.
+        for i in 0..4 {
             let desc = c.next().unwrap();
             assert!(c.is_indirect);
-            if j < 3 {
+            if i < 3 {
                 assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-                assert_eq!(desc.next, j + 1);
+                assert_eq!(desc.next, i + 1);
             }
         }
+        // Even though we added a new descriptor after the one that is pointing to the indirect
+        // table, this descriptor won't be available when parsing the chain.
+        assert!(c.next().is_none());
     }
 
     #[test]
