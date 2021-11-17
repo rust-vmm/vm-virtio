@@ -179,7 +179,7 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
     }
 
     /// Create a new `DescriptorChain` instance.
-    fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
+    pub fn new(mem: M::T, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
         Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
     }
 
