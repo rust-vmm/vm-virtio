@@ -19,7 +19,6 @@ pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
-use std::cmp::min;
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
@@ -124,8 +123,8 @@ impl Descriptor {
         self.next
     }
 
-    /// Check whether this is an indirect descriptor.
-    pub fn is_indirect(&self) -> bool {
+    /// Check whether this descriptor refers to a buffer containing an indirect descriptor table.
+    pub fn refers_to_indirect_table(&self) -> bool {
         // TODO: The are a couple of restrictions in terms of which flags combinations are
         // actually valid for indirect descriptors. Implement those checks as well somewhere.
         self.flags() & VIRTQ_DESC_F_INDIRECT != 0
@@ -212,7 +211,10 @@ impl<M: GuestAddressSpace> DescriptorChain<M> {
 
     // Alters the internal state of the `DescriptorChain` to switch iterating over an
     // indirect descriptor table defined by `desc`.
-    fn process_indirect_descriptor(&mut self, desc: Descriptor) -> Result<(), Error> {
+    fn switch_to_indirect_table(&mut self, desc: Descriptor) -> Result<(), Error> {
+        // Check the VIRTQ_DESC_F_INDIRECT flag (i.e., is_indirect) is not set inside
+        // an indirect descriptor.
+        // (see VIRTIO Spec, Section 2.6.5.3.1 Driver Requirements: Indirect Descriptors)
         if self.is_indirect {
             return Err(Error::InvalidIndirectDescriptor);
         }
@@ -262,8 +264,8 @@ impl<M: GuestAddressSpace> Iterator for DescriptorChain<M> {
         // to use read_obj() here.
         let desc = self.mem.read_obj::<Descriptor>(desc_addr).ok()?;
 
-        if desc.is_indirect() {
-            self.process_indirect_descriptor(desc).ok()?;
+        if desc.refers_to_indirect_table() {
+            self.switch_to_indirect_table(desc).ok()?;
             return self.next();
         }
 
@@ -455,11 +457,6 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
 
-    /// Return the actual size of the queue.
-    ///
-    /// The virtio driver may configure queue size smaller than the value reported by `max_size()`.
-    fn actual_size(&self) -> u16;
-
     /// Configure the queue size for the virtio queue.
     ///
     /// The `size` should power of two and less than or equal to value reported by `max_size()`,
@@ -523,6 +520,10 @@ pub trait QueueStateT<M: GuestAddressSpace> {
     /// Set the index for the next descriptor in the available ring.
     fn set_next_avail(&mut self, next_avail: u16);
 }
+// Default addresses for each virtqueue part
+const DEFAULT_DESC_TABLE_ADDR: u64 = 0x0;
+const DEFAULT_AVAIL_RING_ADDR: u64 = 0x0;
+const DEFAULT_USED_RING_ADDR: u64 = 0x0;
 
 /// Struct to maintain information and manipulate state of a virtio queue.
 #[derive(Clone, Debug)]
@@ -569,7 +570,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
                 desc_table: self.desc_table,
                 avail_ring: self.avail_ring,
                 last_index: idx,
-                queue_size: self.actual_size(),
+                queue_size: self.size,
                 next_avail: &mut self.next_avail,
             })
     }
@@ -577,7 +578,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event(&self, mem: &M::T, val: u16, order: Ordering) -> Result<(), Error> {
-        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.actual_size());
+        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
 
@@ -626,7 +627,7 @@ impl<M: GuestAddressSpace> QueueState<M> {
     fn used_event(&self, mem: &M::T, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // Safe because we have validated the queue and access guest
         // memory through GuestMemory interfaces.
-        let elem_sz = u64::from(self.actual_size()) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let elem_sz = u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_sz;
         let used_event_addr = self.avail_ring.unchecked_add(offset);
 
@@ -642,9 +643,9 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             max_size,
             size: max_size,
             ready: false,
-            desc_table: GuestAddress(0),
-            avail_ring: GuestAddress(0),
-            used_ring: GuestAddress(0),
+            desc_table: GuestAddress(DEFAULT_DESC_TABLE_ADDR),
+            avail_ring: GuestAddress(DEFAULT_AVAIL_RING_ADDR),
+            used_ring: GuestAddress(DEFAULT_USED_RING_ADDR),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
             event_idx_enabled: false,
@@ -654,7 +655,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     }
 
     fn is_valid(&self, mem: &M::T) -> bool {
-        let queue_size = self.actual_size() as u64;
+        let queue_size = self.size as u64;
         let desc_table = self.desc_table;
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
         let avail_ring = self.avail_ring;
@@ -663,10 +664,6 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
-            false
-        } else if self.size > self.max_size || self.size == 0 || (self.size & (self.size - 1)) != 0
-        {
-            error!("virtio queue with invalid size: {}", self.size);
             false
         } else if desc_table
             .checked_add(desc_table_size)
@@ -698,15 +695,6 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
                 used_ring_size
             );
             false
-        } else if desc_table.mask(0xf) != 0 {
-            error!("virtio queue descriptor table breaks alignment contraints");
-            false
-        } else if avail_ring.mask(0x1) != 0 {
-            error!("virtio queue available ring breaks alignment contraints");
-            false
-        } else if used_ring.mask(0x3) != 0 {
-            error!("virtio queue used ring breaks alignment contraints");
-            false
         } else {
             true
         }
@@ -732,11 +720,11 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         self.max_size
     }
 
-    fn actual_size(&self) -> u16 {
-        min(self.size, self.max_size)
-    }
-
     fn set_size(&mut self, size: u16) {
+        if size > self.max_size() || size == 0 || (size & (size - 1)) != 0 {
+            error!("virtio queue with invalid size: {}", size);
+            return;
+        }
         self.size = size;
     }
 
@@ -752,21 +740,36 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
         let low = low.unwrap_or(self.desc_table.0 as u32) as u64;
         let high = high.unwrap_or((self.desc_table.0 >> 32) as u32) as u64;
 
-        self.desc_table = GuestAddress((high << 32) | low);
+        let desc_table = GuestAddress((high << 32) | low);
+        if desc_table.mask(0xf) != 0 {
+            error!("virtio queue descriptor table breaks alignment constraints");
+            return;
+        }
+        self.desc_table = desc_table;
     }
 
     fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         let low = low.unwrap_or(self.avail_ring.0 as u32) as u64;
         let high = high.unwrap_or((self.avail_ring.0 >> 32) as u32) as u64;
 
-        self.avail_ring = GuestAddress((high << 32) | low);
+        let avail_ring = GuestAddress((high << 32) | low);
+        if avail_ring.mask(0x1) != 0 {
+            error!("virtio queue available ring breaks alignment constraints");
+            return;
+        }
+        self.avail_ring = avail_ring;
     }
 
     fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         let low = low.unwrap_or(self.used_ring.0 as u32) as u64;
         let high = high.unwrap_or((self.used_ring.0 >> 32) as u32) as u64;
 
-        self.used_ring = GuestAddress((high << 32) | low);
+        let used_ring = GuestAddress((high << 32) | low);
+        if used_ring.mask(0x3) != 0 {
+            error!("virtio queue used ring breaks alignment constraints");
+            return;
+        }
+        self.used_ring = used_ring;
     }
 
     fn set_event_idx(&mut self, enabled: bool) {
@@ -783,7 +786,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
     }
 
     fn add_used(&mut self, mem: &M::T, head_index: u16, len: u32) -> Result<(), Error> {
-        if head_index >= self.actual_size() {
+        if head_index >= self.size {
             error!(
                 "attempted to add out of bounds descriptor to used ring: {}",
                 head_index
@@ -791,7 +794,7 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueState<M> {
             return Err(Error::InvalidDescriptorIndex);
         }
 
-        let next_used_index = u64::from(self.next_used.0 % self.actual_size());
+        let next_used_index = u64::from(self.next_used.0 % self.size);
         let elem_sz = next_used_index * VIRTQ_USED_ELEMENT_SIZE;
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
@@ -910,12 +913,8 @@ impl<M: GuestAddressSpace> QueueStateT<M> for QueueStateSync<M> {
         self.state.lock().unwrap().max_size()
     }
 
-    fn actual_size(&self) -> u16 {
-        self.state.lock().unwrap().actual_size()
-    }
-
     fn set_size(&mut self, size: u16) {
-        self.state.lock().unwrap().set_size(size)
+        self.state.lock().unwrap().set_size(size);
     }
 
     fn ready(&self) -> bool {
@@ -1012,19 +1011,12 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
         self.state.max_size()
     }
 
-    /// Return the actual size of the queue.
-    ///
-    /// The virtio driver may configure queue size smaller than the value reported by `max_size()`.
-    pub fn actual_size(&self) -> u16 {
-        self.state.actual_size()
-    }
-
     /// Configure the queue size for the virtio queue.
     ///
     /// The `size` should power of two and less than or equal to value reported by `max_size()`,
     /// otherwise it will panic.
     pub fn set_size(&mut self, size: u16) {
-        self.state.set_size(size)
+        self.state.set_size(size);
     }
 
     /// Check whether the queue is ready to be processed.
@@ -1058,7 +1050,7 @@ impl<M: GuestAddressSpace, S: QueueStateT<M>> Queue<M, S> {
     /// The used ring address is 64-bit, the corresponding part will be updated if 'low'
     /// and/or `high` is valid.
     pub fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
-        self.state.set_used_ring_address(low, high)
+        self.state.set_used_ring_address(low, high);
     }
 
     /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature for interrupt coalescing.
@@ -1121,16 +1113,10 @@ impl<M: GuestAddressSpace> Queue<M, QueueState<M>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memoffset::offset_of;
     use mock::{DescriptorTable, MockSplitQueue};
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-    /// Extracts the displacement of a field in a struct
-    macro_rules! offset_of {
-        ($ty:ty, $field:ident) => {
-            unsafe { &(*std::ptr::null::<$ty>()).$field as *const _ as usize }
-        };
-    }
 
     #[test]
     pub fn test_offset() {
@@ -1295,39 +1281,63 @@ mod tests {
         assert!(!q.is_valid());
         q.state.ready = true;
 
-        // or when size > max_size
-        q.state.size = q.state.max_size << 1;
-        assert!(!q.is_valid());
+        // shouldn't be allowed to set a size > max_size
+        q.set_size(q.state.max_size << 1);
+        assert_eq!(q.state.size, q.state.max_size);
+
+        // or set the size to 0
+        q.set_size(0);
+        assert_eq!(q.state.size, q.state.max_size);
+
+        // or set a size which is not a power of 2
+        q.set_size(11);
+        assert_eq!(q.state.size, q.state.max_size);
+
+        // but should be allowed to set a size if 0 < size <= max_size and size is a power of two
+        q.set_size(4);
+        assert_eq!(q.state.size, 4);
         q.state.size = q.state.max_size;
 
-        // or when size is 0
-        q.state.size = 0;
+        // shouldn't be allowed to set an address that breaks the alignment constraint
+        q.set_desc_table_address(Some(0xf), None);
+        assert_eq!(q.state.desc_table.0, vq.desc_table_addr().0);
+        // should be allowed to set an aligned out of bounds address
+        q.set_desc_table_address(Some(0xffff_fff0), None);
+        assert_eq!(q.state.desc_table.0, 0xffff_fff0);
+        // but shouldn't be valid
         assert!(!q.is_valid());
-        q.state.size = q.state.max_size;
-
-        // or when size is not a power of 2
-        q.state.size = 11;
-        assert!(!q.is_valid());
-        q.state.size = q.state.max_size;
-
-        // or if the various addresses are off
-
-        q.state.desc_table = GuestAddress(0xffff_ffff);
-        assert!(!q.is_valid());
-        q.state.desc_table = GuestAddress(0x1001);
-        assert!(!q.is_valid());
+        // but should be allowed to set a valid description table address
+        q.set_desc_table_address(Some(0x10), None);
+        assert_eq!(q.state.desc_table.0, 0x10);
+        assert!(q.is_valid());
         q.state.desc_table = vq.desc_table_addr();
 
-        q.state.avail_ring = GuestAddress(0xffff_ffff);
+        // shouldn't be allowed to set an address that breaks the alignment constraint
+        q.set_avail_ring_address(Some(0x1), None);
+        assert_eq!(q.state.avail_ring.0, vq.avail_addr().0);
+        // should be allowed to set an aligned out of bounds address
+        q.set_avail_ring_address(Some(0xffff_fffe), None);
+        assert_eq!(q.state.avail_ring.0, 0xffff_fffe);
+        // but shouldn't be valid
         assert!(!q.is_valid());
-        q.state.avail_ring = GuestAddress(0x1001);
-        assert!(!q.is_valid());
+        // but should be allowed to set a valid available ring address
+        q.set_avail_ring_address(Some(0x2), None);
+        assert_eq!(q.state.avail_ring.0, 0x2);
+        assert!(q.is_valid());
         q.state.avail_ring = vq.avail_addr();
 
-        q.state.used_ring = GuestAddress(0xffff_ffff);
+        // shouldn't be allowed to set an address that breaks the alignment constraint
+        q.set_used_ring_address(Some(0x3), None);
+        assert_eq!(q.state.used_ring.0, vq.used_addr().0);
+        // should be allowed to set an aligned out of bounds address
+        q.set_used_ring_address(Some(0xffff_fffc), None);
+        assert_eq!(q.state.used_ring.0, 0xffff_fffc);
+        // but shouldn't be valid
         assert!(!q.is_valid());
-        q.state.used_ring = GuestAddress(0x1001);
-        assert!(!q.is_valid());
+        // but should be allowed to set a valid used ring address
+        q.set_used_ring_address(Some(0x4), None);
+        assert_eq!(q.state.used_ring.0, 0x4);
+        assert!(q.is_valid());
         q.state.used_ring = vq.used_addr();
 
         {

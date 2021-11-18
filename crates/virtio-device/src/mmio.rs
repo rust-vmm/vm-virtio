@@ -272,22 +272,22 @@ mod tests {
         assert_eq!(d.last_queue_notify, 2);
 
         assert_eq!(d.cfg.queues[0].state.desc_table.0, 0);
-        d.write(0x80, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.desc_table.0, 1);
+        d.write(0x80, &16u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].state.desc_table.0, 16);
         d.write(0x84, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.desc_table.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].state.desc_table.0, (2 << 32) + 16);
 
         assert_eq!(d.cfg.queues[0].state.avail_ring.0, 0);
-        d.write(0x90, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.avail_ring.0, 1);
+        d.write(0x90, &2u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].state.avail_ring.0, 2);
         d.write(0x94, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.avail_ring.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].state.avail_ring.0, (2 << 32) + 2);
 
         assert_eq!(d.cfg.queues[0].state.used_ring.0, 0);
-        d.write(0xa0, &1u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.used_ring.0, 1);
+        d.write(0xa0, &4u32.to_le_bytes());
+        assert_eq!(d.cfg.queues[0].state.used_ring.0, 4);
         d.write(0xa4, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.used_ring.0, (2 << 32) + 1);
+        assert_eq!(d.cfg.queues[0].state.used_ring.0, (2 << 32) + 4);
 
         // Let's select a non-existent queue.
         d.write(0x30, &1u32.to_le_bytes());
