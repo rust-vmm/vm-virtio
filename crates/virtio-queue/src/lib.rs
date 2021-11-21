@@ -32,6 +32,7 @@ use self::defs::{
 
 pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
 pub use self::descriptor::{Descriptor, VirtqUsedElem};
+pub use self::iterator::AvailIter;
 
 pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
@@ -39,6 +40,7 @@ pub mod mock;
 
 mod chain;
 mod descriptor;
+mod iterator;
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
@@ -70,71 +72,6 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-/// Consuming iterator over all available descriptor chain heads in the queue.
-#[derive(Debug)]
-pub struct AvailIter<'b, M> {
-    mem: M,
-    desc_table: GuestAddress,
-    avail_ring: GuestAddress,
-    last_index: Wrapping<u16>,
-    queue_size: u16,
-    next_avail: &'b mut Wrapping<u16>,
-}
-
-impl<'b, M> AvailIter<'b, M> {
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    ///
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    ///
-    /// Note: this method assumes there's only one thread manipulating the queue, so it should only
-    /// be invoked in single-threaded context.
-    pub fn go_to_previous_position(&mut self) {
-        *self.next_avail -= Wrapping(1);
-    }
-}
-
-impl<'b, M> Iterator for AvailIter<'b, M>
-where
-    M: Clone + Deref,
-    M::Target: GuestMemory,
-{
-    type Item = DescriptorChain<M>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if *self.next_avail == self.last_index {
-            return None;
-        }
-
-        // This computation cannot overflow because all the values involved are actually
-        // `u16`s cast to `u64`.
-        let elem_off = u64::from(self.next_avail.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE;
-        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_off;
-
-        // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
-        // as the index is within bounds. We do not currently enforce that a queue is only used
-        // after checking `is_valid`, but rather expect the device implementations to do so
-        // before activation. The standard also forbids drivers to change queue parameters
-        // while the device is "running". A warp-around cannot lead to unsafe memory accesses
-        // because the memory model performs its own validations.
-        let addr = self.avail_ring.unchecked_add(offset);
-        let head_index: u16 = self
-            .mem
-            .load(addr, Ordering::Acquire)
-            .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
-            .ok()?;
-
-        *self.next_avail += Wrapping(1);
-
-        Some(DescriptorChain::new(
-            self.mem.clone(),
-            self.desc_table,
-            self.queue_size,
-            head_index,
-        ))
-    }
-}
 
 /// Struct to hold an exclusive reference to the underlying `QueueState` object.
 pub enum QueueStateGuard<'a> {
@@ -298,14 +235,7 @@ impl QueueState {
         M::Target: GuestMemory + Sized,
     {
         self.avail_idx(mem.deref(), Ordering::Acquire)
-            .map(move |idx| AvailIter {
-                mem,
-                desc_table: self.desc_table,
-                avail_ring: self.avail_ring,
-                last_index: idx,
-                queue_size: self.size,
-                next_avail: &mut self.next_avail,
-            })
+            .map(move |idx| AvailIter::new(mem, idx, self))
     }
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
@@ -866,13 +796,13 @@ impl<M: GuestAddressSpace> Queue<M, QueueState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::defs::VIRTQ_DESC_F_NEXT;
     use crate::mock::MockSplitQueue;
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     #[test]
-    fn test_queue_and_iterator() {
+    fn test_queue_is_valid() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
@@ -943,130 +873,6 @@ mod tests {
         q.set_used_ring_address(Some(0x4), None);
         assert_eq!(q.state.used_ring.0, 0x4);
         assert!(q.is_valid());
-        q.state.used_ring = vq.used_addr();
-
-        {
-            // an invalid queue should return an iterator with no next
-            q.state.ready = false;
-            let mut i = q.iter().unwrap();
-            assert!(i.next().is_none());
-        }
-
-        q.state.ready = true;
-
-        // now let's create two simple descriptor chains
-        // the chains are (0, 1) and (2, 3, 4)
-        {
-            for j in 0..5u16 {
-                let flags = match j {
-                    1 | 4 => 0,
-                    _ => VIRTQ_DESC_F_NEXT,
-                };
-
-                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
-                vq.desc_table().store(j, desc);
-            }
-
-            vq.avail().ring().ref_at(0).store(0);
-            vq.avail().ring().ref_at(1).store(2);
-            vq.avail().idx().store(2);
-
-            let mut i = q.iter().unwrap();
-
-            {
-                let mut c = i.next().unwrap();
-                assert_eq!(c.head_index(), 0);
-
-                c.next().unwrap();
-                assert!(c.next().is_some());
-                assert!(c.next().is_none());
-                assert_eq!(c.head_index(), 0);
-            }
-
-            {
-                let mut c = i.next().unwrap();
-                assert_eq!(c.head_index(), 2);
-
-                c.next().unwrap();
-                c.next().unwrap();
-                c.next().unwrap();
-                assert!(c.next().is_none());
-                assert_eq!(c.head_index(), 2);
-            }
-
-            // also test go_to_previous_position() works as expected
-            {
-                assert!(i.next().is_none());
-                i.go_to_previous_position();
-                let mut c = q.iter().unwrap().next().unwrap();
-                c.next().unwrap();
-                c.next().unwrap();
-                c.next().unwrap();
-                assert!(c.next().is_none());
-            }
-        }
-    }
-
-    #[test]
-    fn test_descriptor_and_iterator() {
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = MockSplitQueue::new(m, 16);
-
-        let mut q = vq.create_queue(m);
-
-        // q is currently valid
-        assert!(q.is_valid());
-
-        // the chains are (0, 1), (2, 3, 4) and (5, 6)
-        for j in 0..7 {
-            let flags = match j {
-                1 | 6 => 0,
-                2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-                _ => VIRTQ_DESC_F_NEXT,
-            };
-
-            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
-            vq.desc_table().store(j, desc);
-        }
-
-        vq.avail().ring().ref_at(0).store(0);
-        vq.avail().ring().ref_at(1).store(2);
-        vq.avail().ring().ref_at(2).store(5);
-        vq.avail().idx().store(3);
-
-        let mut i = q.iter().unwrap();
-
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 0);
-
-            let mut iter = c;
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
-
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 2);
-
-            let mut iter = c.writable();
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
-
-        {
-            let c = i.next().unwrap();
-            assert_eq!(c.head_index(), 5);
-
-            let mut iter = c.readable();
-            assert!(iter.next().is_some());
-            assert!(iter.next().is_none());
-            assert!(iter.next().is_none());
-        }
     }
 
     #[test]
