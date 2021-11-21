@@ -45,3 +45,12 @@ pub(crate) const VIRTQ_AVAIL_RING_META_SIZE: u64 = VIRTQ_AVAIL_RING_HEADER_SIZE 
 /// The Virtio Spec 1.0 defines the alignment of VirtIO descriptor is 16 bytes,
 /// which fulfills the explicit constraint of GuestMemory::read_obj().
 pub(crate) const VIRTQ_DESCRIPTOR_SIZE: usize = 16;
+
+/// Default guest physical address for descriptor table.
+pub(crate) const DEFAULT_DESC_TABLE_ADDR: u64 = 0x0;
+
+/// Default guest physical address for available ring.
+pub(crate) const DEFAULT_AVAIL_RING_ADDR: u64 = 0x0;
+
+/// Default guest physical address for used ring.
+pub(crate) const DEFAULT_USED_RING_ADDR: u64 = 0x0;
