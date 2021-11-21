@@ -107,6 +107,40 @@ impl Descriptor {
 
 unsafe impl ByteValued for Descriptor {}
 
+/// Represents the contents of an element from the used virtqueue ring.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct VirtqUsedElem {
+    id: u32,
+    len: u32,
+}
+
+impl VirtqUsedElem {
+    /// Create a new `VirtqUsedElem` instance.
+    pub fn new(id: u16, len: u32) -> Self {
+        VirtqUsedElem {
+            id: u32::from_le(id as u32),
+            len: len.to_le(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+#[allow(clippy::len_without_is_empty)]
+impl VirtqUsedElem {
+    /// Get id field of the used descriptor.
+    pub fn id(&self) -> u32 {
+        u32::from_le(self.id)
+    }
+
+    /// Get length field of the used descriptor.
+    pub fn len(&self) -> u32 {
+        u32::from_le(self.len)
+    }
+}
+
+unsafe impl ByteValued for VirtqUsedElem {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +182,34 @@ mod tests {
         assert_eq!(desc.refers_to_indirect_table(), true);
         desc.set_next(3);
         assert_eq!(desc.next(), 3);
+    }
+
+    #[test]
+    fn test_descriptor_copy() {
+        let e1 = Descriptor::new(1, 2, VIRTQ_DESC_F_NEXT, 3);
+        let mut e2 = Descriptor::default();
+
+        e2.as_mut_slice().copy_from_slice(e1.as_slice());
+        assert_eq!(e1.addr(), e2.addr());
+        assert_eq!(e1.len(), e2.len());
+        assert_eq!(e1.flags(), e2.flags());
+        assert_eq!(e1.next(), e2.next());
+    }
+
+    #[test]
+    fn test_used_elem_offset() {
+        assert_eq!(offset_of!(VirtqUsedElem, id), 0);
+        assert_eq!(offset_of!(VirtqUsedElem, len), 4);
+        assert_eq!(size_of::<VirtqUsedElem>(), 8);
+    }
+
+    #[test]
+    fn test_used_elem_copy() {
+        let e1 = VirtqUsedElem::new(3, 15);
+        let mut e2 = VirtqUsedElem::new(0, 0);
+
+        e2.as_mut_slice().copy_from_slice(e1.as_slice());
+        assert_eq!(e1.id, e2.id);
+        assert_eq!(e1.len, e2.len);
     }
 }
