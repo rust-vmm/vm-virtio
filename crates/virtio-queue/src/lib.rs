@@ -14,11 +14,6 @@
 
 #![deny(missing_docs)]
 
-pub mod defs;
-
-#[cfg(any(test, feature = "test-utils"))]
-pub mod mock;
-
 use std::convert::TryFrom;
 use std::fmt::{self, Debug, Display};
 use std::mem::size_of;
@@ -32,12 +27,19 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
 };
 
+mod descriptor;
+
+pub mod defs;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod mock;
+
 use self::defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
-    VIRTQ_DESCRIPTOR_SIZE, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_HEADER_SIZE,
-    VIRTQ_USED_RING_META_SIZE,
+    VIRTQ_DESCRIPTOR_SIZE, VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY,
+    VIRTQ_USED_RING_HEADER_SIZE, VIRTQ_USED_RING_META_SIZE,
 };
+
+pub use descriptor::Descriptor;
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
@@ -69,79 +71,6 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-/// A virtio descriptor constraints with C representation.
-#[repr(C)]
-#[derive(Default, Clone, Copy, Debug)]
-pub struct Descriptor {
-    /// Guest physical address of device specific data
-    addr: u64,
-
-    /// Length of device specific data
-    len: u32,
-
-    /// Includes next, write, and indirect bits
-    flags: u16,
-
-    /// Index into the descriptor table of the next descriptor if flags has
-    /// the next bit set
-    next: u16,
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl Descriptor {
-    /// Creates a new descriptor
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
-        Descriptor {
-            addr,
-            len,
-            flags,
-            next,
-        }
-    }
-
-    /// Return the guest physical address of descriptor buffer
-    pub fn addr(&self) -> GuestAddress {
-        GuestAddress(self.addr)
-    }
-
-    /// Return the length of descriptor buffer
-    pub fn len(&self) -> u32 {
-        self.len
-    }
-
-    /// Return the flags for this descriptor, including next, write and indirect
-    /// bits
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// Return the value stored in the `next` field of the descriptor.
-    pub fn next(&self) -> u16 {
-        self.next
-    }
-
-    /// Check whether this descriptor refers to a buffer containing an indirect descriptor table.
-    pub fn refers_to_indirect_table(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_INDIRECT != 0
-    }
-
-    /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
-    pub fn has_next(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_NEXT != 0
-    }
-
-    /// Checks if the driver designated this as a write only descriptor.
-    ///
-    /// If this is false, this descriptor is read only.
-    /// Write only means the the emulated device can write and the driver can read.
-    pub fn is_write_only(&self) -> bool {
-        self.flags & VIRTQ_DESC_F_WRITE != 0
-    }
-}
-
-unsafe impl ByteValued for Descriptor {}
 
 /// A virtio descriptor chain.
 #[derive(Clone, Debug)]
@@ -220,10 +149,10 @@ where
             return Err(Error::InvalidIndirectDescriptor);
         }
 
-        let table_len = (desc.len as usize) / VIRTQ_DESCRIPTOR_SIZE;
+        let table_len = (desc.len() as usize) / VIRTQ_DESCRIPTOR_SIZE;
         // Check the target indirect descriptor table is correctly aligned.
         if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
-            || (desc.len as usize) & (VIRTQ_DESCRIPTOR_SIZE - 1) != 0
+            || desc.len() & (VIRTQ_DESCRIPTOR_SIZE as u32 - 1) != 0
             || table_len > usize::from(u16::MAX)
         {
             return Err(Error::InvalidIndirectDescriptorTable);
@@ -1149,18 +1078,10 @@ impl<M: GuestAddressSpace> Queue<M, QueueState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use memoffset::offset_of;
-    use mock::{DescriptorTable, MockSplitQueue};
+    use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::mock::{DescriptorTable, MockSplitQueue};
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-    #[test]
-    pub fn test_offset() {
-        assert_eq!(offset_of!(Descriptor, addr), 0);
-        assert_eq!(offset_of!(Descriptor, len), 8);
-        assert_eq!(offset_of!(Descriptor, flags), 12);
-        assert_eq!(offset_of!(Descriptor, next), 14);
-    }
 
     #[test]
     fn test_checked_new_descriptor_chain() {
@@ -1302,7 +1223,7 @@ mod tests {
             assert!(c.is_indirect);
             if i < 3 {
                 assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-                assert_eq!(desc.next, i + 1);
+                assert_eq!(desc.next(), i + 1);
             }
         }
         // Even though we added a new descriptor after the one that is pointing to the indirect
