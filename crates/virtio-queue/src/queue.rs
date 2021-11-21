@@ -167,41 +167,41 @@ mod tests {
         VIRTQ_DESC_F_NEXT, VIRTQ_USED_F_NO_NOTIFY,
     };
     use crate::mock::MockSplitQueue;
-
     use crate::Descriptor;
+
     use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     #[test]
     fn test_queue_is_valid() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-
         let mut q = vq.create_queue(m);
 
         // q is currently valid
         assert!(q.is_valid());
 
         // shouldn't be valid when not marked as ready
-        q.state.ready = false;
+        q.set_ready(false);
+        assert_eq!(q.ready(), false);
         assert!(!q.is_valid());
-        q.state.ready = true;
+        q.set_ready(true);
 
         // shouldn't be allowed to set a size > max_size
-        q.set_size(q.state.max_size << 1);
-        assert_eq!(q.state.size, q.state.max_size);
+        q.set_size(q.max_size() << 1);
+        assert_eq!(q.state.size, q.max_size());
 
         // or set the size to 0
         q.set_size(0);
-        assert_eq!(q.state.size, q.state.max_size);
+        assert_eq!(q.state.size, q.max_size());
 
         // or set a size which is not a power of 2
         q.set_size(11);
-        assert_eq!(q.state.size, q.state.max_size);
+        assert_eq!(q.state.size, q.max_size());
 
         // but should be allowed to set a size if 0 < size <= max_size and size is a power of two
         q.set_size(4);
         assert_eq!(q.state.size, 4);
-        q.state.size = q.state.max_size;
+        q.state.size = q.max_size();
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
         q.set_desc_table_address(Some(0xf), None);
@@ -215,7 +215,8 @@ mod tests {
         q.set_desc_table_address(Some(0x10), None);
         assert_eq!(q.state.desc_table.0, 0x10);
         assert!(q.is_valid());
-        q.state.desc_table = vq.desc_table_addr();
+        let addr = vq.desc_table_addr().0;
+        q.set_desc_table_address(Some(addr as u32), Some((addr >> 32) as u32));
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
         q.set_avail_ring_address(Some(0x1), None);
@@ -229,7 +230,8 @@ mod tests {
         q.set_avail_ring_address(Some(0x2), None);
         assert_eq!(q.state.avail_ring.0, 0x2);
         assert!(q.is_valid());
-        q.state.avail_ring = vq.avail_addr();
+        let addr = vq.avail_addr().0;
+        q.set_avail_ring_address(Some(addr as u32), Some((addr >> 32) as u32));
 
         // shouldn't be allowed to set an address that breaks the alignment constraint
         q.set_used_ring_address(Some(0x3), None);
@@ -242,6 +244,8 @@ mod tests {
         // but should be allowed to set a valid used ring address
         q.set_used_ring_address(Some(0x4), None);
         assert_eq!(q.state.used_ring.0, 0x4);
+        let addr = vq.used_addr().0;
+        q.set_used_ring_address(Some(addr as u32), Some((addr >> 32) as u32));
         assert!(q.is_valid());
     }
 
@@ -249,7 +253,6 @@ mod tests {
     fn test_add_used() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-
         let mut q = vq.create_queue(m);
 
         assert_eq!(vq.used().idx().load(), 0);
@@ -272,8 +275,8 @@ mod tests {
     fn test_reset_queue() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-
         let mut q = vq.create_queue(m);
+
         q.set_size(8);
         // The address set by `MockSplitQueue` for the descriptor table is DEFAULT_DESC_TABLE_ADDR,
         // so let's change it for testing the reset.
@@ -293,7 +296,8 @@ mod tests {
         assert_ne!(q.state.next_used, Wrapping(0));
         assert_ne!(q.state.signalled_used, None);
         assert_eq!(q.state.event_idx_enabled, true);
-        q.state.reset();
+
+        q.reset();
         assert_eq!(q.state.size, 16);
         assert_eq!(q.state.ready, false);
         assert_eq!(q.state.desc_table, GuestAddress(DEFAULT_DESC_TABLE_ADDR));
@@ -310,7 +314,6 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let qsize = 16;
         let vq = MockSplitQueue::new(m, qsize);
-
         let mut q = vq.create_queue(m);
         let avail_addr = vq.avail_addr();
 
@@ -533,6 +536,8 @@ mod tests {
         }
         // The next chain that can be consumed should have index 3.
         assert_eq!(q.next_avail(), 3);
+        assert_eq!(q.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
+        assert_eq!(q.lock().ready(), true);
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
