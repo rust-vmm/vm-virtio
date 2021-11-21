@@ -50,7 +50,7 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
     ///
     /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
     /// The lock will be released when the returned object gets dropped.
-    pub fn lock(&mut self) -> QueueStateGuard {
+    pub fn lock(&mut self) -> <S as QueueStateGuard>::G {
         self.state.lock()
     }
 

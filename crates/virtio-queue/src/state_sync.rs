@@ -24,6 +24,10 @@ impl QueueStateSync {
     }
 }
 
+impl<'a> QueueStateGuard<'a> for QueueStateSync {
+    type G = MutexGuard<'a, QueueState>;
+}
+
 impl QueueStateT for QueueStateSync {
     fn new(max_size: u16) -> Self {
         QueueStateSync {
@@ -39,8 +43,8 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().reset();
     }
 
-    fn lock(&mut self) -> QueueStateGuard {
-        QueueStateGuard::MutexGuard(self.lock_state())
+    fn lock(&mut self) -> <Self as QueueStateGuard>::G {
+        self.lock_state()
     }
 
     fn max_size(&self) -> u16 {

@@ -18,7 +18,6 @@ use std::fmt::{self, Debug, Display};
 use std::num::Wrapping;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering;
-use std::sync::MutexGuard;
 
 use log::error;
 use vm_memory::{GuestMemory, GuestMemoryError};
@@ -72,39 +71,20 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Struct to hold an exclusive reference to the underlying `QueueState` object.
-pub enum QueueStateGuard<'a> {
-    /// A reference to a `QueueState` object.
-    StateObject(&'a mut QueueState),
-    /// A `MutexGuard` for a `QueueState` object.
-    MutexGuard(MutexGuard<'a, QueueState>),
-}
-
-impl<'a> Deref for QueueStateGuard<'a> {
-    type Target = QueueState;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            QueueStateGuard::StateObject(v) => v,
-            QueueStateGuard::MutexGuard(v) => v.deref(),
-        }
-    }
-}
-
-impl<'a> DerefMut for QueueStateGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            QueueStateGuard::StateObject(v) => v,
-            QueueStateGuard::MutexGuard(v) => v.deref_mut(),
-        }
-    }
+/// Trait for objects returned by `QueueStateT::lock()`.
+pub trait QueueStateGuard<'a> {
+    /// Type for guard returned by `Self::lock()`.
+    type G: DerefMut<Target = QueueState>;
 }
 
 /// Trait to access and manipulate a virtio queue.
 ///
 /// To optimize for performance, different implementations of the `QueueStateT` trait may be
 /// provided for single-threaded context and multi-threaded context.
-pub trait QueueStateT {
+///
+/// Using Higher-Rank Trait Bounds (HRTBs) to effectively define an associated type that has a
+/// lifetime parameter, without tagging the `QueueStateT` trait with a lifetime as well.
+pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// Construct an empty virtio queue state object with the given `max_size`.
     fn new(max_size: u16) -> Self;
 
@@ -118,7 +98,7 @@ pub trait QueueStateT {
     ///
     /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
     /// The lock will be released when the returned object gets dropped.
-    fn lock(&mut self) -> QueueStateGuard;
+    fn lock(&mut self) -> <Self as QueueStateGuard>::G;
 
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
