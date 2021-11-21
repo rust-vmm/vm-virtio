@@ -22,9 +22,7 @@ use std::sync::atomic::{fence, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use log::error;
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError,
-};
+use vm_memory::{Address, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryError};
 
 use self::defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
@@ -33,7 +31,7 @@ use self::defs::{
 };
 
 pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
-pub use self::descriptor::Descriptor;
+pub use self::descriptor::{Descriptor, VirtqUsedElem};
 
 pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
@@ -137,26 +135,6 @@ where
         ))
     }
 }
-
-/// Represents the contents of an element from the used virtqueue ring.
-#[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
-pub struct VirtqUsedElem {
-    id: u32,
-    len: u32,
-}
-
-impl VirtqUsedElem {
-    /// Create a new `VirtqUsedElem` instance.
-    pub fn new(id: u16, len: u32) -> Self {
-        VirtqUsedElem {
-            id: u32::from(id),
-            len,
-        }
-    }
-}
-
-unsafe impl ByteValued for VirtqUsedElem {}
 
 /// Struct to hold an exclusive reference to the underlying `QueueState` object.
 pub enum QueueStateGuard<'a> {
@@ -1110,8 +1088,8 @@ mod tests {
         assert_eq!(vq.used().idx().load(), 1);
 
         let x = vq.used().ring().ref_at(0).load();
-        assert_eq!(x.id, 1);
-        assert_eq!(x.len, 0x1000);
+        assert_eq!(x.id(), 1);
+        assert_eq!(x.len(), 0x1000);
     }
 
     #[test]
