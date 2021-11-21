@@ -181,18 +181,14 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
 
         for (pos, index_value) in indices.iter().copied().enumerate() {
             // Addresses and lens constant for now.
-            let mut desc = Descriptor {
-                addr: 0x1000,
-                len: 0x1000,
-                ..Descriptor::default()
-            };
+            let mut desc = Descriptor::new(0x1000, 0x1000, 0, 0);
 
             // It's not the last descriptor in the chain.
             if pos < indices.len() - 1 {
-                desc.flags = VIRTQ_DESC_F_NEXT;
-                desc.next = indices[pos + 1];
+                desc.set_flags(VIRTQ_DESC_F_NEXT);
+                desc.set_next(indices[pos + 1]);
             } else {
-                desc.flags = 0;
+                desc.set_flags(0);
             }
             self.store(index_value, desc);
         }
@@ -344,9 +340,9 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         let indirect_addr = self.alloc_indirect_chain(len);
 
         let mut desc = self.desc_table.load(head_idx);
-        desc.flags = VIRTQ_DESC_F_INDIRECT;
-        desc.addr = indirect_addr.raw_value();
-        desc.len = u32::from(len) * size_of::<Descriptor>() as u32;
+        desc.set_flags(VIRTQ_DESC_F_INDIRECT);
+        desc.set_addr(indirect_addr.raw_value());
+        desc.set_len(u32::from(len) * size_of::<Descriptor>() as u32);
 
         self.desc_table.store(head_idx, desc);
         self.update_avail_idx(head_idx);
