@@ -26,6 +26,7 @@ pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
 pub use self::descriptor::{Descriptor, VirtqUsedElem};
 pub use self::iterator::AvailIter;
 pub use self::queue::Queue;
+pub use self::queue_guard::QueueGuard;
 pub use self::state::QueueState;
 pub use self::state_sync::QueueStateSync;
 
@@ -37,6 +38,7 @@ mod chain;
 mod descriptor;
 mod iterator;
 mod queue;
+mod queue_guard;
 mod state;
 mod state_sync;
 
@@ -99,6 +101,19 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
     /// The lock will be released when the returned object gets dropped.
     fn lock(&mut self) -> <Self as QueueStateGuard>::G;
+
+    /// Get an exclusive reference to the underlying `QueueState` object with an associated
+    /// `GuestMemory` object.
+    ///
+    /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
+    /// The lock will be released when the returned object gets dropped.
+    fn lock_with_memory<M>(&mut self, mem: M) -> QueueGuard<M, <Self as QueueStateGuard>::G>
+    where
+        M: Deref + Clone,
+        M::Target: GuestMemory + Sized,
+    {
+        QueueGuard::new(self.lock(), mem)
+    }
 
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
