@@ -266,16 +266,16 @@ mod tests {
         let vq = MockSplitQueue::new(m, 16);
         let mut q = vq.create_queue(m);
 
-        assert_eq!(vq.used().idx().load(), 0);
+        assert_eq!(u16::from_le(vq.used().idx().load()), 0);
 
         // index too large
         assert!(q.add_used(16, 0x1000).is_err());
-        assert_eq!(vq.used().idx().load(), 0);
+        assert_eq!(u16::from_le(vq.used().idx().load()), 0);
 
         // should be ok
         q.add_used(1, 0x1000).unwrap();
         assert_eq!(q.state.next_used, Wrapping(1));
-        assert_eq!(vq.used().idx().load(), 1);
+        assert_eq!(u16::from_le(vq.used().idx().load()), 1);
 
         let x = vq.used().ring().ref_at(0).load();
         assert_eq!(x.id(), 1);
@@ -334,8 +334,11 @@ mod tests {
             assert_eq!(q.needs_notification().unwrap(), true);
         }
 
-        m.write_obj::<u16>(4, avail_addr.unchecked_add(4 + qsize as u64 * 2))
-            .unwrap();
+        m.write_obj::<u16>(
+            u16::to_le(4),
+            avail_addr.unchecked_add(4 + qsize as u64 * 2),
+        )
+        .unwrap();
         q.state.set_event_idx(true);
 
         // Incrementing up to this value causes an `u16` to wrap back to 0.
@@ -383,26 +386,28 @@ mod tests {
         assert_eq!(q.state.event_idx_enabled, false);
 
         q.enable_notification().unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
 
         q.disable_notification().unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
 
         q.enable_notification().unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
 
         q.set_event_idx(true);
         let avail_addr = vq.avail_addr();
-        m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
+        m.write_obj::<u16>(u16::to_le(2), avail_addr.unchecked_add(2))
+            .unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
         q.state.next_avail = Wrapping(2);
         assert_eq!(q.enable_notification().unwrap(), false);
 
-        m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
+        m.write_obj::<u16>(u16::to_le(8), avail_addr.unchecked_add(2))
+            .unwrap();
 
         assert_eq!(q.enable_notification().unwrap(), true);
         q.state.next_avail = Wrapping(8);
@@ -430,13 +435,13 @@ mod tests {
             vq.desc_table().store(i, desc);
         }
 
-        vq.avail().ring().ref_at(0).store(0);
-        vq.avail().ring().ref_at(1).store(2);
-        vq.avail().ring().ref_at(2).store(5);
-        vq.avail().ring().ref_at(3).store(7);
-        vq.avail().ring().ref_at(4).store(9);
+        vq.avail().ring().ref_at(0).store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).store(u16::to_le(5));
+        vq.avail().ring().ref_at(3).store(u16::to_le(7));
+        vq.avail().ring().ref_at(4).store(u16::to_le(9));
         // Let the device know it can consume chains with the index < 2.
-        vq.avail().idx().store(2);
+        vq.avail().idx().store(u16::to_le(2));
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
 
@@ -461,7 +466,7 @@ mod tests {
         // The next chain that can be consumed should have index 2.
         assert_eq!(q.next_avail(), 2);
         // Let the device know it can consume one more chain.
-        vq.avail().idx().store(3);
+        vq.avail().idx().store(u16::to_le(3));
         i = 0;
 
         loop {
@@ -476,7 +481,7 @@ mod tests {
             // ring. Ideally this should be done on a separate thread.
             // Because of this update, the loop should be iterated again to consume the new
             // available descriptor chains.
-            vq.avail().idx().store(4);
+            vq.avail().idx().store(u16::to_le(4));
             if !q.enable_notification().unwrap() {
                 break;
             }
@@ -487,7 +492,7 @@ mod tests {
 
         // Set an `idx` that is bigger than the number of entries added in the ring.
         // This is an allowed scenario, but the indexes of the chain will have unexpected values.
-        vq.avail().idx().store(7);
+        vq.avail().idx().store(u16::to_le(7));
         loop {
             q.disable_notification().unwrap();
 
@@ -525,11 +530,11 @@ mod tests {
             vq.desc_table().store(i, desc);
         }
 
-        vq.avail().ring().ref_at(0).store(0);
-        vq.avail().ring().ref_at(1).store(2);
-        vq.avail().ring().ref_at(2).store(5);
+        vq.avail().ring().ref_at(0).store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).store(u16::to_le(5));
         // Let the device know it can consume chains with the index < 2.
-        vq.avail().idx().store(3);
+        vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
 
@@ -552,7 +557,7 @@ mod tests {
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
-        vq.avail().idx().store(1);
+        vq.avail().idx().store(u16::to_le(1));
 
         loop {
             q.disable_notification().unwrap();

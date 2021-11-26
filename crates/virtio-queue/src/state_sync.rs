@@ -267,26 +267,28 @@ mod tests {
 
         assert_eq!(q.lock_state().event_idx_enabled, false);
         q.enable_notification(mem).unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
 
         q.disable_notification(m.memory()).unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
 
         q.enable_notification(mem).unwrap();
-        let v = m.read_obj::<u16>(used_addr).unwrap();
+        let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
 
         q.set_event_idx(true);
         let avail_addr = q.lock_state().avail_ring;
-        m.write_obj::<u16>(2, avail_addr.unchecked_add(2)).unwrap();
+        m.write_obj::<u16>(u16::to_le(2), avail_addr.unchecked_add(2))
+            .unwrap();
 
         assert_eq!(q.enable_notification(mem).unwrap(), true);
         q.lock_state().next_avail = Wrapping(2);
         assert_eq!(q.enable_notification(mem).unwrap(), false);
 
-        m.write_obj::<u16>(8, avail_addr.unchecked_add(2)).unwrap();
+        m.write_obj::<u16>(u16::to_le(8), avail_addr.unchecked_add(2))
+            .unwrap();
 
         assert_eq!(q.enable_notification(mem).unwrap(), true);
         q.lock_state().next_avail = Wrapping(8);
