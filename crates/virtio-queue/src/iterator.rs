@@ -86,6 +86,7 @@ where
         let head_index: u16 = self
             .mem
             .load(addr, Ordering::Acquire)
+            .map(u16::from_le)
             .map_err(|_| error!("Failed to read from memory {:x}", addr.raw_value()))
             .ok()?;
 

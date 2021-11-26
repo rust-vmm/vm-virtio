@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use vm_memory::{ByteValued, GuestAddress};
+use vm_memory::{ByteValued, GuestAddress, Le16, Le32, Le64};
 
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
@@ -19,38 +19,38 @@ use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Descriptor {
     /// Guest physical address of device specific data
-    addr: u64,
+    addr: Le64,
 
     /// Length of device specific data
-    len: u32,
+    len: Le32,
 
     /// Includes next, write, and indirect bits
-    flags: u16,
+    flags: Le16,
 
     /// Index into the descriptor table of the next descriptor if flags has the next bit set
-    next: u16,
+    next: Le16,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Descriptor {
     /// Return the guest physical address of descriptor buffer.
     pub fn addr(&self) -> GuestAddress {
-        GuestAddress(self.addr)
+        GuestAddress(self.addr.into())
     }
 
     /// Return the length of descriptor buffer.
     pub fn len(&self) -> u32 {
-        self.len
+        self.len.into()
     }
 
     /// Return the flags for this descriptor, including next, write and indirect bits.
     pub fn flags(&self) -> u16 {
-        self.flags
+        self.flags.into()
     }
 
     /// Return the value stored in the `next` field of the descriptor.
     pub fn next(&self) -> u16 {
-        self.next
+        self.next.into()
     }
 
     /// Check whether this descriptor refers to a buffer containing an indirect descriptor table.
@@ -77,31 +77,31 @@ impl Descriptor {
     /// Creates a new descriptor
     pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
         Descriptor {
-            addr: addr.to_le(),
-            len: len.to_le(),
-            flags: flags.to_le(),
-            next: next.to_le(),
+            addr: addr.into(),
+            len: len.into(),
+            flags: flags.into(),
+            next: next.into(),
         }
     }
 
     /// Set the guest physical address of descriptor buffer
     pub fn set_addr(&mut self, addr: u64) {
-        self.addr = addr.to_le();
+        self.addr = addr.into();
     }
 
     /// Set the length of descriptor buffer.
     pub fn set_len(&mut self, len: u32) {
-        self.len = len.to_le();
+        self.len = len.into();
     }
 
     /// Set the flags for this descriptor.
     pub fn set_flags(&mut self, flags: u16) {
-        self.flags = flags.to_le();
+        self.flags = flags.into();
     }
 
     /// Set the value stored in the `next` field of the descriptor.
     pub fn set_next(&mut self, next: u16) {
-        self.next = next.to_le();
+        self.next = next.into();
     }
 }
 
@@ -111,16 +111,16 @@ unsafe impl ByteValued for Descriptor {}
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
 pub struct VirtqUsedElem {
-    id: u32,
-    len: u32,
+    id: Le32,
+    len: Le32,
 }
 
 impl VirtqUsedElem {
     /// Create a new `VirtqUsedElem` instance.
-    pub fn new(id: u16, len: u32) -> Self {
+    pub fn new(id: u32, len: u32) -> Self {
         VirtqUsedElem {
-            id: u32::from_le(id as u32),
-            len: len.to_le(),
+            id: id.into(),
+            len: len.into(),
         }
     }
 }
@@ -130,12 +130,12 @@ impl VirtqUsedElem {
 impl VirtqUsedElem {
     /// Get id field of the used descriptor.
     pub fn id(&self) -> u32 {
-        u32::from_le(self.id)
+        self.id.into()
     }
 
     /// Get length field of the used descriptor.
     pub fn len(&self) -> u32 {
-        u32::from_le(self.len)
+        self.len.into()
     }
 }
 

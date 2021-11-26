@@ -78,7 +78,8 @@ impl QueueState {
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
 
-        mem.store(val, addr, order).map_err(Error::GuestMemory)
+        mem.store(u16::to_le(val), addr, order)
+            .map_err(Error::GuestMemory)
     }
 
     // Set the value of the `flags` field of the used ring, applying the specified ordering.
@@ -88,7 +89,7 @@ impl QueueState {
         val: u16,
         order: Ordering,
     ) -> Result<(), Error> {
-        mem.store(val, self.used_ring, order)
+        mem.store(u16::to_le(val), self.used_ring, order)
             .map_err(Error::GuestMemory)
     }
 
@@ -133,6 +134,7 @@ impl QueueState {
         let used_event_addr = self.avail_ring.unchecked_add(offset);
 
         mem.load(used_event_addr, order)
+            .map(u16::from_le)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
@@ -285,6 +287,7 @@ impl QueueStateT for QueueState {
         let addr = self.avail_ring.unchecked_add(2);
 
         mem.load(addr, order)
+            .map(u16::from_le)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
@@ -307,13 +310,13 @@ impl QueueStateT for QueueState {
         let elem_sz = next_used_index * VIRTQ_USED_ELEMENT_SIZE;
         let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
         let addr = self.used_ring.unchecked_add(offset);
-        mem.write_obj(VirtqUsedElem::new(head_index, len), addr)
+        mem.write_obj(VirtqUsedElem::new(head_index.into(), len), addr)
             .map_err(Error::GuestMemory)?;
 
         self.next_used += Wrapping(1);
 
         mem.store(
-            self.next_used.0,
+            u16::to_le(self.next_used.0),
             self.used_ring.unchecked_add(2),
             Ordering::Release,
         )
