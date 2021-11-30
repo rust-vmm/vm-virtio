@@ -140,6 +140,10 @@ impl QueueState {
     }
 }
 
+impl<'a> QueueStateGuard<'a> for QueueState {
+    type G = &'a mut Self;
+}
+
 impl QueueStateT for QueueState {
     fn new(max_size: u16) -> Self {
         QueueState {
@@ -214,8 +218,8 @@ impl QueueStateT for QueueState {
         self.event_idx_enabled = false;
     }
 
-    fn lock(&mut self) -> QueueStateGuard {
-        QueueStateGuard::StateObject(self)
+    fn lock(&mut self) -> <Self as QueueStateGuard>::G {
+        self
     }
 
     fn max_size(&self) -> u16 {
