@@ -71,18 +71,12 @@ where
             return None;
         }
 
-        // This computation cannot overflow because all the values involved are actually
-        // `u16`s cast to `u64`.
+        // These two operations can not overflow an u64 since they're working with relatively small
+        // numbers compared to u64::MAX.
         let elem_off = u64::from(self.next_avail.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE;
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_off;
 
-        // The logic in `Queue::is_valid` ensures it's ok to use `unchecked_add` as long
-        // as the index is within bounds. We do not currently enforce that a queue is only used
-        // after checking `is_valid`, but rather expect the device implementations to do so
-        // before activation. The standard also forbids drivers to change queue parameters
-        // while the device is "running". A warp-around cannot lead to unsafe memory accesses
-        // because the memory model performs its own validations.
-        let addr = self.avail_ring.unchecked_add(offset);
+        let addr = self.avail_ring.checked_add(offset)?;
         let head_index: u16 = self
             .mem
             .load(addr, Ordering::Acquire)

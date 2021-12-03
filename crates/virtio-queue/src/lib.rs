@@ -45,6 +45,8 @@ mod state_sync;
 /// Virtio Queue related errors.
 #[derive(Debug)]
 pub enum Error {
+    /// Address overflow.
+    AddressOverflow,
     /// Failed to access guest memory.
     GuestMemory(GuestMemoryError),
     /// Invalid indirect descriptor.
@@ -62,6 +64,7 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
+            AddressOverflow => write!(f, "address overflow"),
             GuestMemory(_) => write!(f, "error accessing guest memory"),
             InvalidChain => write!(f, "invalid descriptor chain"),
             InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),

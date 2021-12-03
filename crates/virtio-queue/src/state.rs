@@ -74,9 +74,14 @@ impl QueueState {
         val: u16,
         order: Ordering,
     ) -> Result<(), Error> {
-        let elem_sz = VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
-        let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
-        let addr = self.used_ring.unchecked_add(offset);
+        // This can not overflow an u64 since it is working with relatively small numbers compared
+        // to u64::MAX.
+        let avail_event_offset =
+            VIRTQ_USED_RING_HEADER_SIZE + VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
+        let addr = self
+            .used_ring
+            .checked_add(avail_event_offset)
+            .ok_or(Error::AddressOverflow)?;
 
         mem.store(u16::to_le(val), addr, order)
             .map_err(Error::GuestMemory)
@@ -127,11 +132,14 @@ impl QueueState {
     /// with the device, but they serve as useful optimizations. So we only ensure access to the
     /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
     fn used_event<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        // Safe because we have validated the queue and access guest
-        // memory through GuestMemory interfaces.
-        let elem_sz = u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
-        let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_sz;
-        let used_event_addr = self.avail_ring.unchecked_add(offset);
+        // This can not overflow an u64 since it is working with relatively small numbers compared
+        // to u64::MAX.
+        let used_event_offset =
+            VIRTQ_AVAIL_RING_HEADER_SIZE + u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let used_event_addr = self
+            .avail_ring
+            .checked_add(used_event_offset)
+            .ok_or(Error::AddressOverflow)?;
 
         mem.load(used_event_addr, order)
             .map(u16::from_le)
@@ -163,11 +171,16 @@ impl QueueStateT for QueueState {
     fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
         let queue_size = self.size as u64;
         let desc_table = self.desc_table;
+        // The multiplication can not overflow an u64 since we are multiplying an u16 with a
+        // small number.
         let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
         let avail_ring = self.avail_ring;
+        // The operations below can not overflow an u64 since they're working with relatively small
+        // numbers compared to u64::MAX.
         let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
         let used_ring = self.used_ring;
         let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
+
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
@@ -284,7 +297,10 @@ impl QueueStateT for QueueState {
     }
 
     fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
-        let addr = self.avail_ring.unchecked_add(2);
+        let addr = self
+            .avail_ring
+            .checked_add(2)
+            .ok_or(Error::AddressOverflow)?;
 
         mem.load(addr, order)
             .map(u16::from_le)
@@ -307,9 +323,13 @@ impl QueueStateT for QueueState {
         }
 
         let next_used_index = u64::from(self.next_used.0 % self.size);
-        let elem_sz = next_used_index * VIRTQ_USED_ELEMENT_SIZE;
-        let offset = VIRTQ_USED_RING_HEADER_SIZE + elem_sz;
-        let addr = self.used_ring.unchecked_add(offset);
+        // This can not overflow an u64 since it is working with relatively small numbers compared
+        // to u64::MAX.
+        let offset = VIRTQ_USED_RING_HEADER_SIZE + next_used_index * VIRTQ_USED_ELEMENT_SIZE;
+        let addr = self
+            .used_ring
+            .checked_add(offset)
+            .ok_or(Error::AddressOverflow)?;
         mem.write_obj(VirtqUsedElem::new(head_index.into(), len), addr)
             .map_err(Error::GuestMemory)?;
 
@@ -317,7 +337,9 @@ impl QueueStateT for QueueState {
 
         mem.store(
             u16::to_le(self.next_used.0),
-            self.used_ring.unchecked_add(2),
+            self.used_ring
+                .checked_add(2)
+                .ok_or(Error::AddressOverflow)?,
             Ordering::Release,
         )
         .map_err(Error::GuestMemory)
