@@ -15,19 +15,21 @@ use vm_memory::{ByteValued, GuestAddress, Le16, Le32, Le64};
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
 /// A virtio descriptor constraints with C representation.
+// Note that the `ByteValued` implementation of this structure expects the `Descriptor` to store
+// only plain old data types.
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Descriptor {
-    /// Guest physical address of device specific data
+    /// Guest physical address of device specific data.
     addr: Le64,
 
-    /// Length of device specific data
+    /// Length of device specific data.
     len: Le32,
 
-    /// Includes next, write, and indirect bits
+    /// Includes next, write, and indirect bits.
     flags: Le16,
 
-    /// Index into the descriptor table of the next descriptor if flags has the next bit set
+    /// Index into the descriptor table of the next descriptor if flags has the next bit set.
     next: Le16,
 }
 
@@ -105,9 +107,13 @@ impl Descriptor {
     }
 }
 
+// This is safe because `Descriptor` contains only wrappers over POD types and all accesses through
+// safe `vm-memory` API will validate any garbage that could be included in there.
 unsafe impl ByteValued for Descriptor {}
 
 /// Represents the contents of an element from the used virtqueue ring.
+// Note that the `ByteValued` implementation of this structure expects the `VirtqUsedElem` to store
+// only plain old data types.
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
 pub struct VirtqUsedElem {
@@ -139,6 +145,8 @@ impl VirtqUsedElem {
     }
 }
 
+// This is safe because `VirtqUsedElem` contains only wrappers overs POD types and all accesses
+// through safe `vm-memory` API will validate any garbage that could be included in there.
 unsafe impl ByteValued for VirtqUsedElem {}
 
 #[cfg(test)]
