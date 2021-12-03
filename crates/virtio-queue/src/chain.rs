@@ -97,12 +97,17 @@ where
             return Err(Error::InvalidIndirectDescriptor);
         }
 
-        let table_len = (desc.len() as usize) / VIRTQ_DESCRIPTOR_SIZE;
         // Check the target indirect descriptor table is correctly aligned.
         if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
             || desc.len() & (VIRTQ_DESCRIPTOR_SIZE as u32 - 1) != 0
-            || table_len > usize::from(u16::MAX)
         {
+            return Err(Error::InvalidIndirectDescriptorTable);
+        }
+
+        // It is safe to do a plain division since we checked above that desc.len() is a multiple of
+        // VIRTQ_DESCRIPTOR_SIZE, and VIRTQ_DESCRIPTOR_SIZE is != 0.
+        let table_len = (desc.len() as usize) / VIRTQ_DESCRIPTOR_SIZE;
+        if table_len > usize::from(u16::MAX) {
             return Err(Error::InvalidIndirectDescriptorTable);
         }
 
@@ -134,13 +139,11 @@ where
             return None;
         }
 
-        // It's ok to use `unchecked_add` here because we previously verify the index does not
-        // exceed the queue size, and the descriptor table location is expected to have been
-        // validate before (for example, before activating a device). Moreover, this cannot
-        // lead to unsafety because the actual memory accesses are always checked.
         let desc_addr = self
             .desc_table
-            .unchecked_add(self.next_index as u64 * size_of::<Descriptor>() as u64);
+            // The multiplication can not overflow an u64 since we are multiplying an u16 with a
+            // small number.
+            .checked_add(self.next_index as u64 * size_of::<Descriptor>() as u64)?;
 
         // The guest device driver should not touch the descriptor once submitted, so it's safe
         // to use read_obj() here.
