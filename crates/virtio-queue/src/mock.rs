@@ -14,7 +14,7 @@ use vm_memory::{
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
 use crate::{Descriptor, Queue, QueueState, VirtqUsedElem};
 
-/// Wrapper struct used for accesing a particular address of a GuestMemory area.
+/// Wrapper struct used for accessing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
     mem: &'a M,
     addr: GuestAddress,
@@ -41,7 +41,7 @@ impl<'a, M: GuestMemory, T: ByteValued> Ref<'a, M, T> {
     }
 }
 
-/// Wrapper struct used for accesing a subregion of a GuestMemory area.
+/// Wrapper struct used for accessing a subregion of a GuestMemory area.
 pub struct ArrayRef<'a, M, T> {
     mem: &'a M,
     addr: GuestAddress,
@@ -78,6 +78,10 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
 /// is the ring element type.
 pub struct SplitQueueRing<'a, M, T: ByteValued> {
     flags: Ref<'a, M, u16>,
+    // The value stored here should more precisely be a `Wrapping<u16>`, but that would require a
+    // `ByteValued` impl for this type, which is not provided in vm-memory. Implementing the trait
+    // here would require defining a wrapper for `Wrapping<u16>` and that would be too much for a
+    // mock framework that is only used in tests.
     idx: Ref<'a, M, u16>,
     ring: ArrayRef<'a, M, T>,
     // `used_event` for `AvailRing`, `avail_event` for `UsedRing`.
@@ -113,7 +117,9 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
 
     /// Return the end address of the `SplitQueueRing`.
     pub fn end(&self) -> GuestAddress {
-        self.start().unchecked_add(self.ring.len as GuestUsize)
+        self.start()
+            .checked_add(self.ring.len as GuestUsize)
+            .unwrap()
     }
 
     /// Return a reference to the idx field.
@@ -167,7 +173,7 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
         (self.len as usize * size_of::<Descriptor>()) as u64
     }
 
-    /// Create a chain of descriptors
+    /// Create a chain of descriptors.
     pub fn build_chain(&mut self, len: u16) -> u16 {
         let indices = self
             .free_descriptors
@@ -236,7 +242,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         let desc_table = DescriptorTable::new(mem, desc_table_addr, len);
 
         let avail_addr = start
-            .unchecked_add(16 * len as GuestUsize)
+            .checked_add(16 * len as GuestUsize)
+            .unwrap()
             .align_up(AVAIL_ALIGN);
         let avail = AvailRing::new(mem, avail_addr, len);
 
@@ -268,17 +275,17 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.used.end()
     }
 
-    /// Descriptor table accesor.
+    /// Descriptor table accessor.
     pub fn desc_table(&self) -> &DescriptorTable<'a, M> {
         &self.desc_table
     }
 
-    /// Available ring accesor.
+    /// Available ring accessor.
     pub fn avail(&self) -> &AvailRing<M> {
         &self.avail
     }
 
-    /// Used ring accesor.
+    /// Used ring accessor.
     pub fn used(&self) -> &UsedRing<M> {
         &self.used
     }
