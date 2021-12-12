@@ -12,6 +12,30 @@ use crate::{Error, QueueState, QueueStateGuard, QueueStateT};
 
 /// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
 /// context.
+///
+/// # Example
+///
+/// ```rust
+/// use virtio_queue::{Queue, QueueState, QueueStateSync, QueueStateT};
+/// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+///
+/// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// let mut queue = QueueStateSync::new(1024);
+///
+/// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
+/// queue.set_size(8);
+/// queue.set_desc_table_address(Some(0x1000), None);
+/// queue.set_avail_ring_address(Some(0x2000), None);
+/// queue.set_used_ring_address(Some(0x3000), None);
+/// queue.set_ready(true);
+/// // The user should check if the queue is valid before starting to use it.
+/// assert!(queue.is_valid(m.memory()));
+///
+/// // The memory object is not embedded in the `QueueStateSync`, so we have to pass it as a
+/// // parameter to the methods that access the guest memory. Examples would be:
+/// queue.add_used(m.memory(), 1, 0x100).unwrap();
+/// queue.needs_notification(m.memory()).unwrap();
+/// ```
 #[derive(Clone, Debug)]
 pub struct QueueStateSync {
     state: Arc<Mutex<QueueState>>,

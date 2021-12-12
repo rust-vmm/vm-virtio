@@ -15,6 +15,45 @@ use vm_memory::{ByteValued, GuestAddress, Le16, Le32, Le64};
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 
 /// A virtio descriptor constraints with C representation.
+///
+/// # Example
+///
+/// ```rust
+/// # use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+/// # use virtio_queue::mock::MockSplitQueue;
+/// use virtio_queue::{Descriptor, Queue};
+/// use vm_memory::{GuestAddress, GuestMemoryMmap};
+///
+/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+/// #    let vq = MockSplitQueue::new(m, 16);
+/// #    let mut q = vq.create_queue(m);
+/// #
+/// #    // We have only one chain: (0, 1).
+/// #    let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+/// #    vq.desc_table().store(0, desc);
+/// #    let desc = Descriptor::new(0x2000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+/// #    vq.desc_table().store(1, desc);
+/// #
+/// #    vq.avail().ring().ref_at(0).store(u16::to_le(0));
+/// #    vq.avail().idx().store(u16::to_le(1));
+/// #    q
+/// # }
+/// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// // Populate the queue with descriptor chains and update the available ring accordingly.
+/// let mut queue = populate_queue(m);
+/// let mut i = queue.iter().unwrap();
+/// let mut c = i.next().unwrap();
+///
+/// // Get the first descriptor and access its fields.
+/// let desc = c.next().unwrap();
+/// let _addr = desc.addr();
+/// let _len = desc.len();
+/// let _flags = desc.flags();
+/// let _next = desc.next();
+/// let _is_write_only = desc.is_write_only();
+/// let _has_next = desc.has_next();
+/// let _refers_to_ind_table = desc.refers_to_indirect_table();
+/// ```
 // Note that the `ByteValued` implementation of this structure expects the `Descriptor` to store
 // only plain old data types.
 #[repr(C)]
@@ -29,18 +68,18 @@ pub struct Descriptor {
     /// Includes next, write, and indirect bits.
     flags: Le16,
 
-    /// Index into the descriptor table of the next descriptor if flags has the next bit set.
+    /// Index into the descriptor table of the next descriptor if flags has the `next` bit set.
     next: Le16,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Descriptor {
-    /// Return the guest physical address of descriptor buffer.
+    /// Return the guest physical address of the descriptor buffer.
     pub fn addr(&self) -> GuestAddress {
         GuestAddress(self.addr.into())
     }
 
-    /// Return the length of descriptor buffer.
+    /// Return the length of the descriptor buffer.
     pub fn len(&self) -> u32 {
         self.len.into()
     }
@@ -65,7 +104,7 @@ impl Descriptor {
         self.flags() & VIRTQ_DESC_F_NEXT != 0
     }
 
-    /// Checks if the driver designated this as a write only descriptor.
+    /// Check if the driver designated this as a write only descriptor.
     ///
     /// If this is false, this descriptor is read only.
     /// Write only means the the emulated device can write and the driver can read.
@@ -76,7 +115,13 @@ impl Descriptor {
 
 #[cfg(any(test, feature = "test-utils"))]
 impl Descriptor {
-    /// Creates a new descriptor
+    /// Create a new descriptor.
+    ///
+    /// # Arguments
+    /// * `addr` - the guest physical address of the descriptor buffer.
+    /// * `len` - the length of the descriptor buffer.
+    /// * `flags` - the `flags` for the descriptor.
+    /// * `next` - the `next` field of the descriptor.
     pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
         Descriptor {
             addr: addr.into(),
@@ -86,12 +131,12 @@ impl Descriptor {
         }
     }
 
-    /// Set the guest physical address of descriptor buffer
+    /// Set the guest physical address of the descriptor buffer.
     pub fn set_addr(&mut self, addr: u64) {
         self.addr = addr.into();
     }
 
-    /// Set the length of descriptor buffer.
+    /// Set the length of the descriptor buffer.
     pub fn set_len(&mut self, len: u32) {
         self.len = len.into();
     }
@@ -123,7 +168,11 @@ pub struct VirtqUsedElem {
 
 impl VirtqUsedElem {
     /// Create a new `VirtqUsedElem` instance.
-    pub fn new(id: u32, len: u32) -> Self {
+    ///
+    /// # Arguments
+    /// * `id` - the index of the used descriptor chain.
+    /// * `len` - the total length of the descriptor chain which was used (written to).
+    pub(crate) fn new(id: u32, len: u32) -> Self {
         VirtqUsedElem {
             id: id.into(),
             len: len.into(),
@@ -134,18 +183,18 @@ impl VirtqUsedElem {
 #[cfg(any(test, feature = "test-utils"))]
 #[allow(clippy::len_without_is_empty)]
 impl VirtqUsedElem {
-    /// Get id field of the used descriptor.
+    /// Get the index of the used descriptor chain.
     pub fn id(&self) -> u32 {
         self.id.into()
     }
 
-    /// Get length field of the used descriptor.
+    /// Get `length` field of the used ring entry.
     pub fn len(&self) -> u32 {
         self.len.into()
     }
 }
 
-// This is safe because `VirtqUsedElem` contains only wrappers overs POD types and all accesses
+// This is safe because `VirtqUsedElem` contains only wrappers over POD types and all accesses
 // through safe `vm-memory` API will validate any garbage that could be included in there.
 unsafe impl ByteValued for VirtqUsedElem {}
 

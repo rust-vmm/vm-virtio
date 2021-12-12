@@ -24,7 +24,7 @@ use crate::{error, AvailIter, Descriptor, Error, QueueStateGuard, QueueStateT, V
 /// Struct to maintain information and manipulate state of a virtio queue.
 #[derive(Clone, Debug)]
 pub struct QueueState {
-    /// The maximal size in elements offered by the device
+    /// The maximum size in elements offered by the device.
     pub max_size: u16,
 
     /// Tail position of the available ring.
@@ -33,30 +33,33 @@ pub struct QueueState {
     /// Head position of the used ring.
     pub next_used: Wrapping<u16>,
 
-    /// VIRTIO_F_RING_EVENT_IDX negotiated
+    /// VIRTIO_F_RING_EVENT_IDX negotiated.
     pub event_idx_enabled: bool,
 
-    /// The last used value when using EVENT_IDX
+    /// The last used value when using VIRTIO_F_EVENT_IDX.
     pub signalled_used: Option<Wrapping<u16>>,
 
-    /// The queue size in elements the driver selected
+    /// The queue size in elements the driver selected.
     pub size: u16,
 
-    /// Indicates if the queue is finished with configuration
+    /// Indicates if the queue is finished with configuration.
     pub ready: bool,
 
-    /// Guest physical address of the descriptor table
+    /// Guest physical address of the descriptor table.
     pub desc_table: GuestAddress,
 
-    /// Guest physical address of the available ring
+    /// Guest physical address of the available ring.
     pub avail_ring: GuestAddress,
 
-    /// Guest physical address of the used ring
+    /// Guest physical address of the used ring.
     pub used_ring: GuestAddress,
 }
 
 impl QueueState {
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
+    ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
     pub fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
     where
         M: Deref,
@@ -121,16 +124,16 @@ impl QueueState {
         }
     }
 
-    /// Return the value present in the used_event field of the avail ring.
-    ///
-    /// If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
-    /// ring offers a crude mechanism for the driver to inform the device that it doesn’t want
-    /// interrupts when buffers are used. Otherwise virtq_avail.used_event is a more performant
-    /// alternative where the driver specifies how far the device can progress before interrupting.
-    ///
-    /// Neither of these interrupt suppression methods are reliable, as they are not synchronized
-    /// with the device, but they serve as useful optimizations. So we only ensure access to the
-    /// virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
+    // Return the value present in the used_event field of the avail ring.
+    //
+    // If the VIRTIO_F_EVENT_IDX feature bit is not negotiated, the flags field in the available
+    // ring offers a crude mechanism for the driver to inform the device that it doesn’t want
+    // interrupts when buffers are used. Otherwise virtq_avail.used_event is a more performant
+    // alternative where the driver specifies how far the device can progress before interrupting.
+    //
+    // Neither of these interrupt suppression methods are reliable, as they are not synchronized
+    // with the device, but they serve as useful optimizations. So we only ensure access to the
+    // virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
     fn used_event<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
         // This can not overflow an u64 since it is working with relatively small numbers compared
         // to u64::MAX.
