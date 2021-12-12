@@ -122,33 +122,30 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     fn max_size(&self) -> u16;
 
     /// Configure the queue size for the virtio queue.
-    ///
-    /// The `size` should power of two and less than or equal to value reported by `max_size()`,
-    /// otherwise it will panic.
     fn set_size(&mut self, size: u16);
 
     /// Check whether the queue is ready to be processed.
     fn ready(&self) -> bool;
 
-    /// Configure the queue to ready for processing.
+    /// Configure the queue to `ready for processing` state.
     fn set_ready(&mut self, ready: bool);
 
-    /// Set descriptor table address for the queue.
+    /// Set the descriptor table address for the queue.
     ///
     /// The descriptor table address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` and valid.
     fn set_desc_table_address(&mut self, low: Option<u32>, high: Option<u32>);
 
-    /// Set available ring address for the queue.
+    /// Set the available ring address for the queue.
     ///
     /// The available ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` and valid.
     fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>);
 
-    /// Set used ring address for the queue.
+    /// Set the used ring address for the queue.
     ///
     /// The used ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` and valid.
     fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>);
 
     /// Enable/disable the VIRTIO_F_RING_EVENT_IDX feature for interrupt coalescing.
@@ -179,9 +176,9 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// conditions hold once more.
     fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
 
-    /// Return the index for the next descriptor in the available ring.
+    /// Return the index of the next entry in the available ring.
     fn next_avail(&self) -> u16;
 
-    /// Set the index for the next descriptor in the available ring.
+    /// Set the index of the next entry in the available ring.
     fn set_next_avail(&mut self, next_avail: u16);
 }

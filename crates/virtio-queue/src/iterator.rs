@@ -20,6 +20,75 @@ use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 use crate::{error, DescriptorChain, QueueState};
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
+///
+/// # Example
+///
+/// ```rust
+/// # use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+/// # use virtio_queue::mock::MockSplitQueue;
+/// use virtio_queue::{Descriptor, Queue};
+/// use vm_memory::{GuestAddress, GuestMemoryMmap};
+///
+/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+/// #    let vq = MockSplitQueue::new(m, 16);
+/// #    let mut q = vq.create_queue(m);
+/// #
+/// #    // The chains are (0, 1), (2, 3, 4) and (5, 6).
+/// #    for i in 0..7 {
+/// #        let flags = match i {
+/// #            1 | 6 => 0,
+/// #            2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+/// #            4 => VIRTQ_DESC_F_WRITE,
+/// #            _ => VIRTQ_DESC_F_NEXT,
+/// #        };
+/// #
+/// #        let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+/// #        vq.desc_table().store(i, desc);
+/// #    }
+/// #
+/// #    vq.avail().ring().ref_at(0).store(u16::to_le(0));
+/// #    vq.avail().ring().ref_at(1).store(u16::to_le(2));
+/// #    vq.avail().ring().ref_at(2).store(u16::to_le(5));
+/// #    vq.avail().idx().store(u16::to_le(3));
+/// #    q
+/// # }
+/// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// // Populate the queue with descriptor chains and update the available ring accordingly.
+/// let mut queue = populate_queue(m);
+/// let mut i = queue.iter().unwrap();
+///
+/// {
+///     let mut c = i.next().unwrap();
+///     let _first_head_index = c.head_index();
+///     // We should have two descriptors in the first chain.
+///     let _desc1 = c.next().unwrap();
+///     let _desc2 = c.next().unwrap();
+/// }
+///
+/// {
+///     let c = i.next().unwrap();
+///     let _second_head_index = c.head_index();
+///
+///     let mut iter = c.writable();
+///     // We should have two writable descriptors in the second chain.
+///     let _desc1 = iter.next().unwrap();
+///     let _desc2 = iter.next().unwrap();
+/// }
+///
+/// {
+///     let c = i.next().unwrap();
+///     let _third_head_index = c.head_index();
+///
+///     let mut iter = c.readable();
+///     // We should have one readable descriptor in the third chain.
+///     let _desc1 = iter.next().unwrap();
+/// }
+/// // Let's go back one position in the available ring.
+/// i.go_to_previous_position();
+/// // We should be able to access again the third descriptor chain.
+/// let c = i.next().unwrap();
+/// let _third_head_index = c.head_index();
+/// ```
 #[derive(Debug)]
 pub struct AvailIter<'b, M> {
     mem: M,
@@ -36,6 +105,13 @@ where
     M::Target: GuestMemory + Sized,
 {
     /// Create a new instance of `AvailInter`.
+    ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
+    /// * `idx` - the index of the available ring entry where the driver would put the next
+    ///           available descriptor chain.
+    /// * `state` - the `QueueState` object from which the needed data to create the `AvailIter` can
+    ///             be retrieved.
     pub(crate) fn new(mem: M, idx: Wrapping<u16>, state: &'b mut QueueState) -> Self {
         AvailIter {
             mem,
@@ -118,6 +194,7 @@ mod tests {
             let flags = match j {
                 1 | 6 => 0,
                 2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
+                4 => VIRTQ_DESC_F_WRITE,
                 _ => VIRTQ_DESC_F_NEXT,
             };
 

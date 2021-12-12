@@ -56,11 +56,19 @@ where
     }
 
     /// Create a new `DescriptorChain` instance.
-    pub fn new(mem: M, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
+    ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the buffers pointed to by the
+    ///           descriptor chain.
+    /// * `desc_table` - the address of the descriptor table.
+    /// * `queue_size` - the size of the queue, which is also the maximum size of a descriptor
+    ///                  chain.
+    /// * `head_index` - the descriptor index of the chain head.
+    pub(crate) fn new(mem: M, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
         Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)
     }
 
-    /// Get the descriptor index of the chain header
+    /// Get the descriptor index of the chain head.
     pub fn head_index(&self) -> u16 {
         self.head_index
     }
@@ -71,7 +79,7 @@ where
         self.mem.deref()
     }
 
-    /// Returns an iterator that only yields the readable descriptors in the chain.
+    /// Return an iterator that only yields the readable descriptors in the chain.
     pub fn readable(self) -> DescriptorChainRwIter<M> {
         DescriptorChainRwIter {
             chain: self,
@@ -79,7 +87,7 @@ where
         }
     }
 
-    /// Returns an iterator that only yields the writable descriptors in the chain.
+    /// Return an iterator that only yields the writable descriptors in the chain.
     pub fn writable(self) -> DescriptorChainRwIter<M> {
         DescriptorChainRwIter {
             chain: self,
@@ -129,7 +137,7 @@ where
 {
     type Item = Descriptor;
 
-    /// Returns the next descriptor in this descriptor chain, if there is one.
+    /// Return the next descriptor in this descriptor chain, if there is one.
     ///
     /// Note that this is distinct from the next descriptor chain returned by
     /// [`AvailIter`](struct.AvailIter.html), which is the head of the next
@@ -181,7 +189,8 @@ where
 {
     type Item = Descriptor;
 
-    /// Returns the next descriptor in this descriptor chain, if there is one.
+    /// Return the next readable/writeable descriptor (depending on the `writable` value) in this
+    /// descriptor chain, if there is one.
     ///
     /// Note that this is distinct from the next descriptor chain returned by
     /// [`AvailIter`](struct.AvailIter.html), which is the head of the next

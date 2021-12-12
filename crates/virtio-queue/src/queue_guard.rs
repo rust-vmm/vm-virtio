@@ -15,6 +15,49 @@ use crate::{AvailIter, Error, QueueState, QueueStateT};
 /// The guard object holds an exclusive lock to the underlying `QueueState` object, with an
 /// associated guest memory object. It helps to guarantee that the whole session is served
 /// with the same guest memory object.
+///
+/// # Example
+///
+/// ```rust
+/// use virtio_queue::{Queue, QueueState};
+/// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+///
+/// let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// let mut queue = Queue::<&GuestMemoryMmap, QueueState>::new(&m, 1024);
+/// let mut queue_guard = queue.lock_with_memory();
+///
+/// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
+/// queue_guard.set_size(8);
+/// queue_guard.set_desc_table_address(Some(0x1000), None);
+/// queue_guard.set_avail_ring_address(Some(0x2000), None);
+/// queue_guard.set_used_ring_address(Some(0x3000), None);
+/// queue_guard.set_event_idx(true);
+/// queue_guard.set_ready(true);
+/// // The user should check if the queue is valid before starting to use it.
+/// assert!(queue_guard.is_valid());
+///
+/// // Here the driver would add entries in the available ring and then update the `idx` field of
+/// // the available ring (address = 0x2000 + 2).
+/// m.write_obj(3, GuestAddress(0x2002));
+///
+/// loop {
+///     queue_guard.disable_notification().unwrap();
+///
+///     // Consume entries from the available ring.
+///     while let Some(chain) = queue_guard.iter().unwrap().next() {
+///         // Process the descriptor chain, and then add an entry in the used ring and optionally
+///         // notify the driver.
+///         queue_guard.add_used(chain.head_index(), 0x100).unwrap();
+///
+///         if queue_guard.needs_notification().unwrap() {
+///             // Here we would notify the driver it has new entries in the used ring to consume.
+///         }
+///     }
+///     if !queue_guard.enable_notification().unwrap() {
+///         break;
+///     }
+/// }
+/// ```
 pub struct QueueGuard<M, S> {
     state: S,
     mem: M,
@@ -47,9 +90,6 @@ where
     }
 
     /// Configure the queue size for the virtio queue.
-    ///
-    /// The `size` should power of two and less than or equal to value reported by `max_size()`,
-    /// otherwise it will panic.
     pub fn set_size(&mut self, size: u16) {
         self.state.set_size(size);
     }
@@ -59,31 +99,31 @@ where
         self.state.ready()
     }
 
-    /// Configure the queue to ready for processing.
+    /// Configure the queue to `ready for processing` state.
     pub fn set_ready(&mut self, ready: bool) {
         self.state.set_ready(ready)
     }
 
-    /// Set descriptor table address for the queue.
+    /// Set the descriptor table address for the queue.
     ///
     /// The descriptor table address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` or valid.
     pub fn set_desc_table_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_desc_table_address(low, high);
     }
 
-    /// Set available ring address for the queue.
+    /// Set the available ring address for the queue.
     ///
     /// The available ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` or valid.
     pub fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_avail_ring_address(low, high);
     }
 
-    /// Set used ring address for the queue.
+    /// Set the used ring address for the queue.
     ///
     /// The used ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is valid.
+    /// and/or `high` is `Some` or valid.
     pub fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_used_ring_address(low, high);
     }
@@ -127,12 +167,12 @@ where
         self.state.needs_notification(self.mem.deref())
     }
 
-    /// Return the index for the next descriptor in the available ring.
+    /// Return the index of the next entry in the available ring.
     pub fn next_avail(&self) -> u16 {
         self.state.next_avail()
     }
 
-    /// Set the index for the next descriptor in the available ring.
+    /// Set the index of the next entry in the available ring.
     pub fn set_next_avail(&mut self, next_avail: u16) {
         self.state.set_next_avail(next_avail);
     }
