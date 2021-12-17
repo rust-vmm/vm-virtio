@@ -120,7 +120,7 @@ of the next descriptor if VIRTQ_DESC_F_NEXT is set.
 
 ![](../../.github/images/descriptor.png)
 
-Requirements for device implementation
+**Requirements for device implementation**
 
 * Abstractions from virtio-queue such as `DescriptorChain` can be used to parse
   descriptors provided by the device, which represent input or output memory
@@ -214,3 +214,10 @@ We assume the users will consume the entries from the available ring in the
 recommended way from the documentation, i.e. device starts processing the
 available ring entries, disables the notifications, processes the entries,
 and then re-enables notifications.
+
+## License
+
+This project is licensed under either of
+
+- [Apache License](http://www.apache.org/licenses/LICENSE-2.0), Version 2.0
+- [BSD-3-Clause License](https://opensource.org/licenses/BSD-3-Clause)
