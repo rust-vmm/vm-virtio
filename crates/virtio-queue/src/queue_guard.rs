@@ -107,7 +107,7 @@ where
     /// Set the descriptor table address for the queue.
     ///
     /// The descriptor table address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is `Some` or valid.
+    /// and/or `high` is `Some` and valid.
     pub fn set_desc_table_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_desc_table_address(low, high);
     }
@@ -115,7 +115,7 @@ where
     /// Set the available ring address for the queue.
     ///
     /// The available ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is `Some` or valid.
+    /// and/or `high` is `Some` and valid.
     pub fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_avail_ring_address(low, high);
     }
@@ -123,7 +123,7 @@ where
     /// Set the used ring address for the queue.
     ///
     /// The used ring address is 64-bit, the corresponding part will be updated if 'low'
-    /// and/or `high` is `Some` or valid.
+    /// and/or `high` is `Some` and valid.
     pub fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
         self.state.set_used_ring_address(low, high);
     }
