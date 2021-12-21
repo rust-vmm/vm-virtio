@@ -197,6 +197,14 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
         self.state.avail_idx(self.mem.memory().deref(), order)
     }
 
+    /// Reads the `idx` field from the used ring.
+    ///
+    /// # Arguments
+    /// * `order` - the memory ordering used to access the `idx` field from memory.
+    pub fn used_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        self.state.used_idx(self.mem.memory().deref(), order)
+    }
+
     /// Put a used descriptor head into the used ring.
     ///
     /// # Arguments
@@ -236,12 +244,25 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
         self.state.next_avail()
     }
 
+    /// Returns the index for the next descriptor in the used ring.
+    pub fn next_used(&self) -> u16 {
+        self.state.next_used()
+    }
+
     /// Set the index of the next entry in the available ring.
     ///
     /// # Arguments
     /// * `next_avail` - the index of the next available ring entry.
     pub fn set_next_avail(&mut self, next_avail: u16) {
         self.state.set_next_avail(next_avail);
+    }
+
+    /// Sets the index for the next descriptor in the used ring.
+    ///
+    /// # Arguments
+    /// * `next_used` - the index of the next used ring entry.
+    pub fn set_next_used(&mut self, next_used: u16) {
+        self.state.set_next_used(next_used);
     }
 }
 
@@ -257,7 +278,7 @@ mod tests {
     use super::*;
     use crate::defs::{
         DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR,
-        VIRTQ_DESC_F_NEXT, VIRTQ_USED_F_NO_NOTIFY,
+        VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE, VIRTQ_USED_F_NO_NOTIFY,
     };
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
@@ -348,6 +369,7 @@ mod tests {
         let vq = MockSplitQueue::new(m, 16);
         let mut q = vq.create_queue(m);
 
+        assert_eq!(q.used_idx(Ordering::Acquire).unwrap(), Wrapping(0));
         assert_eq!(u16::from_le(vq.used().idx().load()), 0);
 
         // index too large
@@ -357,6 +379,7 @@ mod tests {
         // should be ok
         q.add_used(1, 0x1000).unwrap();
         assert_eq!(q.state.next_used, Wrapping(1));
+        assert_eq!(q.used_idx(Ordering::Acquire).unwrap(), Wrapping(1));
         assert_eq!(u16::from_le(vq.used().idx().load()), 1);
 
         let x = vq.used().ring().ref_at(0).load();
@@ -377,7 +400,7 @@ mod tests {
         // Same for `event_idx_enabled`, `next_avail` `next_used` and `signalled_used`.
         q.set_event_idx(true);
         q.set_next_avail(2);
-        q.add_used(1, 200).unwrap();
+        q.set_next_used(4);
         q.state.signalled_used = Some(Wrapping(15));
         assert_eq!(q.state.size, 8);
         // `create_queue` also marks the queue as ready.
@@ -533,10 +556,17 @@ mod tests {
             i += 1;
             q.disable_notification().unwrap();
 
-            while let Some(_chain) = q.iter().unwrap().next() {
-                // Here the device would consume entries from the available ring, add an entry in
-                // the used ring and optionally notify the driver. For the purpose of this test, we
-                // don't need to do anything with the chain, only consume it.
+            while let Some(chain) = q.iter().unwrap().next() {
+                // Process the descriptor chain, and then add entries to the
+                // used ring.
+                let head_index = chain.head_index();
+                let mut desc_len = 0;
+                chain.for_each(|d| {
+                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                        desc_len += d.len();
+                    }
+                });
+                q.add_used(head_index, desc_len).unwrap();
             }
             if !q.enable_notification().unwrap() {
                 break;
@@ -547,6 +577,7 @@ mod tests {
         assert_eq!(i, 1);
         // The next chain that can be consumed should have index 2.
         assert_eq!(q.next_avail(), 2);
+        assert_eq!(q.next_used(), 2);
         // Let the device know it can consume one more chain.
         vq.avail().idx().store(u16::to_le(3));
         i = 0;
@@ -555,8 +586,17 @@ mod tests {
             i += 1;
             q.disable_notification().unwrap();
 
-            while let Some(_chain) = q.iter().unwrap().next() {
-                // In a real use case, we would do something with the chain here.
+            while let Some(chain) = q.iter().unwrap().next() {
+                // Process the descriptor chain, and then add entries to the
+                // used ring.
+                let head_index = chain.head_index();
+                let mut desc_len = 0;
+                chain.for_each(|d| {
+                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                        desc_len += d.len();
+                    }
+                });
+                q.add_used(head_index, desc_len).unwrap();
             }
 
             // For the simplicity of the test we are updating here the `idx` value of the available
@@ -571,6 +611,7 @@ mod tests {
         assert_eq!(i, 2);
         // The next chain that can be consumed should have index 4.
         assert_eq!(q.next_avail(), 4);
+        assert_eq!(q.next_used(), 4);
 
         // Set an `idx` that is bigger than the number of entries added in the ring.
         // This is an allowed scenario, but the indexes of the chain will have unexpected values.
@@ -578,14 +619,24 @@ mod tests {
         loop {
             q.disable_notification().unwrap();
 
-            while let Some(_chain) = q.iter().unwrap().next() {
-                // In a real use case, we would do something with the chain here.
+            while let Some(chain) = q.iter().unwrap().next() {
+                // Process the descriptor chain, and then add entries to the
+                // used ring.
+                let head_index = chain.head_index();
+                let mut desc_len = 0;
+                chain.for_each(|d| {
+                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                        desc_len += d.len();
+                    }
+                });
+                q.add_used(head_index, desc_len).unwrap();
             }
             if !q.enable_notification().unwrap() {
                 break;
             }
         }
         assert_eq!(q.next_avail(), 7);
+        assert_eq!(q.next_used(), 7);
     }
 
     #[test]
@@ -619,14 +670,22 @@ mod tests {
         vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
+        assert_eq!(q.next_used(), 0);
 
         loop {
             q.disable_notification().unwrap();
 
-            while let Some(_chain) = q.iter().unwrap().next() {
-                // Here the device would consume entries from the available ring, add an entry in
-                // the used ring and optionally notify the driver. For the purpose of this test, we
-                // don't need to do anything with the chain, only consume it.
+            while let Some(chain) = q.iter().unwrap().next() {
+                // Process the descriptor chain, and then add entries to the
+                // used ring.
+                let head_index = chain.head_index();
+                let mut desc_len = 0;
+                chain.for_each(|d| {
+                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                        desc_len += d.len();
+                    }
+                });
+                q.add_used(head_index, desc_len).unwrap();
             }
             if !q.enable_notification().unwrap() {
                 break;
@@ -635,6 +694,8 @@ mod tests {
         // The next chain that can be consumed should have index 3.
         assert_eq!(q.next_avail(), 3);
         assert_eq!(q.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
+        assert_eq!(q.next_used(), 3);
+        assert_eq!(q.used_idx(Ordering::Acquire).unwrap(), Wrapping(3));
         assert!(q.lock().ready());
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should

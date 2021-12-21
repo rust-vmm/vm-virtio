@@ -154,6 +154,9 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// Read the `idx` field from the available ring.
     fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
 
+    /// Read the `idx` field from the used ring.
+    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
+
     /// Put a used descriptor head into the used ring.
     fn add_used<M: GuestMemory>(&mut self, mem: &M, head_index: u16, len: u32)
         -> Result<(), Error>;
@@ -181,4 +184,10 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
 
     /// Set the index of the next entry in the available ring.
     fn set_next_avail(&mut self, next_avail: u16);
+
+    /// Return the index for the next descriptor in the used ring.
+    fn next_used(&self) -> u16;
+
+    /// Set the index for the next descriptor in the used ring.
+    fn set_next_used(&mut self, next_used: u16);
 }
