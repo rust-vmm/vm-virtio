@@ -107,6 +107,10 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().avail_idx(mem, order)
     }
 
+    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        self.lock_state().used_idx(mem, order)
+    }
+
     fn add_used<M: GuestMemory>(
         &mut self,
         mem: &M,
@@ -132,8 +136,16 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().next_avail()
     }
 
+    fn next_used(&self) -> u16 {
+        self.lock_state().next_used()
+    }
+
     fn set_next_avail(&mut self, next_avail: u16) {
         self.lock_state().set_next_avail(next_avail);
+    }
+
+    fn set_next_used(&mut self, next_used: u16) {
+        self.lock_state().set_next_used(next_used);
     }
 }
 
@@ -202,20 +214,30 @@ mod tests {
         assert_eq!(q.max_size(), 0x100);
         q.set_next_avail(5);
         assert_eq!(q.next_avail(), 5);
+        q.set_next_used(3);
+        assert_eq!(q.next_used(), 3);
         assert_eq!(
             q.avail_idx(m.memory(), Ordering::Acquire).unwrap(),
             Wrapping(0)
         );
+        assert_eq!(
+            q.used_idx(m.memory(), Ordering::Acquire).unwrap(),
+            Wrapping(0)
+        );
 
-        assert_eq!(q.lock_state().next_used, Wrapping(0));
+        assert_eq!(q.next_used(), 3);
 
         // index too large
         assert!(q.add_used(m.memory(), 0x200, 0x1000).is_err());
-        assert_eq!(q.lock_state().next_used, Wrapping(0));
+        assert_eq!(q.next_used(), 3);
 
         // should be ok
         q.add_used(m.memory(), 1, 0x1000).unwrap();
-        assert_eq!(q.lock_state().next_used, Wrapping(1));
+        assert_eq!(q.next_used(), 4);
+        assert_eq!(
+            q.used_idx(m.memory(), Ordering::Acquire).unwrap(),
+            Wrapping(4)
+        );
     }
 
     #[test]
@@ -228,11 +250,11 @@ mod tests {
         q.set_used_ring_address(Some(0x3000), None);
         q.set_event_idx(true);
         q.set_next_avail(2);
+        q.set_next_used(2);
         q.set_size(0x8);
         q.set_ready(true);
         assert!(q.is_valid(m.memory()));
 
-        q.add_used(m.memory(), 1, 0x100).unwrap();
         q.needs_notification(m.memory()).unwrap();
 
         assert_eq!(q.lock_state().size, 0x8);

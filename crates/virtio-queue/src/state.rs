@@ -311,6 +311,17 @@ impl QueueStateT for QueueState {
             .map_err(Error::GuestMemory)
     }
 
+    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        let addr = self
+            .used_ring
+            .checked_add(2)
+            .ok_or(Error::AddressOverflow)?;
+
+        mem.load(addr, order)
+            .map(Wrapping)
+            .map_err(Error::GuestMemory)
+    }
+
     fn add_used<M: GuestMemory>(
         &mut self,
         mem: &M,
@@ -415,7 +426,15 @@ impl QueueStateT for QueueState {
         self.next_avail.0
     }
 
+    fn next_used(&self) -> u16 {
+        self.next_used.0
+    }
+
     fn set_next_avail(&mut self, next_avail: u16) {
         self.next_avail = Wrapping(next_avail);
+    }
+
+    fn set_next_used(&mut self, next_used: u16) {
+        self.next_used = Wrapping(next_used);
     }
 }

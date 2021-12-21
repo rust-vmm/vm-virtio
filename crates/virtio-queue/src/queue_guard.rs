@@ -138,6 +138,11 @@ where
         self.state.avail_idx(self.mem.deref(), order)
     }
 
+    /// Read the `idx` field from the used ring.
+    pub fn used_idx(&self, order: Ordering) -> Result<Wrapping<u16>, Error> {
+        self.state.used_idx(self.mem.deref(), order)
+    }
+
     /// Put a used descriptor head into the used ring.
     pub fn add_used(&mut self, head_index: u16, len: u32) -> Result<(), Error> {
         self.state.add_used(self.mem.deref(), head_index, len)
@@ -172,9 +177,19 @@ where
         self.state.next_avail()
     }
 
+    /// Return the index of the next entry in the used ring.
+    pub fn next_used(&self) -> u16 {
+        self.state.next_used()
+    }
+
     /// Set the index of the next entry in the available ring.
     pub fn set_next_avail(&mut self, next_avail: u16) {
         self.state.set_next_avail(next_avail);
+    }
+
+    /// Set the index of the next entry in the used ring.
+    pub fn set_next_used(&mut self, next_used: u16) {
+        self.state.set_next_used(next_used);
     }
 
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
@@ -186,7 +201,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::VIRTQ_DESC_F_NEXT;
+    use crate::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
 
@@ -223,14 +238,22 @@ mod tests {
         vq.avail().idx().store(3);
         // No descriptor chains are consumed at this point.
         assert_eq!(g.next_avail(), 0);
+        assert_eq!(g.next_used(), 0);
 
         loop {
             g.disable_notification().unwrap();
 
-            while let Some(_chain) = g.iter().unwrap().next() {
-                // Here the device would consume entries from the available ring, add an entry in
-                // the used ring and optionally notify the driver. For the purpose of this test, we
-                // don't need to do anything with the chain, only consume it.
+            while let Some(chain) = g.iter().unwrap().next() {
+                // Process the descriptor chain, and then add entries to the
+                // used ring.
+                let head_index = chain.head_index();
+                let mut desc_len = 0;
+                chain.for_each(|d| {
+                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                        desc_len += d.len();
+                    }
+                });
+                g.add_used(head_index, desc_len).unwrap();
             }
             if !g.enable_notification().unwrap() {
                 break;
@@ -239,6 +262,8 @@ mod tests {
         // The next chain that can be consumed should have index 3.
         assert_eq!(g.next_avail(), 3);
         assert_eq!(g.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
+        assert_eq!(g.next_used(), 3);
+        assert_eq!(g.used_idx(Ordering::Acquire).unwrap(), Wrapping(3));
         assert!(g.ready());
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
