@@ -252,9 +252,9 @@ impl Request {
 mod tests {
     use super::*;
 
-    use vm_memory::{Address, GuestMemoryMmap};
+    use vm_memory::GuestMemoryMmap;
 
-    use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
     use virtio_queue::mock::MockSplitQueue;
 
     impl PartialEq for Error {
@@ -290,56 +290,10 @@ mod tests {
         }
     }
 
-    // Helper method that writes a descriptor chain to a `GuestMemoryMmap` object and returns
-    // the associated `DescriptorChain` object. `descs` represents a slice of `Descriptor` objects
-    // which are used to populate the chain. This method ensures the next flags and values are
-    // set properly for the desired chain, but keeps the other characteristics of the input
-    // descriptors (`addr`, `len`, other flags).
-    // The queue/descriptor chain related information is written in memory starting with
-    // address 0. The `addr` fields of the input descriptors should start at a sufficiently
-    // greater location (i.e. 1MiB, or `0x10_0000`).
-    fn build_desc_chain<'a>(
-        mem: &'a GuestMemoryMmap,
-        descs: &[Descriptor],
-    ) -> DescriptorChain<&'a GuestMemoryMmap> {
-        // Support a max of 16 descriptors for now.
-        let vq = MockSplitQueue::new(mem, 16);
-        for (idx, desc) in descs.iter().enumerate() {
-            let i = idx as u16;
-            let addr = desc.addr().0;
-            let len = desc.len();
-            let (flags, next) = if idx == descs.len() - 1 {
-                // Clear the NEXT flag if it was set. The value of the next field of the
-                // Descriptor doesn't matter at this point.
-                (desc.flags() & !VIRTQ_DESC_F_NEXT, 0)
-            } else {
-                // Ensure that the next flag is set and that we are referring the following
-                // descriptor. This ignores any value is actually present in `desc.next`.
-                (desc.flags() | VIRTQ_DESC_F_NEXT, i + 1)
-            };
-
-            let desc = Descriptor::new(addr, len, flags, next);
-            vq.desc_table().store(i, desc);
-        }
-
-        // Put the descriptor index 0 in the first available ring position.
-        mem.write_obj(0u16, vq.avail_addr().unchecked_add(4))
-            .unwrap();
-
-        // Set `avail_idx` to 1.
-        mem.write_obj(1u16, vq.avail_addr().unchecked_add(2))
-            .unwrap();
-
-        vq.create_queue(mem)
-            .iter()
-            .unwrap()
-            .next()
-            .expect("failed to build desc chain")
-    }
-
     #[test]
     fn test_parse_request() {
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
+        let mem: GuestMemoryMmap =
+            GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
             // A device-writable request header descriptor.
@@ -347,7 +301,9 @@ mod tests {
             Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
             Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
         ];
-        let mut chain = build_desc_chain(&mem, &v[..3]);
+        // Create a queue of max 16 descriptors and a descriptor chain based on the array above.
+        let queue = MockSplitQueue::new(&mem, 16);
+        let mut chain = queue.build_desc_chain(&v[..3]);
 
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_IN,
@@ -368,7 +324,7 @@ mod tests {
             // A device-readable request status descriptor.
             Descriptor::new(0x30_0000, 0x100, 0, 0),
         ];
-        let mut chain = build_desc_chain(&mem, &v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]);
 
         // Status descriptor should be device-writable.
         assert_eq!(
@@ -382,7 +338,7 @@ mod tests {
             // Status descriptor with len = 0.
             Descriptor::new(0x30_0000, 0x0, VIRTQ_DESC_F_WRITE, 0),
         ];
-        let mut chain = build_desc_chain(&mem, &v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]);
         assert_eq!(
             Request::parse(&mut chain).unwrap_err(),
             Error::DescriptorLengthTooSmall
@@ -393,7 +349,7 @@ mod tests {
             Descriptor::new(0x20_0000, 0x100, 0, 0),
             Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
         ];
-        let mut chain = build_desc_chain(&mem, &v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]);
 
         // Flush request with sector != 0.
         let req_header = RequestHeader {
@@ -410,7 +366,7 @@ mod tests {
             Error::InvalidFlushSector
         );
 
-        let mut chain = build_desc_chain(&mem, &v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]);
         mem.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x10_0000))
             .unwrap();
         // We shouldn't read from a device-readable buffer.
@@ -434,7 +390,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = build_desc_chain(&mem, &v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]);
 
         // The status descriptor would cause a write beyond capacity.
         assert_eq!(
@@ -459,7 +415,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = build_desc_chain(&mem, &v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]);
 
         let request = Request::parse(&mut chain).unwrap();
         let expected_request = Request {
@@ -484,7 +440,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = build_desc_chain(&mem, &v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]);
 
         let request = Request::parse(&mut chain).unwrap();
         assert_eq!(request.request_type(), RequestType::Unsupported(2));
@@ -502,7 +458,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = build_desc_chain(&mem, &v[..2]);
+        let mut chain = queue.build_desc_chain(&v[..2]);
         assert!(Request::parse(&mut chain).is_ok());
     }
 }
