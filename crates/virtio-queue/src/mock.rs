@@ -12,7 +12,7 @@ use vm_memory::{
 };
 
 use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
-use crate::{Descriptor, Queue, QueueState, VirtqUsedElem};
+use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
 
 /// Wrapper struct used for accessing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
@@ -366,5 +366,49 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         q.state.avail_ring = self.avail_addr;
         q.state.used_ring = self.used_addr;
         q
+    }
+
+    /// Writes a descriptor chain to the memory object of the queue and returns the associated
+    /// `DescriptorChain` object.
+    // `descs` represents a slice of `Descriptor` objects which are used to populate the chain.
+    // This method ensures the next flags and values are set properly for the desired chain, but
+    // keeps the other characteristics of the input descriptors (`addr`, `len`, other flags).
+    // The descriptor chain related information is written in memory starting with address 0.
+    // The `addr` fields of the input descriptors should start at a sufficiently
+    // greater location (i.e. 1MiB, or `0x10_0000`).
+    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> DescriptorChain<&M> {
+        for (idx, desc) in descs.iter().enumerate() {
+            let i = idx as u16;
+            let addr = desc.addr().0;
+            let len = desc.len();
+            let (flags, next) = if idx == descs.len() - 1 {
+                // Clear the NEXT flag if it was set. The value of the next field of the
+                // Descriptor doesn't matter at this point.
+                (desc.flags() & !VIRTQ_DESC_F_NEXT, 0)
+            } else {
+                // Ensure that the next flag is set and that we are referring the following
+                // descriptor. This ignores any value is actually present in `desc.next`.
+                (desc.flags() | VIRTQ_DESC_F_NEXT, i + 1)
+            };
+
+            let desc = Descriptor::new(addr, len, flags, next);
+            self.desc_table().store(i, desc);
+        }
+
+        // Put the descriptor index 0 in the first available ring position.
+        self.mem
+            .write_obj(0u16, self.avail_addr().unchecked_add(4))
+            .unwrap();
+
+        // Set `avail_idx` to 1.
+        self.mem
+            .write_obj(1u16, self.avail_addr().unchecked_add(2))
+            .unwrap();
+
+        self.create_queue(self.mem)
+            .iter()
+            .unwrap()
+            .next()
+            .expect("failed to build desc chain")
     }
 }
