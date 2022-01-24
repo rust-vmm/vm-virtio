@@ -201,7 +201,7 @@ mod tests {
 
         // g is currently valid.
         assert!(g.is_valid());
-        assert_eq!(g.ready(), true);
+        assert!(g.ready());
         assert_eq!(g.max_size(), 0x100);
         g.set_size(16);
 
@@ -239,7 +239,7 @@ mod tests {
         // The next chain that can be consumed should have index 3.
         assert_eq!(g.next_avail(), 3);
         assert_eq!(g.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert_eq!(g.ready(), true);
+        assert!(g.ready());
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.

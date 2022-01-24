@@ -224,19 +224,19 @@ mod tests {
         assert_eq!(desc.len(), 0x2000);
         desc.set_flags(VIRTQ_DESC_F_NEXT);
         assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
-        assert_eq!(desc.has_next(), true);
-        assert_eq!(desc.is_write_only(), false);
-        assert_eq!(desc.refers_to_indirect_table(), false);
+        assert!(desc.has_next());
+        assert!(!desc.is_write_only());
+        assert!(!desc.refers_to_indirect_table());
         desc.set_flags(VIRTQ_DESC_F_WRITE);
         assert_eq!(desc.flags(), VIRTQ_DESC_F_WRITE);
-        assert_eq!(desc.has_next(), false);
-        assert_eq!(desc.is_write_only(), true);
-        assert_eq!(desc.refers_to_indirect_table(), false);
+        assert!(!desc.has_next());
+        assert!(desc.is_write_only());
+        assert!(!desc.refers_to_indirect_table());
         desc.set_flags(VIRTQ_DESC_F_INDIRECT);
         assert_eq!(desc.flags(), VIRTQ_DESC_F_INDIRECT);
-        assert_eq!(desc.has_next(), false);
-        assert_eq!(desc.is_write_only(), false);
-        assert_eq!(desc.refers_to_indirect_table(), true);
+        assert!(!desc.has_next());
+        assert!(!desc.is_write_only());
+        assert!(desc.refers_to_indirect_table());
         desc.set_next(3);
         assert_eq!(desc.next(), 3);
     }
