@@ -159,21 +159,21 @@ mod tests {
         let t1 = std::thread::spawn(move || {
             {
                 let guard = q2.lock();
-                assert_eq!(guard.ready(), false);
+                assert!(!guard.ready());
             }
             b2.wait();
             b2.wait();
             {
                 let guard = q2.lock();
-                assert_eq!(guard.ready(), true);
+                assert!(guard.ready());
             }
         });
 
         let t2 = std::thread::spawn(move || {
-            assert_eq!(q3.ready(), false);
+            assert!(!q3.ready());
             b3.wait();
             b3.wait();
-            assert_eq!(q3.ready(), true);
+            assert!(q3.ready());
         });
 
         barrier.wait();
@@ -194,7 +194,7 @@ mod tests {
         q.set_used_ring_address(Some(0x3000), None);
         q.set_event_idx(true);
         q.set_ready(true);
-        assert_eq!(q.is_valid(m.memory()), true);
+        assert!(q.is_valid(m.memory()));
         assert_eq!(q.lock().size, 0x100);
 
         assert_eq!(q.max_size(), 0x100);
@@ -230,13 +230,13 @@ mod tests {
         q.set_next_avail(2);
         q.set_size(0x8);
         q.set_ready(true);
-        assert_eq!(q.is_valid(m.memory()), true);
+        assert!(q.is_valid(m.memory()));
 
         q.add_used(m.memory(), 1, 0x100).unwrap();
         q.needs_notification(m.memory()).unwrap();
 
         assert_eq!(q.lock_state().size, 0x8);
-        assert_eq!(q.lock_state().ready, true);
+        assert!(q.lock_state().ready);
         assert_ne!(
             q.lock_state().desc_table,
             GuestAddress(DEFAULT_DESC_TABLE_ADDR)
@@ -252,11 +252,11 @@ mod tests {
         assert_ne!(q.lock_state().next_avail, Wrapping(0));
         assert_ne!(q.lock_state().next_used, Wrapping(0));
         assert_ne!(q.lock_state().signalled_used, None);
-        assert_eq!(q.lock_state().event_idx_enabled, true);
+        assert!(q.lock_state().event_idx_enabled);
 
         q.reset();
         assert_eq!(q.lock_state().size, 0x100);
-        assert_eq!(q.lock_state().ready, false);
+        assert!(!q.lock_state().ready);
         assert_eq!(
             q.lock_state().desc_table,
             GuestAddress(DEFAULT_DESC_TABLE_ADDR)
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(q.lock_state().next_avail, Wrapping(0));
         assert_eq!(q.lock_state().next_used, Wrapping(0));
         assert_eq!(q.lock_state().signalled_used, None);
-        assert_eq!(q.lock_state().event_idx_enabled, false);
+        assert!(!q.lock_state().event_idx_enabled);
     }
 
     #[test]
@@ -285,11 +285,11 @@ mod tests {
         q.set_avail_ring_address(Some(0x2000), None);
         q.set_used_ring_address(Some(0x3000), None);
         q.set_ready(true);
-        assert_eq!(q.is_valid(mem), true);
+        assert!(q.is_valid(mem));
 
         let used_addr = q.lock_state().used_ring;
 
-        assert_eq!(q.lock_state().event_idx_enabled, false);
+        assert!(!q.lock_state().event_idx_enabled);
         q.enable_notification(mem).unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
@@ -307,15 +307,15 @@ mod tests {
         m.write_obj::<u16>(u16::to_le(2), avail_addr.unchecked_add(2))
             .unwrap();
 
-        assert_eq!(q.enable_notification(mem).unwrap(), true);
+        assert!(q.enable_notification(mem).unwrap());
         q.lock_state().next_avail = Wrapping(2);
-        assert_eq!(q.enable_notification(mem).unwrap(), false);
+        assert!(!q.enable_notification(mem).unwrap());
 
         m.write_obj::<u16>(u16::to_le(8), avail_addr.unchecked_add(2))
             .unwrap();
 
-        assert_eq!(q.enable_notification(mem).unwrap(), true);
+        assert!(q.enable_notification(mem).unwrap());
         q.lock_state().next_avail = Wrapping(8);
-        assert_eq!(q.enable_notification(mem).unwrap(), false);
+        assert!(!q.enable_notification(mem).unwrap());
     }
 }

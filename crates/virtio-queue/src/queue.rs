@@ -275,7 +275,7 @@ mod tests {
 
         // shouldn't be valid when not marked as ready
         q.set_ready(false);
-        assert_eq!(q.ready(), false);
+        assert!(!q.ready());
         assert!(!q.is_valid());
         q.set_ready(true);
 
@@ -381,25 +381,25 @@ mod tests {
         q.state.signalled_used = Some(Wrapping(15));
         assert_eq!(q.state.size, 8);
         // `create_queue` also marks the queue as ready.
-        assert_eq!(q.state.ready, true);
+        assert!(q.state.ready);
         assert_ne!(q.state.desc_table, GuestAddress(DEFAULT_DESC_TABLE_ADDR));
         assert_ne!(q.state.avail_ring, GuestAddress(DEFAULT_AVAIL_RING_ADDR));
         assert_ne!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
         assert_ne!(q.state.next_avail, Wrapping(0));
         assert_ne!(q.state.next_used, Wrapping(0));
         assert_ne!(q.state.signalled_used, None);
-        assert_eq!(q.state.event_idx_enabled, true);
+        assert!(q.state.event_idx_enabled);
 
         q.reset();
         assert_eq!(q.state.size, 16);
-        assert_eq!(q.state.ready, false);
+        assert!(!q.state.ready);
         assert_eq!(q.state.desc_table, GuestAddress(DEFAULT_DESC_TABLE_ADDR));
         assert_eq!(q.state.avail_ring, GuestAddress(DEFAULT_AVAIL_RING_ADDR));
         assert_eq!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
         assert_eq!(q.state.next_avail, Wrapping(0));
         assert_eq!(q.state.next_used, Wrapping(0));
         assert_eq!(q.state.signalled_used, None);
-        assert_eq!(q.state.event_idx_enabled, false);
+        assert!(!q.state.event_idx_enabled);
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
         // It should always return true when EVENT_IDX isn't enabled.
         for i in 0..qsize {
             q.state.next_used = Wrapping(i);
-            assert_eq!(q.needs_notification().unwrap(), true);
+            assert!(q.needs_notification().unwrap());
         }
 
         m.write_obj::<u16>(
@@ -437,24 +437,24 @@ mod tests {
             .unwrap();
 
         // Returns `false` because `signalled_used` already passed this value.
-        assert_eq!(q.needs_notification().unwrap(), false);
+        assert!(!q.needs_notification().unwrap());
 
         m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
 
-        assert_eq!(q.needs_notification().unwrap(), false);
+        assert!(!q.needs_notification().unwrap());
         q.state.next_used = Wrapping(15);
-        assert_eq!(q.needs_notification().unwrap(), false);
+        assert!(!q.needs_notification().unwrap());
         q.state.next_used = Wrapping(0);
-        assert_eq!(q.needs_notification().unwrap(), true);
-        assert_eq!(q.needs_notification().unwrap(), false);
+        assert!(q.needs_notification().unwrap());
+        assert!(!q.needs_notification().unwrap());
 
         m.write_obj::<u16>(u16::MAX - 3, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
         q.state.next_used = Wrapping(u16::MAX - 2);
         // Returns `true` because the value we wrote in the `used_event` < the next used value and
         // the last `signalled_used` is 0.
-        assert_eq!(q.needs_notification().unwrap(), true);
+        assert!(q.needs_notification().unwrap());
     }
 
     #[test]
@@ -465,7 +465,7 @@ mod tests {
         let mut q = vq.create_queue(m);
         let used_addr = vq.used_addr();
 
-        assert_eq!(q.state.event_idx_enabled, false);
+        assert!(!q.state.event_idx_enabled);
 
         q.enable_notification().unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
@@ -484,16 +484,16 @@ mod tests {
         m.write_obj::<u16>(u16::to_le(2), avail_addr.unchecked_add(2))
             .unwrap();
 
-        assert_eq!(q.enable_notification().unwrap(), true);
+        assert!(q.enable_notification().unwrap());
         q.state.next_avail = Wrapping(2);
-        assert_eq!(q.enable_notification().unwrap(), false);
+        assert!(!q.enable_notification().unwrap());
 
         m.write_obj::<u16>(u16::to_le(8), avail_addr.unchecked_add(2))
             .unwrap();
 
-        assert_eq!(q.enable_notification().unwrap(), true);
+        assert!(q.enable_notification().unwrap());
         q.state.next_avail = Wrapping(8);
-        assert_eq!(q.enable_notification().unwrap(), false);
+        assert!(!q.enable_notification().unwrap());
     }
 
     #[test]
@@ -635,7 +635,7 @@ mod tests {
         // The next chain that can be consumed should have index 3.
         assert_eq!(q.next_avail(), 3);
         assert_eq!(q.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert_eq!(q.lock().ready(), true);
+        assert!(q.lock().ready());
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
