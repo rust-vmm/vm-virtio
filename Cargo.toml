@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/virtio-queue",
+    "crates/virtio-queue-ser",
     "crates/virtio-device",
     "crates/devices/*",
 ]
