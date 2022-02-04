@@ -53,14 +53,14 @@ emulated device resources.
 Our Continuous Integration (CI) pipeline is implemented on top of
 [Buildkite](https://buildkite.com/).
 For the complete list of tests, check our
-[CI pipeline](https://buildkite.com/rust-vmm/rust-vmm-ci).
+[CI pipeline](https://github.com/rust-vmm/rust-vmm-ci/blob/main/.buildkite/test_description.json).
 
 Each individual test runs in a container. To run the tests locally, you can
 use the dev-container on both x86 and arm64.
 
 ```bash
 cd ~/vm-virtio
-container_version=13
+container_version=15
 docker run -it \
            --security-opt seccomp=unconfined \
            --volume $(pwd):/vm-virtio \
@@ -69,6 +69,19 @@ docker run -it \
 cd vm-virtio
 ./rust-vmm-ci/test_run.py
 ```
+
+The `vm-virtio` workspace is tested with unit tests (including documentation
+examples). For running all the tests, use the following command:
+
+```bash
+cargo test --all-features
+```
+
+`--all-features` is used in order to also include the tests under a feature,
+such as `backend-stdio`.
+
+For details about the testing in the `virtio-queue` crate, check
+[its separate documentation](crates/virtio-queue/docs/TESTING.md).
 
 ## License
 
