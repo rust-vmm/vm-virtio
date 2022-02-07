@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
 use std::num::Wrapping;
+use std::ops::Deref;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use vm_memory::GuestMemory;
 
-use crate::{Error, QueueState, QueueStateGuard, QueueStateT};
+use crate::{DescriptorChain, Error, QueueState, QueueStateGuard, QueueStateT};
 
 /// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
 /// context.
@@ -107,7 +108,10 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().set_event_idx(enabled);
     }
 
-    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
+    where
+        M: GuestMemory + ?Sized,
+    {
         self.lock_state().avail_idx(mem, order)
     }
 
@@ -150,6 +154,14 @@ impl QueueStateT for QueueStateSync {
 
     fn set_next_used(&mut self, next_used: u16) {
         self.lock_state().set_next_used(next_used);
+    }
+
+    fn pop_descriptor_chain<M>(&mut self, mem: M) -> Option<DescriptorChain<M>>
+    where
+        M: Clone + Deref,
+        M::Target: GuestMemory,
+    {
+        self.lock_state().pop_descriptor_chain(mem)
     }
 }
 

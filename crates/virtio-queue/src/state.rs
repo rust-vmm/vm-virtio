@@ -19,7 +19,10 @@ use crate::defs::{
     VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_HEADER_SIZE,
     VIRTQ_USED_RING_META_SIZE,
 };
-use crate::{error, AvailIter, Descriptor, Error, QueueStateGuard, QueueStateT, VirtqUsedElem};
+use crate::{
+    error, AvailIter, Descriptor, DescriptorChain, Error, QueueStateGuard, QueueStateT,
+    VirtqUsedElem,
+};
 
 /// Struct to maintain information and manipulate state of a virtio queue.
 ///
@@ -71,7 +74,7 @@ impl QueueState {
     pub fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
     where
         M: Deref,
-        M::Target: GuestMemory + Sized,
+        M::Target: GuestMemory,
     {
         self.avail_idx(mem.deref(), Ordering::Acquire)
             .map(move |idx| AvailIter::new(mem, idx, self))
@@ -311,7 +314,10 @@ impl QueueStateT for QueueState {
         self.event_idx_enabled = enabled;
     }
 
-    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
+    where
+        M: GuestMemory + ?Sized,
+    {
         let addr = self
             .avail_ring
             .checked_add(2)
@@ -449,5 +455,20 @@ impl QueueStateT for QueueState {
 
     fn set_next_used(&mut self, next_used: u16) {
         self.next_used = Wrapping(next_used);
+    }
+
+    fn pop_descriptor_chain<M>(&mut self, mem: M) -> Option<DescriptorChain<M>>
+    where
+        M: Clone + Deref,
+        M::Target: GuestMemory,
+    {
+        // Default, iter-based impl. Will be subsequently improved.
+        match self.iter(mem) {
+            Ok(mut iter) => iter.next(),
+            Err(e) => {
+                error!("Iterator error {}", e);
+                None
+            }
+        }
     }
 }

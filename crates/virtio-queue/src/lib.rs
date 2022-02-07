@@ -155,7 +155,9 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     fn set_event_idx(&mut self, enabled: bool);
 
     /// Read the `idx` field from the available ring.
-    fn avail_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
+    fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
+    where
+        M: GuestMemory + ?Sized;
 
     /// Read the `idx` field from the used ring.
     fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
@@ -193,4 +195,14 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
 
     /// Set the index for the next descriptor in the used ring.
     fn set_next_used(&mut self, next_used: u16);
+
+    /// Pop and return the next available descriptor chain, or `None` when there are no more
+    /// descriptor chains available.
+    ///
+    /// This enables the consumption of available descriptor chains in a "one at a time"
+    /// manner, without having to hold a borrow after the method returns.
+    fn pop_descriptor_chain<M>(&mut self, mem: M) -> Option<DescriptorChain<M>>
+    where
+        M: Clone + Deref,
+        M::Target: GuestMemory;
 }
