@@ -20,8 +20,8 @@ use crate::defs::{
     VIRTQ_USED_RING_META_SIZE,
 };
 use crate::{
-    error, AvailIter, Descriptor, DescriptorChain, Error, QueueStateGuard, QueueStateT,
-    VirtqUsedElem,
+    error, AvailIter, Descriptor, DescriptorChain, Error, QueueStateGuard, QueueStateOwnedT,
+    QueueStateT, VirtqUsedElem,
 };
 
 /// Struct to maintain information and manipulate state of a virtio queue.
@@ -67,19 +67,6 @@ pub struct QueueState {
 }
 
 impl QueueState {
-    /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
-    ///
-    /// # Arguments
-    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
-    pub fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
-    where
-        M: Deref,
-        M::Target: GuestMemory,
-    {
-        self.avail_idx(mem.deref(), Ordering::Acquire)
-            .map(move |idx| AvailIter::new(mem, idx, self))
-    }
-
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event<M: GuestMemory>(
@@ -470,5 +457,20 @@ impl QueueStateT for QueueState {
                 None
             }
         }
+    }
+}
+
+impl QueueStateOwnedT for QueueState {
+    fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
+    where
+        M: Deref,
+        M::Target: GuestMemory,
+    {
+        self.avail_idx(mem.deref(), Ordering::Acquire)
+            .map(move |idx| AvailIter::new(mem, idx, self))
+    }
+
+    fn go_to_previous_position(&mut self) {
+        self.next_avail -= Wrapping(1);
     }
 }

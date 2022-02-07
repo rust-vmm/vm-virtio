@@ -206,3 +206,20 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
         M: Clone + Deref,
         M::Target: GuestMemory;
 }
+
+/// Trait to access and manipulate a Virtio queue that's known to be exclusively accessed
+/// by a single execution thread.
+pub trait QueueStateOwnedT: QueueStateT {
+    /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
+    ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
+    fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
+    where
+        M: Deref,
+        M::Target: GuestMemory;
+
+    /// Undo the last advancement of the next available index field by decrementing its
+    /// value by one.
+    fn go_to_previous_position(&mut self);
+}

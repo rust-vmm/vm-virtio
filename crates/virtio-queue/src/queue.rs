@@ -16,7 +16,9 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::GuestAddressSpace;
 
-use crate::{AvailIter, Error, QueueGuard, QueueState, QueueStateGuard, QueueStateT};
+use crate::{
+    AvailIter, Error, QueueGuard, QueueState, QueueStateGuard, QueueStateOwnedT, QueueStateT,
+};
 
 /// A convenient wrapper struct for a virtio queue, with associated `GuestMemory` object.
 ///
