@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::GuestMemory;
 
-use crate::{AvailIter, Error, QueueState, QueueStateT};
+use crate::{AvailIter, Error, QueueState, QueueStateOwnedT, QueueStateT};
 
 /// A guard object to exclusively access an `Queue` object.
 ///
