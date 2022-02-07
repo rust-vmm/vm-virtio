@@ -102,7 +102,7 @@ pub struct AvailIter<'b, M> {
 impl<'b, M> AvailIter<'b, M>
 where
     M: Deref,
-    M::Target: GuestMemory + Sized,
+    M::Target: GuestMemory,
 {
     /// Create a new instance of `AvailInter`.
     ///
