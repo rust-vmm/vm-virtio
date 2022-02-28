@@ -200,86 +200,21 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::mock::MockSplitQueue;
-    use crate::Descriptor;
 
+    use crate::queue::tests::check_invalid_avail_idx;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     #[test]
     fn test_queue_guard_object() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = MockSplitQueue::new(m, 0x100);
+        let vq = &MockSplitQueue::new(m, 0x100);
         let mut q = vq.create_queue(m);
         let mut g = q.lock_with_memory();
 
-        // g is currently valid.
-        assert!(g.is_valid());
         assert!(g.ready());
         assert_eq!(g.max_size(), 0x100);
         g.set_size(16);
-
-        // The chains are (0, 1), (2, 3, 4), (5, 6).
-        for i in 0..7 {
-            let flags = match i {
-                1 | 4 | 6 => 0,
-                _ => VIRTQ_DESC_F_NEXT,
-            };
-
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
-            vq.desc_table().store(i, desc);
-        }
-
-        vq.avail().ring().ref_at(0).store(0);
-        vq.avail().ring().ref_at(1).store(2);
-        vq.avail().ring().ref_at(2).store(5);
-        // Let the device know it can consume chains with the index < 2.
-        vq.avail().idx().store(3);
-        // No descriptor chains are consumed at this point.
-        assert_eq!(g.next_avail(), 0);
-        assert_eq!(g.next_used(), 0);
-
-        loop {
-            g.disable_notification().unwrap();
-
-            while let Some(chain) = g.iter().unwrap().next() {
-                // Process the descriptor chain, and then add entries to the
-                // used ring.
-                let head_index = chain.head_index();
-                let mut desc_len = 0;
-                chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
-                        desc_len += d.len();
-                    }
-                });
-                g.add_used(head_index, desc_len).unwrap();
-            }
-            if !g.enable_notification().unwrap() {
-                break;
-            }
-        }
-        // The next chain that can be consumed should have index 3.
-        assert_eq!(g.next_avail(), 3);
-        assert_eq!(g.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert_eq!(g.next_used(), 3);
-        assert_eq!(g.used_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert!(g.ready());
-
-        // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
-        // test that we don't panic in case the driver decrements it.
-        vq.avail().idx().store(1);
-
-        loop {
-            g.disable_notification().unwrap();
-
-            while let Some(_chain) = g.iter().unwrap().next() {
-                // In a real use case, we would do something with the chain here.
-            }
-
-            if !g.enable_notification().unwrap() {
-                break;
-            }
-        }
+        check_invalid_avail_idx(g.state, m, vq);
     }
 }
