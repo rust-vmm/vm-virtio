@@ -231,11 +231,11 @@ mod tests {
             vq.desc_table().store(i, desc);
         }
 
-        vq.avail().ring().ref_at(0).store(0);
-        vq.avail().ring().ref_at(1).store(2);
-        vq.avail().ring().ref_at(2).store(5);
+        vq.avail().ring().ref_at(0).store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).store(u16::to_le(5));
         // Let the device know it can consume chains with the index < 2.
-        vq.avail().idx().store(3);
+        vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.
         assert_eq!(g.next_avail(), 0);
         assert_eq!(g.next_used(), 0);
