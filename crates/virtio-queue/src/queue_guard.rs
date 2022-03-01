@@ -206,7 +206,7 @@ mod tests {
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     #[test]
-    fn test_queue_guard_object() {
+    fn test_invalid_avail_idx() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = &MockSplitQueue::new(m, 0x100);
         let mut q = vq.create_queue(m);

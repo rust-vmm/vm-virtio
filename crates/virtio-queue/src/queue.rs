@@ -283,7 +283,7 @@ pub mod tests {
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
 
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     #[test]
     fn test_queue_is_valid() {
@@ -641,9 +641,9 @@ pub mod tests {
 
     /// This is a test case that checks that an invalid avail_idx is not triggering a panic in
     /// the queue implementation.
-    pub fn check_invalid_avail_idx<M: GuestMemory>(
+    pub fn check_invalid_avail_idx(
         state: &mut QueueState,
-        mem: &M,
+        mem: &GuestMemoryMmap,
         vq: &MockSplitQueue<GuestMemoryMmap>,
     ) {
         // self is currently valid.
