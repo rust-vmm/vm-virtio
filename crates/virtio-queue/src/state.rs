@@ -318,6 +318,7 @@ impl QueueStateT for QueueState {
             .ok_or(Error::AddressOverflow)?;
 
         mem.load(addr, order)
+            .map(u16::from_le)
             .map(Wrapping)
             .map_err(Error::GuestMemory)
     }
