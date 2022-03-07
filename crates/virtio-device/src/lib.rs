@@ -13,14 +13,12 @@
 mod mmio;
 mod virtio_config;
 
-use vm_memory::GuestAddressSpace;
-
 use std::result;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use log::warn;
-use virtio_queue::Queue;
+use virtio_queue::QueueStateT;
 
 pub use mmio::VirtioMmioDevice;
 pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};
@@ -76,9 +74,11 @@ pub mod status {
 /// between a device and the driver over the transport protocol. Once a device is activated, queue
 /// handling is generally implementation specific, based on the features and notification
 /// mechanisms established during the configuration phase.
-pub trait VirtioDevice<M: GuestAddressSpace> {
+pub trait VirtioDevice {
     /// Error type for operations such as `activate` and `reset`.
     type E;
+    /// The type of queue used for the operation of this device.
+    type Q: QueueStateT;
 
     /// The virtio device type.
     fn device_type(&self) -> u32;
@@ -88,11 +88,11 @@ pub trait VirtioDevice<M: GuestAddressSpace> {
 
     /// Return a reference to the queue currently selected by the driver, or `None` for an
     /// invalid selection.
-    fn queue(&self, index: u16) -> Option<&Queue<M>>;
+    fn queue(&self, index: u16) -> Option<&Self::Q>;
 
     /// Return a mutable reference to the queue currently selected by the driver, or `None`
     /// for an invalid selection.
-    fn queue_mut(&mut self, index: u16) -> Option<&mut Queue<M>>;
+    fn queue_mut(&mut self, index: u16) -> Option<&mut Self::Q>;
 
     /// Return the features advertised by the device.
     ///
@@ -209,7 +209,7 @@ pub trait VirtioDevice<M: GuestAddressSpace> {
 /// of device configuration, by first selecting a queue or features page and then performing the
 /// actual access. `WithDriverSelect` provides common abstractions for this pattern on top of the
 /// `VirtioDevice` interface.
-pub trait WithDriverSelect<M: GuestAddressSpace>: VirtioDevice<M> {
+pub trait WithDriverSelect: VirtioDevice {
     /// Return the index of the currently selected queue.
     fn queue_select(&self) -> u16;
 
@@ -217,12 +217,12 @@ pub trait WithDriverSelect<M: GuestAddressSpace>: VirtioDevice<M> {
     fn set_queue_select(&mut self, value: u16);
 
     /// Return a handle to the currently selected queue, or `None` for an invalid selection.
-    fn selected_queue(&self) -> Option<&Queue<M>> {
+    fn selected_queue(&self) -> Option<&<Self as VirtioDevice>::Q> {
         self.queue(self.queue_select())
     }
 
     /// Return a mutable handle to the currently selected queue, or `None` for an invalid selection.
-    fn selected_queue_mut(&mut self) -> Option<&mut Queue<M>> {
+    fn selected_queue_mut(&mut self) -> Option<&mut <Self as VirtioDevice>::Q> {
         self.queue_mut(self.queue_select())
     }
 
@@ -284,7 +284,7 @@ mod tests {
             assert_eq!(d.cfg.device_features & (1 << VIRTIO_F_RING_EVENT_IDX), 0);
 
             for q in d.cfg.queues.iter() {
-                assert!(!q.state.event_idx_enabled);
+                assert!(!q.event_idx_enabled);
             }
 
             // Revert status.
@@ -302,7 +302,7 @@ mod tests {
             assert_eq!(d.cfg.device_status, status);
 
             for q in d.cfg.queues.iter() {
-                assert!(q.state.event_idx_enabled);
+                assert!(q.event_idx_enabled);
             }
         }
 
