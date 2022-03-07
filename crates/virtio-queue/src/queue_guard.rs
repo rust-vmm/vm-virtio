@@ -222,8 +222,8 @@ mod tests {
     fn test_queue_guard_object() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 0x100);
-        let mut q = vq.create_queue(m);
-        let mut g = q.lock_with_memory();
+        let mut q: QueueState = vq.create_queue();
+        let mut g = q.lock_with_memory(m);
 
         // g is currently valid.
         assert!(g.is_valid());

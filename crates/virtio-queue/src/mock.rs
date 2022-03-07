@@ -7,12 +7,12 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
 
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
-};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
-use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
+use crate::{
+    Descriptor, DescriptorChain, QueueState, QueueStateOwnedT, QueueStateT, VirtqUsedElem,
+};
 use std::fmt::{self, Debug, Display};
 use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
 
@@ -394,14 +394,23 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
-    pub fn create_queue<A: GuestAddressSpace>(&self, a: A) -> Queue<A, QueueState> {
-        let mut q = Queue::<A, QueueState>::new(a, self.len);
-
-        q.state.size = self.len;
-        q.state.ready = true;
-        q.state.desc_table = self.desc_table_addr;
-        q.state.avail_ring = self.avail_addr;
-        q.state.used_ring = self.used_addr;
+    pub fn create_queue<Q: QueueStateT>(&self) -> Q {
+        let mut q = Q::new(self.len);
+        q.set_size(self.len);
+        q.set_ready(true);
+        // we cannot directly set the u64 address, we need to compose it from low & high.
+        q.set_desc_table_address(
+            Some(self.desc_table_addr.0 as u32),
+            Some((self.desc_table_addr.0 >> 32) as u32),
+        );
+        q.set_avail_ring_address(
+            Some(self.avail_addr.0 as u32),
+            Some((self.avail_addr.0 >> 32) as u32),
+        );
+        q.set_used_ring_address(
+            Some(self.used_addr.0 as u32),
+            Some((self.used_addr.0 >> 32) as u32),
+        );
         q
     }
 
@@ -412,8 +421,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         descs: &[Descriptor],
     ) -> Result<DescriptorChain<&M>, MockError> {
         self.add_desc_chains(descs, 0)?;
-        self.create_queue(self.mem)
-            .iter()
+        self.create_queue::<QueueState>()
+            .iter(self.mem)
             .unwrap()
             .next()
             .ok_or(MockError::InvalidNextAvail)
@@ -423,6 +432,9 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     /// descriptor table, and returns the associated `DescriptorChain` object.
     // This method ensures the next flags and values are set properly for the desired chain, but
     // keeps the other characteristics of the input descriptors (`addr`, `len`, other flags).
+    // TODO: make this function work with a generic queue. For now that's not possible because
+    // we cannot create the descriptor chain from an iterator as iterator is not implemented for
+    // a generic T, just for `QueueState`.
     pub fn build_desc_chain(&self, descs: &[Descriptor]) -> Result<DescriptorChain<&M>, MockError> {
         let mut modified_descs: Vec<Descriptor> = Vec::with_capacity(descs.len());
         for (idx, desc) in descs.iter().enumerate() {

@@ -23,12 +23,12 @@ use virtio_bindings::bindings::virtio_ring::{
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, Queue};
+/// use virtio_queue::{Descriptor, QueueState, QueueStateOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
-/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+/// # fn populate_queue(m: &GuestMemoryMmap) -> QueueState {
 /// #    let vq = MockSplitQueue::new(m, 16);
-/// #    let mut q = vq.create_queue(m);
+/// #    let mut q = vq.create_queue();
 /// #
 /// #    // We have only one chain: (0, 1).
 /// #    let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
@@ -43,7 +43,7 @@ use virtio_bindings::bindings::virtio_ring::{
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 /// // Populate the queue with descriptor chains and update the available ring accordingly.
 /// let mut queue = populate_queue(m);
-/// let mut i = queue.iter().unwrap();
+/// let mut i = queue.iter(m).unwrap();
 /// let mut c = i.next().unwrap();
 ///
 /// // Get the first descriptor and access its fields.

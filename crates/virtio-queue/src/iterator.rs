@@ -27,12 +27,12 @@ use crate::{error, DescriptorChain, QueueState};
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, Queue};
+/// use virtio_queue::{Descriptor, QueueState, QueueStateOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
-/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+/// # fn populate_queue(m: &GuestMemoryMmap) -> QueueState {
 /// #    let vq = MockSplitQueue::new(m, 16);
-/// #    let mut q = vq.create_queue(m);
+/// #    let mut q: QueueState = vq.create_queue();
 /// #
 /// #    // The chains are (0, 1), (2, 3, 4) and (5, 6).
 /// #    for i in 0..7 {
@@ -56,7 +56,7 @@ use crate::{error, DescriptorChain, QueueState};
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 /// // Populate the queue with descriptor chains and update the available ring accordingly.
 /// let mut queue = populate_queue(m);
-/// let mut i = queue.iter().unwrap();
+/// let mut i = queue.iter(m).unwrap();
 ///
 /// {
 ///     let mut c = i.next().unwrap();
@@ -177,7 +177,7 @@ where
 mod tests {
     use super::*;
     use crate::mock::MockSplitQueue;
-    use crate::{Descriptor, QueueStateT};
+    use crate::{Descriptor, QueueStateOwnedT, QueueStateT};
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
     use vm_memory::GuestMemoryMmap;
 
@@ -186,10 +186,10 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: QueueState = vq.create_queue();
 
         // q is currently valid
-        assert!(q.is_valid());
+        assert!(q.is_valid(m));
 
         // the chains are (0, 1), (2, 3, 4) and (5, 6)
         for j in 0..7 {
@@ -209,7 +209,7 @@ mod tests {
         vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
         vq.avail().idx().store(u16::to_le(3));
 
-        let mut i = q.iter().unwrap();
+        let mut i = q.iter(m).unwrap();
 
         {
             let c = i.next().unwrap();
@@ -249,22 +249,22 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q = vq.create_queue(m);
+        let mut q: QueueState = vq.create_queue();
 
-        q.state.size = q.state.max_size;
-        q.state.desc_table = vq.desc_table_addr();
-        q.state.avail_ring = vq.avail_addr();
-        q.state.used_ring = vq.used_addr();
-        assert!(q.is_valid());
+        q.size = q.max_size;
+        q.desc_table = vq.desc_table_addr();
+        q.avail_ring = vq.avail_addr();
+        q.used_ring = vq.used_addr();
+        assert!(q.is_valid(m));
 
         {
             // an invalid queue should return an iterator with no next
-            q.state.ready = false;
-            let mut i = q.iter().unwrap();
+            q.ready = false;
+            let mut i = q.iter(m).unwrap();
             assert!(i.next().is_none());
         }
 
-        q.state.ready = true;
+        q.ready = true;
 
         // now let's create two simple descriptor chains
         // the chains are (0, 1) and (2, 3, 4)
@@ -283,7 +283,7 @@ mod tests {
             vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
             vq.avail().idx().store(u16::to_le(2));
 
-            let mut i = q.iter().unwrap();
+            let mut i = q.iter(m).unwrap();
 
             {
                 let mut c = i.next().unwrap();
@@ -310,7 +310,7 @@ mod tests {
             {
                 assert!(i.next().is_none());
                 i.go_to_previous_position();
-                let mut c = q.iter().unwrap().next().unwrap();
+                let mut c = q.iter(m).unwrap().next().unwrap();
                 c.next().unwrap();
                 c.next().unwrap();
                 c.next().unwrap();
