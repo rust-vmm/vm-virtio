@@ -9,10 +9,9 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use log::error;
-use vm_memory::GuestAddressSpace;
 
 use crate::{VirtioDevice, WithDriverSelect};
-use virtio_queue::Queue;
+use virtio_queue::{QueueState, QueueStateT};
 
 /// An object that provides a common virtio device configuration representation. It is not part
 /// of the main `vm-virtio` set of interfaces, but rather can be used as a helper object in
@@ -22,7 +21,7 @@ use virtio_queue::Queue;
 // The various members have `pub` visibility until we determine whether it makes sense to drop
 // this in favor of adding accessors.
 #[derive(Debug)]
-pub struct VirtioConfig<M: GuestAddressSpace> {
+pub struct VirtioConfig<Q: QueueStateT> {
     /// The set of features exposed by the device.
     pub device_features: u64,
     /// The set of features acknowledged by the driver.
@@ -36,7 +35,7 @@ pub struct VirtioConfig<M: GuestAddressSpace> {
     /// Index of the queue currently selected by the driver.
     pub queue_select: u16,
     /// Queues associated with the device.
-    pub queues: Vec<Queue<M>>,
+    pub queues: Vec<Q>,
     /// Configuration space generation number.
     pub config_generation: u8,
     /// Contents of the device configuration space.
@@ -47,9 +46,9 @@ pub struct VirtioConfig<M: GuestAddressSpace> {
     pub interrupt_status: Arc<AtomicU8>,
 }
 
-impl<M: GuestAddressSpace> VirtioConfig<M> {
+impl<Q: QueueStateT> VirtioConfig<Q> {
     /// Build and initialize a `VirtioConfig` object.
-    pub fn new(device_features: u64, queues: Vec<Queue<M>>, config_space: Vec<u8>) -> Self {
+    pub fn new(device_features: u64, queues: Vec<Q>, config_space: Vec<u8>) -> Self {
         VirtioConfig {
             device_features,
             driver_features: 0,
@@ -63,14 +62,6 @@ impl<M: GuestAddressSpace> VirtioConfig<M> {
             device_activated: false,
             interrupt_status: Arc::new(AtomicU8::new(0)),
         }
-    }
-
-    /// Helper method which checks whether all queues are valid.
-    // TODO: This method assumes all queues are intended for use. We probably need to tweak it
-    // for devices that support multiple queues which might not all be configured/activated by
-    // the driver.
-    pub fn queues_valid(&self) -> bool {
-        self.queues.iter().all(Queue::is_valid)
     }
 }
 
@@ -98,12 +89,12 @@ pub trait VirtioDeviceActions {
 
 // We can automatically implement the `VirtioDevice` trait for objects that only explicitly
 // implement `WithVirtioConfig` and `WithDeviceOps`.
-impl<M, T> VirtioDevice<M> for T
+impl<T> VirtioDevice for T
 where
-    M: GuestAddressSpace + 'static,
-    T: VirtioDeviceType + VirtioDeviceActions + BorrowMut<VirtioConfig<M>>,
+    T: VirtioDeviceType + VirtioDeviceActions + BorrowMut<VirtioConfig<QueueState>>,
 {
     type E = <Self as VirtioDeviceActions>::E;
+    type Q = QueueState;
 
     fn device_type(&self) -> u32 {
         // Avoid infinite recursion.
@@ -115,11 +106,11 @@ where
         self.borrow().queues.len() as u16
     }
 
-    fn queue(&self, index: u16) -> Option<&Queue<M>> {
+    fn queue(&self, index: u16) -> Option<&QueueState> {
         self.borrow().queues.get(usize::from(index))
     }
 
-    fn queue_mut(&mut self, index: u16) -> Option<&mut Queue<M>> {
+    fn queue_mut(&mut self, index: u16) -> Option<&mut QueueState> {
         self.borrow_mut().queues.get_mut(usize::from(index))
     }
 
@@ -197,11 +188,10 @@ where
     }
 }
 
-impl<M, T> WithDriverSelect<M> for T
+impl<T> WithDriverSelect for T
 where
     // Added a `static bound here while `M` is around to simplify dealing with lifetimes.
-    M: GuestAddressSpace + 'static,
-    T: BorrowMut<VirtioConfig<M>> + VirtioDevice<M>,
+    T: BorrowMut<VirtioConfig<QueueState>> + VirtioDevice,
 {
     fn queue_select(&self) -> u16 {
         self.borrow().queue_select
@@ -230,19 +220,12 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::borrow::Borrow;
-    use std::sync::Arc;
-
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-    use crate::mmio::VirtioMmioDevice;
-
     use super::*;
-
-    pub type DummyMem = Arc<GuestMemoryMmap>;
+    use crate::mmio::VirtioMmioDevice;
+    use std::borrow::Borrow;
 
     pub struct Dummy {
-        pub cfg: VirtioConfig<DummyMem>,
+        pub cfg: VirtioConfig<QueueState>,
         pub device_type: u32,
         pub activate_count: u64,
         pub reset_count: u64,
@@ -251,10 +234,7 @@ pub(crate) mod tests {
 
     impl Dummy {
         pub fn new(device_type: u32, features: u64, config_space: Vec<u8>) -> Self {
-            let mem = Arc::new(
-                GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10_0000_0000)]).unwrap(),
-            );
-            let queue = Queue::new(mem, 256);
+            let queue = QueueState::new(256);
 
             let cfg = VirtioConfig::new(features, vec![queue], config_space);
             Dummy {
@@ -273,14 +253,14 @@ pub(crate) mod tests {
         }
     }
 
-    impl Borrow<VirtioConfig<DummyMem>> for Dummy {
-        fn borrow(&self) -> &VirtioConfig<DummyMem> {
+    impl Borrow<VirtioConfig<QueueState>> for Dummy {
+        fn borrow(&self) -> &VirtioConfig<QueueState> {
             &self.cfg
         }
     }
 
-    impl BorrowMut<VirtioConfig<DummyMem>> for Dummy {
-        fn borrow_mut(&mut self) -> &mut VirtioConfig<DummyMem> {
+    impl BorrowMut<VirtioConfig<QueueState>> for Dummy {
+        fn borrow_mut(&mut self) -> &mut VirtioConfig<QueueState> {
             &mut self.cfg
         }
     }
@@ -299,7 +279,7 @@ pub(crate) mod tests {
         }
     }
 
-    impl VirtioMmioDevice<DummyMem> for Dummy {
+    impl VirtioMmioDevice for Dummy {
         fn queue_notify(&mut self, val: u32) {
             self.last_queue_notify = val;
         }

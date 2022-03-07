@@ -10,10 +10,9 @@ use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 
 use log::warn;
-use vm_memory::GuestAddressSpace;
 
-use crate::{status, WithDriverSelect};
-use virtio_queue::Queue;
+use crate::{status, VirtioDevice, WithDriverSelect};
+use virtio_queue::QueueStateT;
 
 // Required by the Virtio MMIO device register layout at offset 0 from base. Turns out this
 // is actually the ASCII sequence for "virt" (in little endian ordering).
@@ -31,11 +30,11 @@ const VENDOR_ID: u32 = 0;
 // a `VirtioDevice`, provided the status check is successful.
 // TODO: This function and its uses will likely have to be updated when we start offering
 // packed virtqueue support as well.
-fn update_queue_field<M, D, F>(device: &mut D, f: F)
+fn update_queue_field<D, F, Q>(device: &mut D, f: F)
 where
-    M: GuestAddressSpace,
-    D: WithDriverSelect<M> + ?Sized,
-    F: FnOnce(&mut Queue<M>),
+    D: WithDriverSelect + ?Sized + VirtioDevice<Q = Q>,
+    Q: QueueStateT,
+    F: FnOnce(&mut Q),
 {
     if device.check_device_status(status::FEATURES_OK, status::DRIVER_OK | status::FAILED) {
         if let Some(queue) = device.selected_queue_mut() {
@@ -55,7 +54,7 @@ where
 /// default implementation of read and write operations from/to the device registers and
 /// configuration space.
 // Adding the `M` generic parameter that's also required by `VirtioDevice` for the time being.
-pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
+pub trait VirtioMmioDevice: WithDriverSelect {
     /// Callback invoked when the driver writes a value to the Queue Notify configuration register.
     ///
     /// This is the simplest mechanism the driver can use to notify a virtio MMIO device. The
@@ -84,7 +83,7 @@ pub trait VirtioMmioDevice<M: GuestAddressSpace>: WithDriverSelect<M> {
                     },
                     0x34 => self
                         .selected_queue()
-                        .map(Queue::max_size)
+                        .map(QueueStateT::max_size)
                         .unwrap_or(0)
                         .into(),
                     0x44 => self
@@ -200,10 +199,9 @@ mod tests {
     use super::*;
     use vm_memory::ByteValued;
 
-    fn mmio_read<M, D>(d: &D, offset: u64) -> u32
+    fn mmio_read<D>(d: &D, offset: u64) -> u32
     where
-        M: GuestAddressSpace,
-        D: VirtioMmioDevice<M>,
+        D: VirtioMmioDevice,
     {
         let mut data = [0u8; 4];
         d.read(offset, data.as_mut());
@@ -248,16 +246,16 @@ mod tests {
         // The max size for the queue in `Dummy` is 256.
         assert_eq!(mmio_read(&d, 0x34), 256);
 
-        assert_eq!(d.cfg.queues[0].state.size, 256);
+        assert_eq!(d.cfg.queues[0].size, 256);
         d.write(0x38, &32u32.to_le_bytes());
         // Updating the queue field has no effect due to invalid device status.
-        assert_eq!(d.cfg.queues[0].state.size, 256);
+        assert_eq!(d.cfg.queues[0].size, 256);
 
         d.cfg.device_status |= status::FEATURES_OK;
 
         // Let's try the update again.
         d.write(0x38, &32u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.size, 32);
+        assert_eq!(d.cfg.queues[0].size, 32);
 
         // The queue in `Dummy` is not ready yet.
         assert_eq!(mmio_read(&d, 0x44), 0);
@@ -271,23 +269,23 @@ mod tests {
         d.write(0x50, &2u32.to_le_bytes());
         assert_eq!(d.last_queue_notify, 2);
 
-        assert_eq!(d.cfg.queues[0].state.desc_table.0, 0);
+        assert_eq!(d.cfg.queues[0].desc_table.0, 0);
         d.write(0x80, &16u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.desc_table.0, 16);
+        assert_eq!(d.cfg.queues[0].desc_table.0, 16);
         d.write(0x84, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.desc_table.0, (2 << 32) + 16);
+        assert_eq!(d.cfg.queues[0].desc_table.0, (2 << 32) + 16);
 
-        assert_eq!(d.cfg.queues[0].state.avail_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].avail_ring.0, 0);
         d.write(0x90, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.avail_ring.0, 2);
+        assert_eq!(d.cfg.queues[0].avail_ring.0, 2);
         d.write(0x94, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.avail_ring.0, (2 << 32) + 2);
+        assert_eq!(d.cfg.queues[0].avail_ring.0, (2 << 32) + 2);
 
-        assert_eq!(d.cfg.queues[0].state.used_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].used_ring.0, 0);
         d.write(0xa0, &4u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.used_ring.0, 4);
+        assert_eq!(d.cfg.queues[0].used_ring.0, 4);
         d.write(0xa4, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].state.used_ring.0, (2 << 32) + 4);
+        assert_eq!(d.cfg.queues[0].used_ring.0, (2 << 32) + 4);
 
         // Let's select a non-existent queue.
         d.write(0x30, &1u32.to_le_bytes());
