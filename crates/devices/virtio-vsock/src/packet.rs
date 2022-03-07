@@ -199,9 +199,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue(m);
+    /// #     let mut q = vq.create_queue();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
@@ -214,7 +214,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// // Create a queue and populate it with a descriptor chain.
     /// let mut queue = create_queue_with_chain(&mem);
     ///
-    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    /// while let Some(mut head) = queue.pop_descriptor_chain(&mem) {
     ///     let mut pkt = VsockPacket::from_rx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE).unwrap();
     ///     pkt.set_header_from_raw(&[0u8; PKT_HEADER_SIZE]).unwrap();
     /// }
@@ -379,9 +379,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
     /// const OP_RW: u16 = 5;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue(m);
+    /// #     let mut q = vq.create_queue();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, 0, 0),
@@ -394,12 +394,12 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// // Create a queue and populate it with a descriptor chain.
     /// let mut queue = create_queue_with_chain(&mem);
     ///
-    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    /// while let Some(mut head) = queue.pop_descriptor_chain(&mem) {
     ///     let pkt = match VsockPacket::from_tx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE) {
     ///         Ok(pkt) => pkt,
     ///         Err(_e) => {
     ///             // Do some error handling.
-    ///             queue.add_used(head.head_index(), 0);
+    ///             queue.add_used(&mem, head.head_index(), 0);
     ///             continue;
     ///         }
     ///     };
@@ -410,7 +410,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///     if pkt.op() == OP_RW {
     ///         // Send the packet payload to the backend.
     ///     }
-    ///     queue.add_used(head.head_index(), 0);
+    ///     queue.add_used(&mem, head.head_index(), 0);
     /// }
     /// ```
     pub fn from_tx_virtq_chain<M, T>(
@@ -515,9 +515,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # const BUF_ALLOC: u32 = 256;
     /// # const FWD_CNT: u32 = 9;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue(m);
+    /// #     let mut q = vq.create_queue();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
@@ -530,7 +530,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// // Create a queue and populate it with a descriptor chain.
     /// let mut queue = create_queue_with_chain(&mem);
     ///
-    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    /// while let Some(mut head) = queue.pop_descriptor_chain(&mem) {
     ///     let used_len = match VsockPacket::from_rx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE) {
     ///         Ok(mut pkt) => {
     ///             // Make sure the header is zeroed out first.
@@ -557,7 +557,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///             0
     ///         }
     ///     };
-    ///     queue.add_used(head.head_index(), used_len);
+    ///     queue.add_used(&mem, head.head_index(), used_len);
     /// }
     /// ```
     pub fn from_rx_virtq_chain<M, T>(

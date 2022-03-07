@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 use criterion::{black_box, BatchSize, Criterion};
-use virtio_queue::Queue;
-use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryAtomic, GuestMemoryMmap};
+use virtio_queue::{QueueState, QueueStateOwnedT, QueueStateT};
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use virtio_queue::mock::MockSplitQueue;
 
 pub fn benchmark_queue(c: &mut Criterion) {
-    fn walk_queue<A: GuestAddressSpace>(q: &mut Queue<A>) -> (usize, usize) {
+    fn walk_queue<M: GuestMemory>(q: &mut QueueState, mem: &M) -> (usize, usize) {
         let mut num_chains = 0;
         let mut num_descriptors = 0;
 
-        q.iter().unwrap().for_each(|chain| {
+        q.iter(mem).unwrap().for_each(|chain| {
             num_chains += 1;
             chain.for_each(|_| num_descriptors += 1);
         });
@@ -20,11 +20,10 @@ pub fn benchmark_queue(c: &mut Criterion) {
         (num_chains, num_descriptors)
     }
 
-    fn bench_queue<A, S, R>(c: &mut Criterion, bench_name: &str, setup: S, mut routine: R)
+    fn bench_queue<S, R>(c: &mut Criterion, bench_name: &str, setup: S, mut routine: R)
     where
-        A: GuestAddressSpace,
-        S: FnMut() -> Queue<A> + Clone,
-        R: FnMut(Queue<A>),
+        S: FnMut() -> QueueState + Clone,
+        R: FnMut(QueueState),
     {
         c.bench_function(bench_name, move |b| {
             b.iter_batched(
@@ -46,12 +45,12 @@ pub fn benchmark_queue(c: &mut Criterion) {
                 mq.add_chain(len).unwrap();
             }
         }
-        mq.create_queue(GuestMemoryAtomic::new(mem.clone()))
+        mq.create_queue()
     };
 
     let empty_queue = || {
         let mq = MockSplitQueue::new(&mem, 256);
-        mq.create_queue(GuestMemoryAtomic::new(mem.clone()))
+        mq.create_queue()
     };
 
     for indirect in [false, true].iter().copied() {
@@ -60,7 +59,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
             &format!("single chain (indirect={})", indirect),
             || queue_with_chains(1, 128, indirect),
             |mut q| {
-                let (num_chains, num_descriptors) = walk_queue(&mut q);
+                let (num_chains, num_descriptors) = walk_queue(&mut q, &mem);
                 assert_eq!(num_chains, 1);
                 assert_eq!(num_descriptors, 128);
             },
@@ -71,7 +70,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
             &format!("multiple chains (indirect={})", indirect),
             || queue_with_chains(128, 1, indirect),
             |mut q| {
-                let (num_chains, num_descriptors) = walk_queue(&mut q);
+                let (num_chains, num_descriptors) = walk_queue(&mut q, &mem);
                 assert_eq!(num_chains, 128);
                 assert_eq!(num_descriptors, 128);
             },
@@ -80,7 +79,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
 
     bench_queue(c, "add used", empty_queue, |mut q| {
         for _ in 0..128 {
-            q.add_used(123, 0x1000).unwrap();
+            q.add_used(&mem, 123, 0x1000).unwrap();
         }
     });
 }
