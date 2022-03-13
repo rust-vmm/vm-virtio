@@ -121,6 +121,9 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
 
+    /// Get the actual size configured by the guest.
+    fn size(&self) -> u16;
+
     /// Configure the queue size for the virtio queue.
     fn set_size(&mut self, size: u16);
 

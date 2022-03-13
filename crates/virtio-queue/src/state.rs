@@ -242,6 +242,10 @@ impl QueueStateT for QueueState {
         self.max_size
     }
 
+    fn size(&self) -> u16 {
+        self.size
+    }
+
     fn set_size(&mut self, size: u16) {
         if size > self.max_size() || size == 0 || (size & (size - 1)) != 0 {
             error!("virtio queue with invalid size: {}", size);
@@ -427,12 +431,12 @@ impl QueueStateT for QueueState {
         self.next_avail.0
     }
 
-    fn next_used(&self) -> u16 {
-        self.next_used.0
-    }
-
     fn set_next_avail(&mut self, next_avail: u16) {
         self.next_avail = Wrapping(next_avail);
+    }
+
+    fn next_used(&self) -> u16 {
+        self.next_used.0
     }
 
     fn set_next_used(&mut self, next_used: u16) {

@@ -75,6 +75,10 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().max_size()
     }
 
+    fn size(&self) -> u16 {
+        self.lock_state().size()
+    }
+
     fn set_size(&mut self, size: u16) {
         self.lock_state().set_size(size);
     }
@@ -136,12 +140,12 @@ impl QueueStateT for QueueStateSync {
         self.lock_state().next_avail()
     }
 
-    fn next_used(&self) -> u16 {
-        self.lock_state().next_used()
-    }
-
     fn set_next_avail(&mut self, next_avail: u16) {
         self.lock_state().set_next_avail(next_avail);
+    }
+
+    fn next_used(&self) -> u16 {
+        self.lock_state().next_used()
     }
 
     fn set_next_used(&mut self, next_used: u16) {
@@ -210,7 +214,9 @@ mod tests {
         assert_eq!(q.lock().size, 0x100);
 
         assert_eq!(q.max_size(), 0x100);
+        assert_eq!(q.size(), 0x100);
         q.set_size(0x80);
+        assert_eq!(q.size(), 0x80);
         assert_eq!(q.max_size(), 0x100);
         q.set_next_avail(5);
         assert_eq!(q.next_avail(), 5);
