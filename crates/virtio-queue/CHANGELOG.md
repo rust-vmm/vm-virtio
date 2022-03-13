@@ -1,3 +1,11 @@
+# Unreleased
+
+## Added
+- QueueStateT::size(): [#153](https://github.com/rust-vmm/vm-virtio/pull/153)
+
+## Removed
+- #[derive(Clone)] for QueueState: [#153](https://github.com/rust-vmm/vm-virtio/pull/153)
+
 # v0.2.0
 
 ## Added
