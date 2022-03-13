@@ -22,7 +22,7 @@ use crate::defs::{
 use crate::{error, AvailIter, Descriptor, Error, QueueStateGuard, QueueStateT, VirtqUsedElem};
 
 /// Struct to maintain information and manipulate state of a virtio queue.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct QueueState {
     /// The maximum size in elements offered by the device.
     pub max_size: u16,
