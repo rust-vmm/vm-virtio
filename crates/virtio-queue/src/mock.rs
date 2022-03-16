@@ -11,7 +11,10 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
 };
 
-use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
+use crate::defs::{
+    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_DESC_F_INDIRECT,
+    VIRTQ_DESC_F_NEXT,
+};
 use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
 
 /// Wrapper struct used for accessing a particular address of a GuestMemory area.
@@ -368,17 +371,29 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         q
     }
 
-    /// Writes a descriptor chain to the memory object of the queue and returns the associated
-    /// `DescriptorChain` object.
-    // `descs` represents a slice of `Descriptor` objects which are used to populate the chain.
+    /// Writes a single descriptor chain to the memory object of the queue, at the beginning of the
+    /// descriptor table, and returns the associated `DescriptorChain` object.
+    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> DescriptorChain<&M> {
+        self.add_desc_chain(descs, 0);
+
+        self.create_queue(self.mem)
+            .iter()
+            .unwrap()
+            .next()
+            .expect("failed to build desc chain")
+    }
+
+    /// Adds a descriptor chain to the memory object of the queue.
+    // `descs` represents a slice of `Descriptor` objects which are used to populate the chain, and
+    // `offset` is the index in the descriptor table where the chain should be added.
     // This method ensures the next flags and values are set properly for the desired chain, but
     // keeps the other characteristics of the input descriptors (`addr`, `len`, other flags).
     // The descriptor chain related information is written in memory starting with address 0.
     // The `addr` fields of the input descriptors should start at a sufficiently
     // greater location (i.e. 1MiB, or `0x10_0000`).
-    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> DescriptorChain<&M> {
+    pub fn add_desc_chain(&self, descs: &[Descriptor], offset: u16) {
         for (idx, desc) in descs.iter().enumerate() {
-            let i = idx as u16;
+            let i = idx as u16 + offset;
             let addr = desc.addr().0;
             let len = desc.len();
             let (flags, next) = if idx == descs.len() - 1 {
@@ -395,20 +410,23 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             self.desc_table().store(i, desc);
         }
 
-        // Put the descriptor index 0 in the first available ring position.
+        // Update the first available ring position.
+        let avail_idx: u16 = self
+            .mem
+            .read_obj(self.avail_addr().unchecked_add(2))
+            .unwrap();
         self.mem
-            .write_obj(0u16, self.avail_addr().unchecked_add(4))
+            .write_obj(
+                offset,
+                self.avail_addr().unchecked_add(
+                    VIRTQ_AVAIL_RING_HEADER_SIZE + avail_idx as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
+                ),
+            )
             .unwrap();
 
-        // Set `avail_idx` to 1.
+        // Increment `avail_idx`.
         self.mem
-            .write_obj(1u16, self.avail_addr().unchecked_add(2))
+            .write_obj(avail_idx + 1, self.avail_addr().unchecked_add(2))
             .unwrap();
-
-        self.create_queue(self.mem)
-            .iter()
-            .unwrap()
-            .next()
-            .expect("failed to build desc chain")
     }
 }
