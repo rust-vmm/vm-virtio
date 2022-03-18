@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::GuestMemory;
 
-use crate::{AvailIter, Error, QueueState, QueueStateOwnedT, QueueStateT};
+use crate::{AvailIter, DescriptorChain, Error, QueueState, QueueStateOwnedT, QueueStateT};
 
 /// A guard object to exclusively access an `Queue` object.
 ///
@@ -192,9 +192,20 @@ where
         self.state.set_next_used(next_used);
     }
 
+    /// Pop and return the next available descriptor chain, or `None` when there are no more
+    /// descriptor chains available.
+    pub fn pop_descriptor_chain(&mut self) -> Option<DescriptorChain<M>> {
+        self.state.pop_descriptor_chain(self.mem.clone())
+    }
+
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
     pub fn iter(&mut self) -> Result<AvailIter<'_, M>, Error> {
         self.state.deref_mut().iter(self.mem.clone())
+    }
+
+    /// Decrement the value of the next available index by one position.
+    pub fn go_to_previous_position(&mut self) {
+        self.state.go_to_previous_position();
     }
 }
 
@@ -259,7 +270,27 @@ mod tests {
                 break;
             }
         }
+
+        {
+            g.go_to_previous_position();
+            let mut chain = g.pop_descriptor_chain().unwrap();
+            // The descriptor index of the head descriptor from the last available chain
+            // defined above is equal to 5. The chain has two descriptors, the second with
+            // the index equal to 6.
+            assert_eq!(chain.head_index(), 5);
+
+            let desc = chain.next().unwrap();
+            assert!(desc.has_next());
+            assert_eq!(desc.next(), 6);
+
+            let desc = chain.next().unwrap();
+            assert!(!desc.has_next());
+
+            assert!(chain.next().is_none());
+        }
+
         // The next chain that can be consumed should have index 3.
+
         assert_eq!(g.next_avail(), 3);
         assert_eq!(g.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
         assert_eq!(g.next_used(), 3);
