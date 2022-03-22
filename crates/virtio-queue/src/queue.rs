@@ -274,7 +274,7 @@ impl<M: GuestAddressSpace> Queue<M, QueueState> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::defs::{
         DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR,
@@ -639,18 +639,15 @@ mod tests {
         assert_eq!(q.next_used(), 7);
     }
 
-    #[test]
-    fn test_invalid_avail_idx() {
-        // This is a negative test for the following MUST from the spec: `A driver MUST NOT
-        // decrement the available idx on a virtqueue (ie. there is no way to “unexpose” buffers).`.
-        // We validate that for this misconfiguration, the device does not panic.
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = MockSplitQueue::new(m, 16);
-
-        let mut q = vq.create_queue(m);
-
-        // q is currently valid.
-        assert!(q.is_valid());
+    /// This is a test case that checks that an invalid avail_idx is not triggering a panic in
+    /// the queue implementation.
+    pub fn check_invalid_avail_idx(
+        state: &mut QueueState,
+        mem: &GuestMemoryMmap,
+        vq: &MockSplitQueue<GuestMemoryMmap>,
+    ) {
+        // self is currently valid.
+        assert!(state.is_valid(mem));
 
         // The chains are (0, 1), (2, 3, 4), (5, 6).
         for i in 0..7 {
@@ -668,14 +665,15 @@ mod tests {
         vq.avail().ring().ref_at(2).store(u16::to_le(5));
         // Let the device know it can consume chains with the index < 2.
         vq.avail().idx().store(u16::to_le(3));
+
         // No descriptor chains are consumed at this point.
-        assert_eq!(q.next_avail(), 0);
-        assert_eq!(q.next_used(), 0);
+        assert_eq!(state.next_avail(), 0);
+        assert_eq!(state.next_used(), 0);
 
         loop {
-            q.disable_notification().unwrap();
+            state.disable_notification(mem.deref()).unwrap();
 
-            while let Some(chain) = q.iter().unwrap().next() {
+            while let Some(chain) = state.iter(mem).unwrap().next() {
                 // Process the descriptor chain, and then add entries to the
                 // used ring.
                 let head_index = chain.head_index();
@@ -685,33 +683,53 @@ mod tests {
                         desc_len += d.len();
                     }
                 });
-                q.add_used(head_index, desc_len).unwrap();
+                state.add_used(mem.deref(), head_index, desc_len).unwrap();
             }
-            if !q.enable_notification().unwrap() {
+            if !state.enable_notification(mem.deref()).unwrap() {
                 break;
             }
         }
+
         // The next chain that can be consumed should have index 3.
-        assert_eq!(q.next_avail(), 3);
-        assert_eq!(q.avail_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert_eq!(q.next_used(), 3);
-        assert_eq!(q.used_idx(Ordering::Acquire).unwrap(), Wrapping(3));
-        assert!(q.lock().ready());
+        assert_eq!(state.next_avail(), 3);
+        assert_eq!(
+            state.avail_idx(mem.deref(), Ordering::Acquire).unwrap(),
+            Wrapping(3)
+        );
+        assert_eq!(state.next_used(), 3);
+        assert_eq!(
+            state.used_idx(mem.deref(), Ordering::Acquire).unwrap(),
+            Wrapping(3)
+        );
+        assert!(state.lock().ready());
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
         vq.avail().idx().store(u16::to_le(1));
 
         loop {
-            q.disable_notification().unwrap();
+            state.disable_notification(mem.deref()).unwrap();
 
-            while let Some(_chain) = q.iter().unwrap().next() {
+            while let Some(_chain) = state.iter(mem).unwrap().next() {
                 // In a real use case, we would do something with the chain here.
             }
 
-            if !q.enable_notification().unwrap() {
+            if !state.enable_notification(mem.deref()).unwrap() {
                 break;
             }
         }
+    }
+
+    #[test]
+    fn test_invalid_avail_idx() {
+        // This is a negative test for the following MUST from the spec: `A driver MUST NOT
+        // decrement the available idx on a virtqueue (ie. there is no way to “unexpose” buffers).`.
+        // We validate that for this misconfiguration, the device does not panic.
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = &MockSplitQueue::new(m, 16);
+
+        let mut q = vq.create_queue(m);
+
+        check_invalid_avail_idx(&mut q.state, m, vq);
     }
 }
