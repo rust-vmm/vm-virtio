@@ -430,12 +430,22 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
 
 impl<'a> VsockPacket<'a, ()> {
     /// Create a packet based on one pointer for the header, and an optional one for data.
-    pub fn new(hdr: &mut [u8], data: Option<(&mut [u8], usize)>) -> VsockPacket<'a, ()> {
-        VsockPacket {
-            header_slice: unsafe { VolatileSlice::new(hdr.as_mut_ptr(), PKT_HEADER_SIZE) },
-            header: Default::default(),
-            data_slice: data.map(|data| unsafe { VolatileSlice::new(data.0.as_mut_ptr(), data.1) }),
+    ///
+    /// # Safety
+    ///
+    /// To use this safely, the caller must guarantee that the memory pointed to by the `hdr` and
+    /// `data` slices is available for the duration of the lifetime of the new `VolatileSlice`. The
+    /// caller must also guarantee that all other users of the given chunk of memory are using
+    /// volatile accesses.
+    pub unsafe fn new(header: &mut [u8], data: Option<&mut [u8]>) -> Result<VsockPacket<'a, ()>> {
+        if header.len() != PKT_HEADER_SIZE {
+            return Err(Error::InvalidHeaderInputSize(header.len()));
         }
+        Ok(VsockPacket {
+            header_slice: VolatileSlice::new(header.as_mut_ptr(), PKT_HEADER_SIZE),
+            header: Default::default(),
+            data_slice: data.map(|data| VolatileSlice::new(data.as_mut_ptr(), data.len())),
+        })
     }
 }
 
@@ -988,17 +998,26 @@ mod tests {
     fn test_packet_new() {
         let mut pkt_raw = [0u8; PKT_HEADER_SIZE + LEN as usize];
         let (hdr_raw, data_raw) = pkt_raw.split_at_mut(PKT_HEADER_SIZE);
-        let packet = VsockPacket::new(hdr_raw, Some((data_raw, LEN as usize)));
+        // Safe because ``hdr_raw` and `data_raw` live for as long as the scope of the current test.
+        let packet = unsafe { VsockPacket::new(hdr_raw, Some(data_raw)).unwrap() };
         assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
         assert_eq!(packet.header_slice.len(), PKT_HEADER_SIZE);
         assert_eq!(packet.header, PacketHeader::default());
         assert_eq!(packet.data_slice.unwrap().as_ptr(), data_raw.as_mut_ptr());
         assert_eq!(packet.data_slice.unwrap().len(), LEN as usize);
 
-        let packet = VsockPacket::new(hdr_raw, None);
+        // Safe because ``hdr_raw` and `data_raw` live as long as the scope of the current test.
+        let packet = unsafe { VsockPacket::new(hdr_raw, None).unwrap() };
         assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
         assert_eq!(packet.header, PacketHeader::default());
         assert!(packet.data_slice.is_none());
+
+        let mut hdr_raw = [0u8; PKT_HEADER_SIZE - 1];
+        // Safe because ``hdr_raw` lives for as long as the scope of the current test.
+        assert_eq!(
+            unsafe { VsockPacket::new(&mut hdr_raw, None).unwrap_err() },
+            Error::InvalidHeaderInputSize(PKT_HEADER_SIZE - 1)
+        );
     }
 
     #[test]
