@@ -369,7 +369,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
         }
 
         let data_slice = {
-            mem.get_slice(data_desc.addr(), data_desc.len() as usize)
+            mem.get_slice(data_desc.addr(), pkt.len() as usize)
                 .map_err(Error::InvalidMemoryAccess)?
         };
 
@@ -784,7 +784,7 @@ mod tests {
         let v = vec![
             Descriptor::new(0x5_0000, 0x100, 0, 0),
             // A data length < the length of data as described by the header.
-            Descriptor::new(0x8_0000, LEN as u32 - 1, 0, 0),
+            Descriptor::new(0x8_0000, LEN - 1, 0, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
@@ -808,14 +808,14 @@ mod tests {
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         // The `len` field of the header was set to 16.
-        assert_eq!(packet.len(), LEN as u32);
+        assert_eq!(packet.len(), LEN);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.as_ptr(),
             mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
         );
-        assert_eq!(data.len(), 0x100);
+        assert_eq!(data.len(), LEN as usize);
 
         // If we try to get a vsock packet again, it fails because we already consumed all the
         // descriptors from the chain.
