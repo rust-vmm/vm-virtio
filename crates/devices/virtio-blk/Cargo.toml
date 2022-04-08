@@ -13,12 +13,12 @@ edition = "2018"
 backend-stdio = []
 
 [dependencies]
-vm-memory = "0.7.0"
+vm-memory = ">=0.7.0"
 vmm-sys-util = ">=0.8.0"
 log = ">=0.4.6"
 virtio-queue = { path = "../../virtio-queue" }
 virtio-device = { path = "../../virtio-device" }
 
 [dev-dependencies]
-vm-memory = { version = "0.7.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = ">=0.7.0", features = ["backend-mmap", "backend-atomic"] }
 virtio-queue = { path = "../../virtio-queue", features = ["test-utils"] }
