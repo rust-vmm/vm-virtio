@@ -14,4 +14,4 @@ serde = { version = ">=1.0.27", features = ["derive"] }
 versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 virtio-queue = { path = "../../crates/virtio-queue" }
-vm-memory = "0.7.0"
+vm-memory = ">=0.7.0"
