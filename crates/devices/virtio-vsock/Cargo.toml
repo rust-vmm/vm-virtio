@@ -11,8 +11,8 @@ edition = "2018"
 
 [dependencies]
 virtio-queue = { path = "../../virtio-queue" }
-vm-memory = ">=0.7.0"
+vm-memory = ">=0.8.0"
 
 [dev-dependencies]
 virtio-queue = { path = "../../virtio-queue", features = ["test-utils"] }
-vm-memory = { version = ">=0.7.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = ">=0.8.0", features = ["backend-mmap", "backend-atomic"] }
