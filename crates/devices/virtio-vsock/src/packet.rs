@@ -48,6 +48,8 @@ pub enum Error {
     DescriptorChainTooShort,
     /// Descriptor that was too short to use.
     DescriptorLengthTooSmall,
+    /// Descriptor that was too long to use.
+    DescriptorLengthTooLong,
     /// The slice for creating a header has an invalid length.
     InvalidHeaderInputSize(usize),
     /// The `len` header field value exceeds the maximum allowed data size.
@@ -73,6 +75,10 @@ impl Display for Error {
             Error::DescriptorLengthTooSmall => write!(
                 f,
                 "The descriptor is pointing to a buffer that has a smaller length than expected."
+            ),
+            Error::DescriptorLengthTooLong => write!(
+                f,
+                "The descriptor is pointing to a buffer that has a longer length than expected."
             ),
             Error::InvalidHeaderInputSize(size) => {
                 write!(f, "Invalid header input size: {}", size)
@@ -395,6 +401,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     pub fn from_rx_virtq_chain<M, T>(
         mem: &'a M,
         desc_chain: &mut DescriptorChain<T>,
+        max_data_size: u32,
     ) -> Result<Self>
     where
         M: GuestMemory,
@@ -425,6 +432,10 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
 
         if !data_desc.is_write_only() {
             return Err(Error::UnexpectedReadOnlyDescriptor);
+        }
+
+        if data_desc.len() > max_data_size {
+            return Err(Error::DescriptorLengthTooLong);
         }
 
         let data_slice = mem
@@ -476,6 +487,7 @@ mod tests {
             match (self, other) {
                 (DescriptorChainTooShort, DescriptorChainTooShort) => true,
                 (DescriptorLengthTooSmall, DescriptorLengthTooSmall) => true,
+                (DescriptorLengthTooLong, DescriptorLengthTooLong) => true,
                 (InvalidHeaderInputSize(size), InvalidHeaderInputSize(other_size)) => {
                     size == other_size
                 }
@@ -522,7 +534,7 @@ mod tests {
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::UnexpectedReadOnlyDescriptor
         );
 
@@ -533,8 +545,18 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::DescriptorLengthTooSmall
+        );
+
+        let v = vec![
+            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, MAX_PKT_BUF_SIZE + 1, VIRTQ_DESC_F_WRITE, 0),
+        ];
+        let mut chain = queue.build_desc_chain(&v[..2]);
+        assert_eq!(
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
+            Error::DescriptorLengthTooLong
         );
 
         let v = vec![
@@ -543,7 +565,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..1]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::DescriptorChainTooShort
         );
 
@@ -553,7 +575,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::UnexpectedReadOnlyDescriptor
         );
 
@@ -568,7 +590,7 @@ mod tests {
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
         );
 
@@ -579,7 +601,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::InvalidMemoryAccess(GuestMemoryError::InvalidGuestAddress(GuestAddress(
                 0x20_0000
             )))
@@ -592,7 +614,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::UnexpectedReadOnlyDescriptor
         );
         let v = vec![
@@ -602,7 +624,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
         );
 
@@ -613,7 +635,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::InvalidMemoryAccess(GuestMemoryError::InvalidGuestAddress(GuestAddress(
                 0x20_0000
             )))
@@ -626,7 +648,7 @@ mod tests {
         ];
         let mut chain = queue.build_desc_chain(&v[..2]);
 
-        let packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap();
+        let packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         assert_eq!(packet.header, PacketHeader::default());
         let header = packet.header_slice();
         assert_eq!(
@@ -645,7 +667,7 @@ mod tests {
         // If we try to get a vsock packet again, it fails because we already consumed all the
         // descriptors from the chain.
         assert_eq!(
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap_err(),
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::DescriptorChainTooShort
         );
     }
@@ -875,7 +897,8 @@ mod tests {
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]);
 
-        let mut packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap();
+        let mut packet =
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         packet
             .set_src_cid(SRC_CID)
             .set_dst_cid(DST_CID)
@@ -998,7 +1021,8 @@ mod tests {
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]);
 
-        let mut packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap();
+        let mut packet =
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
 
         let header = PacketHeader {
             src_cid: SRC_CID.into(),
@@ -1081,7 +1105,8 @@ mod tests {
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]);
 
-        let mut packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain).unwrap();
+        let mut packet =
+            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         packet.set_src_cid_invalid(SRC_CID);
     }
 }
