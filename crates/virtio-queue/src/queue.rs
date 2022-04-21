@@ -403,7 +403,7 @@ mod tests {
         q.set_event_idx(true);
         q.set_next_avail(2);
         q.set_next_used(4);
-        q.state.signalled_used = Some(Wrapping(15));
+        q.state.num_added = Wrapping(15);
         assert_eq!(q.state.size, 8);
         // `create_queue` also marks the queue as ready.
         assert!(q.state.ready);
@@ -412,7 +412,7 @@ mod tests {
         assert_ne!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
         assert_ne!(q.state.next_avail, Wrapping(0));
         assert_ne!(q.state.next_used, Wrapping(0));
-        assert_ne!(q.state.signalled_used, None);
+        assert_ne!(q.state.num_added, Wrapping(0));
         assert!(q.state.event_idx_enabled);
 
         q.reset();
@@ -423,7 +423,7 @@ mod tests {
         assert_eq!(q.state.used_ring, GuestAddress(DEFAULT_USED_RING_ADDR));
         assert_eq!(q.state.next_avail, Wrapping(0));
         assert_eq!(q.state.next_used, Wrapping(0));
-        assert_eq!(q.state.signalled_used, None);
+        assert_eq!(q.state.num_added, Wrapping(0));
         assert!(!q.state.event_idx_enabled);
     }
 
@@ -453,32 +453,48 @@ mod tests {
 
         for i in 0..wrap + 12 {
             q.state.next_used = Wrapping(i as u16);
+            // `num_added` needs to be at least `1` to represent the fact that new descriptor
+            // chains have be added to the used ring since the last time `needs_notification`
+            // returned.
+            q.state.num_added = Wrapping(1);
             // Let's test wrapping around the maximum index value as well.
-            let expected = i == 5 || i == (5 + wrap) || q.state.signalled_used.is_none();
-            assert_eq!(q.needs_notification().unwrap(), expected);
+            let expected = i == 5 || i == (5 + wrap);
+            assert_eq!((q.needs_notification().unwrap(), i), (expected, i));
         }
 
         m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
 
-        // Returns `false` because `signalled_used` already passed this value.
+        // Returns `false` because the current `used_event` value is behind both `next_used` and
+        // the value of `next_used` at the time when `needs_notification` last returned (which is
+        // computed based on `num_added` as described in the comments for `needs_notification`.
         assert!(!q.needs_notification().unwrap());
 
         m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
 
+        q.state.num_added = Wrapping(1);
         assert!(!q.needs_notification().unwrap());
+
         q.state.next_used = Wrapping(15);
+        q.state.num_added = Wrapping(1);
         assert!(!q.needs_notification().unwrap());
-        q.state.next_used = Wrapping(0);
+
+        q.state.next_used = Wrapping(16);
+        q.state.num_added = Wrapping(1);
         assert!(q.needs_notification().unwrap());
+
+        // Calling `needs_notification` again immediately returns `false`.
         assert!(!q.needs_notification().unwrap());
 
         m.write_obj::<u16>(u16::MAX - 3, avail_addr.unchecked_add(4 + qsize as u64 * 2))
             .unwrap();
         q.state.next_used = Wrapping(u16::MAX - 2);
-        // Returns `true` because the value we wrote in the `used_event` < the next used value and
-        // the last `signalled_used` is 0.
+        q.state.num_added = Wrapping(1);
+        // Returns `true` because, when looking at circular sequence of indices of the used ring,
+        // the value we wrote in the `used_event` appears between the "old" value of `next_used`
+        // (i.e. `next_used` - `num_added`) and the current `next_used`, thus suggesting that we
+        // need to notify the driver.
         assert!(q.needs_notification().unwrap());
     }
 
