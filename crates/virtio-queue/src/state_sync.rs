@@ -291,7 +291,7 @@ mod tests {
         );
         assert_ne!(q.lock_state().next_avail, Wrapping(0));
         assert_ne!(q.lock_state().next_used, Wrapping(0));
-        assert_ne!(q.lock_state().signalled_used, None);
+        assert_eq!(q.lock_state().num_added, Wrapping(0));
         assert!(q.lock_state().event_idx_enabled);
 
         q.reset();
@@ -311,7 +311,7 @@ mod tests {
         );
         assert_eq!(q.lock_state().next_avail, Wrapping(0));
         assert_eq!(q.lock_state().next_used, Wrapping(0));
-        assert_eq!(q.lock_state().signalled_used, None);
+        assert_eq!(q.lock_state().num_added, Wrapping(0));
         assert!(!q.lock_state().event_idx_enabled);
     }
 

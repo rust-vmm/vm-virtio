@@ -47,8 +47,9 @@ pub struct QueueState {
     /// VIRTIO_F_RING_EVENT_IDX negotiated.
     pub event_idx_enabled: bool,
 
-    /// The last used value when using VIRTIO_F_EVENT_IDX.
-    pub signalled_used: Option<Wrapping<u16>>,
+    /// The number of descriptor chains placed in the used ring via `add_used`
+    /// since the last time `needs_notification` was called on the associated queue.
+    pub num_added: Wrapping<u16>,
 
     /// The queue size in elements the driver selected.
     pub size: u16,
@@ -165,7 +166,7 @@ impl QueueStateT for QueueState {
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
             event_idx_enabled: false,
-            signalled_used: None,
+            num_added: Wrapping(0),
         }
     }
 
@@ -228,7 +229,7 @@ impl QueueStateT for QueueState {
         self.used_ring = GuestAddress(DEFAULT_USED_RING_ADDR);
         self.next_avail = Wrapping(0);
         self.next_used = Wrapping(0);
-        self.signalled_used = None;
+        self.num_added = Wrapping(0);
         self.event_idx_enabled = false;
     }
 
@@ -297,7 +298,6 @@ impl QueueStateT for QueueState {
     }
 
     fn set_event_idx(&mut self, enabled: bool) {
-        self.signalled_used = None;
         self.event_idx_enabled = enabled;
     }
 
@@ -354,6 +354,7 @@ impl QueueStateT for QueueState {
             .map_err(Error::GuestMemory)?;
 
         self.next_used += Wrapping(1);
+        self.num_added += Wrapping(1);
 
         mem.store(
             u16::to_le(self.next_used.0),
@@ -411,18 +412,28 @@ impl QueueStateT for QueueState {
         fence(Ordering::SeqCst);
 
         // The VRING_AVAIL_F_NO_INTERRUPT flag isn't supported yet.
+
+        // When the `EVENT_IDX` feature is negotiated, the driver writes into `used_event`
+        // a value that's used by the device to determine whether a notification must
+        // be submitted after adding a descriptor chain to the used ring. According to the
+        // standard, the notification must be sent when `next_used == used_event + 1`, but
+        // various device model implementations rely on an inequality instead, most likely
+        // to also support use cases where a bunch of descriptor chains are added to the used
+        // ring first, and only afterwards the `needs_notification` logic is called. For example,
+        // the approach based on `num_added` below is taken from the Linux Kernel implementation
+        // (i.e. https://elixir.bootlin.com/linux/v5.15.35/source/drivers/virtio/virtio_ring.c#L661)
+
+        // The `old` variable below is used to determine the value of `next_used` from when
+        // `needs_notification` was called last (each `needs_notification` call resets `num_added`
+        // to zero, while each `add_used` called increments it by one). Then, the logic below
+        // uses wrapped arithmetic to see whether `used_event` can be found between `old` and
+        // `next_used` in the circular sequence space of the used ring.
         if self.event_idx_enabled {
-            if let Some(old_idx) = self.signalled_used.replace(used_idx) {
-                let used_event = self.used_event(mem, Ordering::Relaxed)?;
-                // This check looks at `used_idx`, `used_event`, and `old_idx` as if they are on
-                // an axis that wraps around. If `used_idx - used_used - Wrapping(1)` is greater
-                // than or equal to the difference between `used_idx` and `old_idx`, then
-                // `old_idx` is closer to `used_idx` than `used_event` (and thus more recent), so
-                // we don't need to elicit another notification.
-                if (used_idx - used_event - Wrapping(1u16)) >= (used_idx - old_idx) {
-                    return Ok(false);
-                }
-            }
+            let used_event = self.used_event(mem, Ordering::Relaxed)?;
+            let old = used_idx - self.num_added;
+            self.num_added = Wrapping(0);
+
+            return Ok(used_idx - used_event - Wrapping(1) < used_idx - old);
         }
 
         Ok(true)
