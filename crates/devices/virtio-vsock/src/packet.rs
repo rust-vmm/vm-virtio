@@ -187,6 +187,38 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     }
 
     /// Write to the packet header from an input of raw bytes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    /// # use virtio_queue::mock::MockSplitQueue;
+    /// # use virtio_queue::{Descriptor, Queue, QueueState, QueueStateT};
+    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+    ///
+    /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
+    ///
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// #     let vq = MockSplitQueue::new(m, 16);
+    /// #     let mut q = vq.create_queue(m);
+    /// #
+    /// #     let v = vec![
+    /// #         Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #         Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #     ];
+    /// #     let mut chain = vq.build_desc_chain(&v[..2]);
+    /// #     q
+    /// # }
+    /// let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10_0000)]).unwrap();
+    /// // Create a queue and populate it with a descriptor chain.
+    /// let mut queue = create_queue_with_chain(&mem);
+    ///
+    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    ///     let mut pkt = VsockPacket::from_rx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE).unwrap();
+    ///     pkt.set_header_from_raw(&[0u8; PKT_HEADER_SIZE]).unwrap();
+    /// }
+    /// ```
     pub fn set_header_from_raw(&mut self, bytes: &[u8]) -> Result<()> {
         if bytes.len() != PKT_HEADER_SIZE {
             return Err(Error::InvalidHeaderInputSize(bytes.len()));
@@ -327,6 +359,52 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// The chain head is expected to hold a valid packet header. A following packet data
     /// descriptor can optionally end the chain.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use virtio_queue::mock::MockSplitQueue;
+    /// # use virtio_queue::{Descriptor, Queue, QueueState, QueueStateT};
+    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+    ///
+    /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
+    /// const OP_RW: u16 = 5;
+    ///
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// #     let vq = MockSplitQueue::new(m, 16);
+    /// #     let mut q = vq.create_queue(m);
+    /// #
+    /// #     let v = vec![
+    /// #         Descriptor::new(0x5_0000, 0x100, 0, 0),
+    /// #         Descriptor::new(0x8_0000, 0x100, 0, 0),
+    /// #     ];
+    /// #     let mut chain = vq.build_desc_chain(&v[..2]);
+    /// #     q
+    /// # }
+    /// let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    /// // Create a queue and populate it with a descriptor chain.
+    /// let mut queue = create_queue_with_chain(&mem);
+    ///
+    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    ///     let pkt = match VsockPacket::from_tx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE) {
+    ///         Ok(pkt) => pkt,
+    ///         Err(_e) => {
+    ///             // Do some error handling.
+    ///             queue.add_used(head.head_index(), 0);
+    ///             continue;
+    ///         }
+    ///     };
+    ///     // Here we would send the packet to the backend. Depending on the operation type, a
+    ///     // different type of action will be done.
+    ///
+    ///     // For example, if it's a RW packet, we will forward the packet payload to the backend.
+    ///     if pkt.op() == OP_RW {
+    ///         // Send the packet payload to the backend.
+    ///     }
+    ///     queue.add_used(head.head_index(), 0);
+    /// }
+    /// ```
     pub fn from_tx_virtq_chain<M, T>(
         mem: &'a M,
         desc_chain: &mut DescriptorChain<T>,
@@ -398,6 +476,74 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    /// # use virtio_queue::mock::MockSplitQueue;
+    /// # use virtio_queue::{Descriptor, Queue, QueueState, QueueStateT};
+    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+    ///
+    /// # const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
+    /// # const SRC_CID: u64 = 1;
+    /// # const DST_CID: u64 = 2;
+    /// # const SRC_PORT: u32 = 3;
+    /// # const DST_PORT: u32 = 4;
+    /// # const LEN: u32 = 16;
+    /// # const TYPE_STREAM: u16 = 1;
+    /// # const OP_RW: u16 = 5;
+    /// # const FLAGS: u32 = 7;
+    /// # const FLAG: u32 = 8;
+    /// # const BUF_ALLOC: u32 = 256;
+    /// # const FWD_CNT: u32 = 9;
+    ///
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue<&GuestMemoryMmap> {
+    /// #     let vq = MockSplitQueue::new(m, 16);
+    /// #     let mut q = vq.create_queue(m);
+    /// #
+    /// #     let v = vec![
+    /// #         Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #         Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #     ];
+    /// #     let mut chain = vq.build_desc_chain(&v[..2]);
+    /// #    q
+    /// # }
+    /// let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    /// // Create a queue and populate it with a descriptor chain.
+    /// let mut queue = create_queue_with_chain(&mem);
+    ///
+    /// while let Some(mut head) = queue.state.pop_descriptor_chain(&mem) {
+    ///     let used_len = match VsockPacket::from_rx_virtq_chain(&mem, &mut head, MAX_PKT_BUF_SIZE) {
+    ///         Ok(mut pkt) => {
+    ///             // Make sure the header is zeroed out first.
+    ///             pkt.header_slice()
+    ///                 .write(&[0u8; PKT_HEADER_SIZE], 0)
+    ///                 .unwrap();
+    ///             // Write data to the packet, using the setters.
+    ///             pkt.set_src_cid(SRC_CID)
+    ///                 .set_dst_cid(DST_CID)
+    ///                 .set_src_port(SRC_PORT)
+    ///                 .set_dst_port(DST_PORT)
+    ///                 .set_type(TYPE_STREAM)
+    ///                 .set_buf_alloc(BUF_ALLOC)
+    ///                 .set_fwd_cnt(FWD_CNT);
+    ///             // In this example, we are sending a RW packet.
+    ///             pkt.data_slice()
+    ///                 .unwrap()
+    ///                 .write_slice(&[1u8; LEN as usize], 0);
+    ///             pkt.set_op(OP_RW).set_len(LEN);
+    ///             pkt.header_slice().len() as u32 + LEN
+    ///         }
+    ///         Err(_e) => {
+    ///             // Do some error handling.
+    ///             0
+    ///         }
+    ///     };
+    ///     queue.add_used(head.head_index(), used_len);
+    /// }
+    /// ```
     pub fn from_rx_virtq_chain<M, T>(
         mem: &'a M,
         desc_chain: &mut DescriptorChain<T>,
@@ -459,6 +605,20 @@ impl<'a> VsockPacket<'a, ()> {
     /// `data` slices is available for the duration of the lifetime of the new `VolatileSlice`. The
     /// caller must also guarantee that all other users of the given chunk of memory are using
     /// volatile accesses.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    ///
+    /// const LEN: usize = 16;
+    ///
+    /// let mut pkt_raw = [0u8; PKT_HEADER_SIZE + LEN];
+    /// let (hdr_raw, data_raw) = pkt_raw.split_at_mut(PKT_HEADER_SIZE);
+    /// // Safe because ``hdr_raw` and `data_raw` live for as long as the scope of the current
+    /// // example.
+    /// let packet = unsafe { VsockPacket::new(hdr_raw, Some(data_raw)).unwrap() };
+    /// ```
     pub unsafe fn new(header: &mut [u8], data: Option<&mut [u8]>) -> Result<VsockPacket<'a, ()>> {
         if header.len() != PKT_HEADER_SIZE {
             return Err(Error::InvalidHeaderInputSize(header.len()));
