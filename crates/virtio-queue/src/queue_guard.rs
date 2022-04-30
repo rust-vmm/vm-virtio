@@ -239,12 +239,12 @@ mod tests {
             };
 
             let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
-            vq.desc_table().store(i, desc);
+            vq.desc_table().store(i, desc).unwrap();
         }
 
-        vq.avail().ring().ref_at(0).store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).store(u16::to_le(5));
+        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
         // Let the device know it can consume chains with the index < 2.
         vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.

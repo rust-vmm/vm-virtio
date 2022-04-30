@@ -254,7 +254,7 @@ mod tests {
             // the first desc has a normal len, and the next_descriptor flag is set
             // but the the index of the next descriptor is too large
             let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 16);
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
             c.next().unwrap();
@@ -264,10 +264,10 @@ mod tests {
         // finally, let's test an ok chain
         {
             let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
 
             let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
-            vq.desc_table().store(1, desc);
+            vq.desc_table().store(1, desc).unwrap();
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
 
@@ -306,10 +306,10 @@ mod tests {
         // VIRTQ_DESC_F_NEXT set.
         for i in 0..QUEUE_SIZE - 1 {
             let desc = Descriptor::new(0x1000 * (i + 1) as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1);
-            vq.desc_table().store(i, desc);
+            vq.desc_table().store(i, desc).unwrap();
         }
         let desc = Descriptor::new((0x1000 * 16) as u64, 0x1000, 0, 0);
-        vq.desc_table().store(QUEUE_SIZE - 1, desc);
+        vq.desc_table().store(QUEUE_SIZE - 1, desc).unwrap();
 
         let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), QUEUE_SIZE, 0);
         assert_eq!(c.ttl, c.queue_size);
@@ -334,26 +334,25 @@ mod tests {
 
         // Create a chain with one normal descriptor and one pointing to an indirect table.
         let desc = Descriptor::new(0x6000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
-        dtable.store(0, desc);
+        dtable.store(0, desc).unwrap();
         // The spec forbids setting both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags. We do
         // not currently enforce this rule, we just ignore the VIRTQ_DESC_F_NEXT flag.
         let desc = Descriptor::new(0x7000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
-        dtable.store(1, desc);
+        dtable.store(1, desc).unwrap();
         let desc = Descriptor::new(0x8000, 0x1000, 0, 0);
-        dtable.store(2, desc);
+        dtable.store(2, desc).unwrap();
 
         let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
 
         // create an indirect table with 4 chained descriptors
         let idtable = DescriptorTable::new(m, GuestAddress(0x7000), 4);
         for i in 0..4u16 {
-            let desc: Descriptor;
-            if i < 3 {
-                desc = Descriptor::new(0x1000 * i as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1);
+            let desc: Descriptor = if i < 3 {
+                Descriptor::new(0x1000 * i as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1)
             } else {
-                desc = Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0);
-            }
-            idtable.store(i, desc);
+                Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0)
+            };
+            idtable.store(i, desc).unwrap();
         }
 
         assert_eq!(c.head_index(), 0);
@@ -388,7 +387,7 @@ mod tests {
             // Create a chain with a descriptor pointing to an invalid indirect table: addr not a
             // multiple of descriptor size.
             let desc = Descriptor::new(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -403,7 +402,7 @@ mod tests {
             // Create a chain with a descriptor pointing to an invalid indirect table: len not a
             // multiple of descriptor size.
             let desc = Descriptor::new(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -423,7 +422,7 @@ mod tests {
                 VIRTQ_DESC_F_INDIRECT,
                 0,
             );
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
                 DescriptorChain::new(m, vq.start(), 16, 0);
@@ -437,7 +436,7 @@ mod tests {
 
             // Create a chain with a descriptor pointing to an indirect table.
             let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
-            vq.desc_table().store(0, desc);
+            vq.desc_table().store(0, desc).unwrap();
             // It's ok for an indirect descriptor to have flags = 0.
             let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
             m.write_obj(desc, GuestAddress(0x1000)).unwrap();

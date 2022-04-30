@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(q.used_idx(Ordering::Acquire).unwrap(), Wrapping(1));
         assert_eq!(u16::from_le(vq.used().idx().load()), 1);
 
-        let x = vq.used().ring().ref_at(0).load();
+        let x = vq.used().ring().ref_at(0).unwrap().load();
         assert_eq!(x.id(), 1);
         assert_eq!(x.len(), 0x1000);
     }
@@ -555,14 +555,14 @@ mod tests {
             };
 
             let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
-            vq.desc_table().store(i, desc);
+            vq.desc_table().store(i, desc).unwrap();
         }
 
-        vq.avail().ring().ref_at(0).store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).store(u16::to_le(5));
-        vq.avail().ring().ref_at(3).store(u16::to_le(7));
-        vq.avail().ring().ref_at(4).store(u16::to_le(9));
+        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
+        vq.avail().ring().ref_at(3).unwrap().store(u16::to_le(7));
+        vq.avail().ring().ref_at(4).unwrap().store(u16::to_le(9));
         // Let the device know it can consume chains with the index < 2.
         vq.avail().idx().store(u16::to_le(2));
         // No descriptor chains are consumed at this point.
@@ -678,12 +678,12 @@ mod tests {
             };
 
             let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
-            vq.desc_table().store(i, desc);
+            vq.desc_table().store(i, desc).unwrap();
         }
 
-        vq.avail().ring().ref_at(0).store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).store(u16::to_le(5));
+        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
         // Let the device know it can consume chains with the index < 2.
         vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.

@@ -16,6 +16,35 @@ use crate::defs::{
     VIRTQ_DESC_F_NEXT,
 };
 use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
+use std::fmt::{self, Debug, Display};
+
+/// Mock related errors.
+#[derive(Debug)]
+pub enum MockError {
+    /// Invalid Ref index
+    InvalidIndex,
+    /// Invalid next avail
+    InvalidNextAvail,
+}
+
+impl Display for MockError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::MockError::*;
+
+        match self {
+            InvalidIndex => write!(
+                f,
+                "invalid index for pointing to an address in a region when defining a Ref object"
+            ),
+            InvalidNextAvail => write!(
+                f,
+                "invalid next available descriptor chain head in the queue"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MockError {}
 
 /// Wrapper struct used for accessing a particular address of a GuestMemory area.
 pub struct Ref<'a, M, T> {
@@ -64,16 +93,17 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
 
     /// Return a `Ref` object pointing to an address defined by a particular
     /// index offset in the region.
-    pub fn ref_at(&self, index: usize) -> Ref<'a, M, T> {
-        // TODO: add better error handling to the mock logic.
-        assert!(index < self.len);
+    pub fn ref_at(&self, index: usize) -> Result<Ref<'a, M, T>, MockError> {
+        if index >= self.len {
+            return Err(MockError::InvalidIndex);
+        }
 
         let addr = self
             .addr
             .checked_add((index * size_of::<T>()) as u64)
             .unwrap();
 
-        Ref::new(self.mem, addr)
+        Ok(Ref::new(self.mem, addr))
     }
 }
 
@@ -162,13 +192,17 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
     }
 
     /// Read one descriptor from the specified index.
-    pub fn load(&self, index: u16) -> Descriptor {
-        self.table.ref_at(index as usize).load()
+    pub fn load(&self, index: u16) -> Result<Descriptor, MockError> {
+        self.table
+            .ref_at(index as usize)
+            .map(|load_ref| load_ref.load())
     }
 
     /// Write one descriptor at the specified index.
-    pub fn store(&self, index: u16, value: Descriptor) {
-        self.table.ref_at(index as usize).store(value)
+    pub fn store(&self, index: u16, value: Descriptor) -> Result<(), MockError> {
+        self.table
+            .ref_at(index as usize)
+            .map(|store_ref| store_ref.store(value))
     }
 
     /// Return the total size of the DescriptorTable in bytes.
@@ -177,7 +211,7 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
     }
 
     /// Create a chain of descriptors.
-    pub fn build_chain(&mut self, len: u16) -> u16 {
+    pub fn build_chain(&mut self, len: u16) -> Result<u16, MockError> {
         let indices = self
             .free_descriptors
             .iter()
@@ -199,10 +233,10 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
             } else {
                 desc.set_flags(0);
             }
-            self.store(index_value, desc);
+            self.store(index_value, desc)?;
         }
 
-        indices[0]
+        Ok(indices[0])
     }
 }
 
@@ -308,13 +342,14 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.used_addr
     }
 
-    fn update_avail_idx(&mut self, value: u16) {
+    fn update_avail_idx(&mut self, value: u16) -> Result<(), MockError> {
         let avail_idx = self.avail.idx.load();
-        self.avail.ring.ref_at(avail_idx as usize).store(value);
+        self.avail.ring.ref_at(avail_idx as usize)?.store(value);
         self.avail.idx.store(avail_idx.wrapping_add(1));
+        Ok(())
     }
 
-    fn alloc_indirect_chain(&mut self, len: u16) -> GuestAddress {
+    fn alloc_indirect_chain(&mut self, len: u16) -> Result<GuestAddress, MockError> {
         // To simplify things for now, we round up the table len as a multiple of 16. When this is
         // no longer the case, we should make sure the starting address of the descriptor table
         // we're  creating below is properly aligned.
@@ -326,36 +361,37 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         };
 
         let mut table = DescriptorTable::new(self.mem, self.indirect_addr, table_len);
-        let head_decriptor_index = table.build_chain(len);
+        let head_decriptor_index = table.build_chain(len)?;
         // When building indirect descriptor tables, the descriptor at index 0 is supposed to be
         // first in the resulting chain. Just making sure our logic actually makes that happen.
         assert_eq!(head_decriptor_index, 0);
 
         let table_addr = self.indirect_addr;
         self.indirect_addr = self.indirect_addr.checked_add(table.total_size()).unwrap();
-        table_addr
+        Ok(table_addr)
     }
 
     /// Add a descriptor chain to the table.
-    pub fn add_chain(&mut self, len: u16) {
-        let head_idx = self.desc_table.build_chain(len);
-        self.update_avail_idx(head_idx);
+    pub fn add_chain(&mut self, len: u16) -> Result<(), MockError> {
+        self.desc_table
+            .build_chain(len)
+            .and_then(|head_idx| self.update_avail_idx(head_idx))
     }
 
     /// Add an indirect descriptor chain to the table.
-    pub fn add_indirect_chain(&mut self, len: u16) {
-        let head_idx = self.desc_table.build_chain(1);
+    pub fn add_indirect_chain(&mut self, len: u16) -> Result<(), MockError> {
+        let head_idx = self.desc_table.build_chain(1)?;
 
         // We just allocate the indirect table and forget about it for now.
-        let indirect_addr = self.alloc_indirect_chain(len);
+        let indirect_addr = self.alloc_indirect_chain(len)?;
 
-        let mut desc = self.desc_table.load(head_idx);
+        let mut desc = self.desc_table.load(head_idx)?;
         desc.set_flags(VIRTQ_DESC_F_INDIRECT);
         desc.set_addr(indirect_addr.raw_value());
         desc.set_len(u32::from(len) * size_of::<Descriptor>() as u32);
 
-        self.desc_table.store(head_idx, desc);
-        self.update_avail_idx(head_idx);
+        self.desc_table.store(head_idx, desc)?;
+        self.update_avail_idx(head_idx)
     }
 
     /// Creates a new `Queue`, using the underlying memory regions represented
@@ -373,14 +409,13 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Writes a single descriptor chain to the memory object of the queue, at the beginning of the
     /// descriptor table, and returns the associated `DescriptorChain` object.
-    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> DescriptorChain<&M> {
-        self.add_desc_chain(descs, 0);
-
+    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> Result<DescriptorChain<&M>, MockError> {
+        self.add_desc_chain(descs, 0)?;
         self.create_queue(self.mem)
             .iter()
             .unwrap()
             .next()
-            .expect("failed to build desc chain")
+            .ok_or(MockError::InvalidNextAvail)
     }
 
     /// Adds a descriptor chain to the memory object of the queue.
@@ -391,7 +426,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     // The descriptor chain related information is written in memory starting with address 0.
     // The `addr` fields of the input descriptors should start at a sufficiently
     // greater location (i.e. 1MiB, or `0x10_0000`).
-    pub fn add_desc_chain(&self, descs: &[Descriptor], offset: u16) {
+    pub fn add_desc_chain(&self, descs: &[Descriptor], offset: u16) -> Result<(), MockError> {
         for (idx, desc) in descs.iter().enumerate() {
             let i = idx as u16 + offset;
             let addr = desc.addr().0;
@@ -407,7 +442,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             };
 
             let desc = Descriptor::new(addr, len, flags, next);
-            self.desc_table().store(i, desc);
+            self.desc_table().store(i, desc)?;
         }
 
         // Update the first available ring position.
@@ -428,5 +463,6 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.mem
             .write_obj(avail_idx + 1, self.avail_addr().unchecked_add(2))
             .unwrap();
+        Ok(())
     }
 }
