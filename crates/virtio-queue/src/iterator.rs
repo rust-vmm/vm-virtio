@@ -46,9 +46,9 @@ use crate::{error, DescriptorChain, QueueState};
 /// #        vq.desc_table().store(i, desc);
 /// #    }
 /// #
-/// #    vq.avail().ring().ref_at(0).store(u16::to_le(0));
-/// #    vq.avail().ring().ref_at(1).store(u16::to_le(2));
-/// #    vq.avail().ring().ref_at(2).store(u16::to_le(5));
+/// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+/// #    vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
+/// #    vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
 /// #    vq.avail().idx().store(u16::to_le(3));
 /// #    q
 /// # }
@@ -199,12 +199,12 @@ mod tests {
             };
 
             let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
-            vq.desc_table().store(j, desc);
+            vq.desc_table().store(j, desc).unwrap();
         }
 
-        vq.avail().ring().ref_at(0).store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).store(u16::to_le(5));
+        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
+        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
         vq.avail().idx().store(u16::to_le(3));
 
         let mut i = q.iter().unwrap();
@@ -274,11 +274,11 @@ mod tests {
                 };
 
                 let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
-                vq.desc_table().store(j, desc);
+                vq.desc_table().store(j, desc).unwrap();
             }
 
-            vq.avail().ring().ref_at(0).store(u16::to_le(0));
-            vq.avail().ring().ref_at(1).store(u16::to_le(2));
+            vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+            vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
             vq.avail().idx().store(u16::to_le(2));
 
             let mut i = q.iter().unwrap();

@@ -303,7 +303,7 @@ mod tests {
         ];
         // Create a queue of max 16 descriptors and a descriptor chain based on the array above.
         let queue = MockSplitQueue::new(&mem, 16);
-        let mut chain = queue.build_desc_chain(&v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_IN,
@@ -324,7 +324,7 @@ mod tests {
             // A device-readable request status descriptor.
             Descriptor::new(0x30_0000, 0x100, 0, 0),
         ];
-        let mut chain = queue.build_desc_chain(&v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
         // Status descriptor should be device-writable.
         assert_eq!(
@@ -338,7 +338,7 @@ mod tests {
             // Status descriptor with len = 0.
             Descriptor::new(0x30_0000, 0x0, VIRTQ_DESC_F_WRITE, 0),
         ];
-        let mut chain = queue.build_desc_chain(&v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
         assert_eq!(
             Request::parse(&mut chain).unwrap_err(),
             Error::DescriptorLengthTooSmall
@@ -349,7 +349,7 @@ mod tests {
             Descriptor::new(0x20_0000, 0x100, 0, 0),
             Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
         ];
-        let mut chain = queue.build_desc_chain(&v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
         // Flush request with sector != 0.
         let req_header = RequestHeader {
@@ -366,7 +366,7 @@ mod tests {
             Error::InvalidFlushSector
         );
 
-        let mut chain = queue.build_desc_chain(&v[..3]);
+        let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
         mem.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x10_0000))
             .unwrap();
         // We shouldn't read from a device-readable buffer.
@@ -390,7 +390,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = queue.build_desc_chain(&v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]).unwrap();
 
         // The status descriptor would cause a write beyond capacity.
         assert_eq!(
@@ -415,7 +415,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = queue.build_desc_chain(&v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]).unwrap();
 
         let request = Request::parse(&mut chain).unwrap();
         let expected_request = Request {
@@ -440,7 +440,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = queue.build_desc_chain(&v[..4]);
+        let mut chain = queue.build_desc_chain(&v[..4]).unwrap();
 
         let request = Request::parse(&mut chain).unwrap();
         assert_eq!(request.request_type(), RequestType::Unsupported(2));
@@ -458,7 +458,7 @@ mod tests {
         mem.write_obj::<RequestHeader>(req_header, GuestAddress(0x10_0000))
             .unwrap();
 
-        let mut chain = queue.build_desc_chain(&v[..2]);
+        let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert!(Request::parse(&mut chain).is_ok());
     }
 }

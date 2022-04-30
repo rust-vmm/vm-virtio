@@ -34,7 +34,7 @@ use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 /// #    let desc = Descriptor::new(0x2000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
 /// #    vq.desc_table().store(1, desc);
 /// #
-/// #    vq.avail().ring().ref_at(0).store(u16::to_le(0));
+/// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
 /// #    vq.avail().idx().store(u16::to_le(1));
 /// #    q
 /// # }

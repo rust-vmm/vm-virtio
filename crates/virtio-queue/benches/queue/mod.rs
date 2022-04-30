@@ -41,9 +41,9 @@ pub fn benchmark_queue(c: &mut Criterion) {
         let mut mq = MockSplitQueue::new(&mem, 256);
         for _ in 0..num_chains {
             if indirect {
-                mq.add_indirect_chain(len);
+                mq.add_indirect_chain(len).unwrap();
             } else {
-                mq.add_chain(len);
+                mq.add_chain(len).unwrap();
             }
         }
         mq.create_queue(GuestMemoryAtomic::new(mem.clone()))
