@@ -109,7 +109,7 @@ following, as showed in the diagram below as well:
 10. the device sends a used buffer notification to the driver if such
     notifications are not suppressed.
 
-![queue](docs/images/queue.png)
+![queue](https://raw.githubusercontent.com/rust-vmm/vm-virtio/main/crates/virtio-queue/docs/images/queue.png)
 
 A descriptor is storing four fields, with the first two, `addr` and `len`,
 pointing to the data in memory to which the descriptor refers, as shown in the
@@ -118,7 +118,7 @@ buffer is device readable or writable, or if we have another descriptor chained
 after this one (VIRTQ_DESC_F_NEXT flag set). `next` field is storing the index
 of the next descriptor if VIRTQ_DESC_F_NEXT is set.
 
-![](docs/images/descriptor.png)
+![descriptor](https://raw.githubusercontent.com/rust-vmm/vm-virtio/main/crates/virtio-queue/docs/images/descriptor.png)
 
 **Requirements for device implementation**
 
