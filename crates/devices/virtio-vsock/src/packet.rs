@@ -360,6 +360,14 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// The chain head is expected to hold a valid packet header. A following packet data
     /// descriptor can optionally end the chain.
     ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
+    /// * `desc_chain` - the descriptor chain corresponding to a packet.
+    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated
+    ///                     between the device and the driver. Tracking issue for defining this
+    ///                     feature in virtio-spec
+    ///                     [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
+    ///
     /// # Example
     ///
     /// ```rust
@@ -476,6 +484,14 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor.
+    ///
+    /// # Arguments
+    /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
+    /// * `desc_chain` - the descriptor chain corresponding to a packet.
+    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated
+    ///                     between the device and the driver. Tracking issue for defining this
+    ///                     feature in virtio-spec
+    ///                     [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
     ///
     /// # Example
     ///
@@ -615,7 +631,7 @@ impl<'a> VsockPacket<'a, ()> {
     ///
     /// let mut pkt_raw = [0u8; PKT_HEADER_SIZE + LEN];
     /// let (hdr_raw, data_raw) = pkt_raw.split_at_mut(PKT_HEADER_SIZE);
-    /// // Safe because ``hdr_raw` and `data_raw` live for as long as the scope of the current
+    /// // Safe because `hdr_raw` and `data_raw` live for as long as the scope of the current
     /// // example.
     /// let packet = unsafe { VsockPacket::new(hdr_raw, Some(data_raw)).unwrap() };
     /// ```
