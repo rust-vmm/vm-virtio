@@ -28,7 +28,7 @@ use crate::{
 ///
 /// WARNING: The way the `QueueState` is defined now, it can be used as the queue object, therefore
 /// it is allowed to set up and use an invalid queue (initialized with random data since the
-/// `QueueState`'s fields are public). When fixing https://github.com/rust-vmm/vm-virtio/issues/143,
+/// `QueueState`'s fields are public). When fixing <https://github.com/rust-vmm/vm-virtio/issues/143>,
 /// we plan to rename `QueueState` to `Queue`, and define a new `QueueState` that would be the
 /// actual state of the queue (no `Wrapping`s in it, for example). This way, we will also be able to
 /// do the checks that we normally do in the queue's field setters when starting from scratch, when
