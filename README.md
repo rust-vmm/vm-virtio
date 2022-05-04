@@ -12,6 +12,7 @@ consists of the following crates:
                      transport operations (read, write);
 - `virtio-blk` -> contains abstractions for parsing and executing a request of
                   the block device.
+- `virtio-vsock` -> provides an implementation for the vsock packet.
 
 ### Note
 We offer support only for virtio v1.0+
