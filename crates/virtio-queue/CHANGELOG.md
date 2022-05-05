@@ -1,10 +1,24 @@
-# Unreleased
+# v0.3.0
 
 ## Added
-- QueueStateT::size(): [#153](https://github.com/rust-vmm/vm-virtio/pull/153)
+- [[#148]](https://github.com/rust-vmm/vm-virtio/pull/148): `QueueStateOwnedT` trait that stands
+  for queue objects which are exclusively owned and accessed by a single thread of execution.
+- [[#148]](https://github.com/rust-vmm/vm-virtio/pull/148): Added the `pop_descriptor_chain`
+  method, which can be used to consume descriptor chains from the available ring without
+  using an iterator, to `QueueStateT` and `QueueGuard`. Also added `go_to_previous_position()`
+  to `QueueGuard`, which enables decrementing the next available index by one position, which
+  effectively undoes the consumption of a descriptor chain in some use cases.
+- [[#151]](https://github.com/rust-vmm/vm-virtio/pull/151): Added `MockSplitQueue::add_desc_chain()`,
+  which places a descriptor chain at the specified offset in the descriptor table.  
+- [[#153]](https://github.com/rust-vmm/vm-virtio/pull/153): Added `QueueStateT::size()` to return
+  the size of the queue.
+
+## Changed
+- The minimum version of the `vm-memory` dependency is now `v0.8.0`
+- [[#161]](https://github.com/rust-vmm/vm-virtio/pull/161): Improve the efficiency of `needs_notification`
 
 ## Removed
-- #[derive(Clone)] for QueueState: [#153](https://github.com/rust-vmm/vm-virtio/pull/153)
+- [[#153]](https://github.com/rust-vmm/vm-virtio/pull/153): `#[derive(Clone)]` for `QueueState`
 
 # v0.2.0
 

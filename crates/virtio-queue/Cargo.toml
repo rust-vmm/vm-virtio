@@ -1,6 +1,6 @@
 [package]
 name = "virtio-queue"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["The Chromium OS Authors"]
 description = "virtio queue implementation"
 repository = "https://github.com/rust-vmm/vm-virtio"
