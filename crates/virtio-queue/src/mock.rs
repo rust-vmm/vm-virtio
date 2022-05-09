@@ -407,10 +407,13 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         q
     }
 
-    /// Writes a single descriptor chain to the memory object of the queue, at the beginning of the
-    /// descriptor table, and returns the associated `DescriptorChain` object.
-    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> Result<DescriptorChain<&M>, MockError> {
-        self.add_desc_chain(descs, 0)?;
+    /// Writes multiple descriptor chains to the memory object of the queue, at the beginning of
+    /// the descriptor table, and returns the first `DescriptorChain` available.
+    pub fn build_multiple_desc_chains(
+        &self,
+        descs: &[Descriptor],
+    ) -> Result<DescriptorChain<&M>, MockError> {
+        self.add_desc_chains(descs, 0)?;
         self.create_queue(self.mem)
             .iter()
             .unwrap()
@@ -418,19 +421,13 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             .ok_or(MockError::InvalidNextAvail)
     }
 
-    /// Adds a descriptor chain to the memory object of the queue.
-    // `descs` represents a slice of `Descriptor` objects which are used to populate the chain, and
-    // `offset` is the index in the descriptor table where the chain should be added.
+    /// Writes a single descriptor chain to the memory object of the queue, at the beginning of the
+    /// descriptor table, and returns the associated `DescriptorChain` object.
     // This method ensures the next flags and values are set properly for the desired chain, but
     // keeps the other characteristics of the input descriptors (`addr`, `len`, other flags).
-    // The descriptor chain related information is written in memory starting with address 0.
-    // The `addr` fields of the input descriptors should start at a sufficiently
-    // greater location (i.e. 1MiB, or `0x10_0000`).
-    pub fn add_desc_chain(&self, descs: &[Descriptor], offset: u16) -> Result<(), MockError> {
+    pub fn build_desc_chain(&self, descs: &[Descriptor]) -> Result<DescriptorChain<&M>, MockError> {
+        let mut modified_descs: Vec<Descriptor> = Vec::with_capacity(descs.len());
         for (idx, desc) in descs.iter().enumerate() {
-            let i = idx as u16 + offset;
-            let addr = desc.addr().0;
-            let len = desc.len();
             let (flags, next) = if idx == descs.len() - 1 {
                 // Clear the NEXT flag if it was set. The value of the next field of the
                 // Descriptor doesn't matter at this point.
@@ -438,31 +435,50 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             } else {
                 // Ensure that the next flag is set and that we are referring the following
                 // descriptor. This ignores any value is actually present in `desc.next`.
-                (desc.flags() | VIRTQ_DESC_F_NEXT, i + 1)
+                (desc.flags() | VIRTQ_DESC_F_NEXT, idx as u16 + 1)
             };
-
-            let desc = Descriptor::new(addr, len, flags, next);
-            self.desc_table().store(i, desc)?;
+            modified_descs.push(Descriptor::new(desc.addr().0, desc.len(), flags, next));
         }
+        self.build_multiple_desc_chains(&modified_descs[..])
+    }
 
-        // Update the first available ring position.
+    /// Adds descriptor chains to the memory object of the queue.
+    // `descs` represents a slice of `Descriptor` objects which are used to populate the chains, and
+    // `offset` is the index in the descriptor table where the chains should be added.
+    // The descriptor chain related information is written in memory starting with address 0.
+    // The `addr` fields of the input descriptors should start at a sufficiently
+    // greater location (i.e. 1MiB, or `0x10_0000`).
+    pub fn add_desc_chains(&self, descs: &[Descriptor], offset: u16) -> Result<(), MockError> {
+        let mut new_entries = 0;
         let avail_idx: u16 = self
             .mem
             .read_obj(self.avail_addr().unchecked_add(2))
             .unwrap();
-        self.mem
-            .write_obj(
-                offset,
-                self.avail_addr().unchecked_add(
-                    VIRTQ_AVAIL_RING_HEADER_SIZE + avail_idx as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
-                ),
-            )
-            .unwrap();
+
+        for (idx, desc) in descs.iter().enumerate() {
+            let i = idx as u16 + offset;
+            self.desc_table().store(i, *desc)?;
+
+            if idx == 0 || descs[idx - 1].flags() & VIRTQ_DESC_F_NEXT != 1 {
+                // Update the available ring position.
+                self.mem
+                    .write_obj(
+                        i,
+                        self.avail_addr().unchecked_add(
+                            VIRTQ_AVAIL_RING_HEADER_SIZE
+                                + (avail_idx + new_entries) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
+                        ),
+                    )
+                    .unwrap();
+                new_entries += 1;
+            }
+        }
 
         // Increment `avail_idx`.
         self.mem
-            .write_obj(avail_idx + 1, self.avail_addr().unchecked_add(2))
+            .write_obj(avail_idx + new_entries, self.avail_addr().unchecked_add(2))
             .unwrap();
+
         Ok(())
     }
 }
