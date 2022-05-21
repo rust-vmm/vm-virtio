@@ -212,9 +212,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
+    use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -235,10 +235,10 @@ mod tests {
         for i in 0..7 {
             let flags = match i {
                 1 | 4 | 6 => 0,
-                _ => VIRTQ_DESC_F_NEXT,
+                _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
             vq.desc_table().store(i, desc).unwrap();
         }
 
@@ -260,7 +260,7 @@ mod tests {
                 let head_index = chain.head_index();
                 let mut desc_len = 0;
                 chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                    if d.flags() & VRING_DESC_F_WRITE as u16 == VRING_DESC_F_WRITE as u16 {
                         desc_len += d.len();
                     }
                 });

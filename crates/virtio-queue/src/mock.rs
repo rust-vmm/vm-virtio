@@ -11,12 +11,12 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
 };
 
-use crate::defs::{
-    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_DESC_F_INDIRECT,
-    VIRTQ_DESC_F_NEXT,
-};
+use crate::defs::VIRTQ_AVAIL_RING_HEADER_SIZE;
 use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
 use std::fmt::{self, Debug, Display};
+use virtio_bindings::bindings::virtio_ring::{
+    VRING_AVAIL_ALIGN_SIZE, VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT,
+};
 
 /// Mock related errors.
 #[derive(Debug)]
@@ -228,7 +228,7 @@ impl<'a, M: GuestMemory> DescriptorTable<'a, M> {
 
             // It's not the last descriptor in the chain.
             if pos < indices.len() - 1 {
-                desc.set_flags(VIRTQ_DESC_F_NEXT);
+                desc.set_flags(VRING_DESC_F_NEXT as u16);
                 desc.set_next(indices[pos + 1]);
             } else {
                 desc.set_flags(0);
@@ -386,7 +386,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         let indirect_addr = self.alloc_indirect_chain(len)?;
 
         let mut desc = self.desc_table.load(head_idx)?;
-        desc.set_flags(VIRTQ_DESC_F_INDIRECT);
+        desc.set_flags(VRING_DESC_F_INDIRECT as u16);
         desc.set_addr(indirect_addr.raw_value());
         desc.set_len(u32::from(len) * size_of::<Descriptor>() as u32);
 
@@ -431,11 +431,11 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             let (flags, next) = if idx == descs.len() - 1 {
                 // Clear the NEXT flag if it was set. The value of the next field of the
                 // Descriptor doesn't matter at this point.
-                (desc.flags() & !VIRTQ_DESC_F_NEXT, 0)
+                (desc.flags() & !VRING_DESC_F_NEXT as u16, 0)
             } else {
                 // Ensure that the next flag is set and that we are referring the following
                 // descriptor. This ignores any value is actually present in `desc.next`.
-                (desc.flags() | VIRTQ_DESC_F_NEXT, idx as u16 + 1)
+                (desc.flags() | VRING_DESC_F_NEXT as u16, idx as u16 + 1)
             };
             modified_descs.push(Descriptor::new(desc.addr().0, desc.len(), flags, next));
         }
@@ -459,14 +459,14 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             let i = idx as u16 + offset;
             self.desc_table().store(i, *desc)?;
 
-            if idx == 0 || descs[idx - 1].flags() & VIRTQ_DESC_F_NEXT != 1 {
+            if idx == 0 || descs[idx - 1].flags() & VRING_DESC_F_NEXT as u16 != 1 {
                 // Update the available ring position.
                 self.mem
                     .write_obj(
                         i,
                         self.avail_addr().unchecked_add(
                             VIRTQ_AVAIL_RING_HEADER_SIZE
-                                + (avail_idx + new_entries) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
+                                + (avail_idx + new_entries) as u64 * VRING_AVAIL_ALIGN_SIZE as u64,
                         ),
                     )
                     .unwrap();

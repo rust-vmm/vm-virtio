@@ -4,6 +4,7 @@ members = [
     "crates/virtio-queue-ser",
     "crates/virtio-device",
     "crates/devices/*",
+    "crates/virtio-bindings"
 ]
 resolver = "2"
 
