@@ -15,10 +15,11 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 use crate::defs::{
     DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR,
-    VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
-    VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_F_NO_NOTIFY, VIRTQ_USED_RING_HEADER_SIZE,
+    VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
+    VIRTQ_USED_RING_HEADER_SIZE,
     VIRTQ_USED_RING_META_SIZE,
 };
+use virtio_bindings::bindings::virtio_ring::{VRING_AVAIL_ALIGN_SIZE, VRING_USED_ALIGN_SIZE, VRING_USED_F_NO_NOTIFY};
 use crate::{
     error, AvailIter, Descriptor, DescriptorChain, Error, QueueStateGuard, QueueStateOwnedT,
     QueueStateT, VirtqUsedElem,
@@ -79,7 +80,7 @@ impl QueueState {
         // This can not overflow an u64 since it is working with relatively small numbers compared
         // to u64::MAX.
         let avail_event_offset =
-            VIRTQ_USED_RING_HEADER_SIZE + VIRTQ_USED_ELEMENT_SIZE * u64::from(self.size);
+            VIRTQ_USED_RING_HEADER_SIZE + VRING_USED_ALIGN_SIZE as u64 * u64::from(self.size);
         let addr = self
             .used_ring
             .checked_add(avail_event_offset)
@@ -115,7 +116,7 @@ impl QueueState {
                 self.set_used_flags(mem, 0, Ordering::Relaxed)
             }
         } else if !self.event_idx_enabled {
-            self.set_used_flags(mem, VIRTQ_USED_F_NO_NOTIFY, Ordering::Relaxed)
+            self.set_used_flags(mem, VRING_USED_F_NO_NOTIFY as u16, Ordering::Relaxed)
         } else {
             // Notifications are effectively disabled by default after triggering once when
             // `VIRTIO_F_EVENT_IDX` is negotiated, so we don't do anything in that case.
@@ -137,7 +138,7 @@ impl QueueState {
         // This can not overflow an u64 since it is working with relatively small numbers compared
         // to u64::MAX.
         let used_event_offset =
-            VIRTQ_AVAIL_RING_HEADER_SIZE + u64::from(self.size) * VIRTQ_AVAIL_ELEMENT_SIZE;
+            VIRTQ_AVAIL_RING_HEADER_SIZE + u64::from(self.size) * VRING_AVAIL_ALIGN_SIZE as u64;
         let used_event_addr = self
             .avail_ring
             .checked_add(used_event_offset)
@@ -179,9 +180,9 @@ impl QueueStateT for QueueState {
         let avail_ring = self.avail_ring;
         // The operations below can not overflow an u64 since they're working with relatively small
         // numbers compared to u64::MAX.
-        let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VIRTQ_AVAIL_ELEMENT_SIZE * queue_size;
+        let avail_ring_size = VIRTQ_AVAIL_RING_META_SIZE + VRING_AVAIL_ALIGN_SIZE as u64 * queue_size;
         let used_ring = self.used_ring;
-        let used_ring_size = VIRTQ_USED_RING_META_SIZE + VIRTQ_USED_ELEMENT_SIZE * queue_size;
+        let used_ring_size = VIRTQ_USED_RING_META_SIZE + VRING_USED_ALIGN_SIZE as u64 * queue_size;
 
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
@@ -345,7 +346,7 @@ impl QueueStateT for QueueState {
         let next_used_index = u64::from(self.next_used.0 % self.size);
         // This can not overflow an u64 since it is working with relatively small numbers compared
         // to u64::MAX.
-        let offset = VIRTQ_USED_RING_HEADER_SIZE + next_used_index * VIRTQ_USED_ELEMENT_SIZE;
+        let offset = VIRTQ_USED_RING_HEADER_SIZE + next_used_index * VRING_USED_ALIGN_SIZE as u64;
         let addr = self
             .used_ring
             .checked_add(offset)

@@ -191,7 +191,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # Example
     ///
     /// ```rust
-    /// # use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_WRITE};
     /// # use virtio_queue::mock::MockSplitQueue;
     /// # use virtio_queue::{Descriptor, Queue, QueueState, QueueStateT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
@@ -204,8 +204,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// #     let mut q = vq.create_queue(m);
     /// #
     /// #     let v = vec![
-    /// #         Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-    /// #         Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+    /// #         Descriptor::new(0x8_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
     /// #     ];
     /// #     let mut chain = vq.build_desc_chain(&v[..2]);
     /// #     q
@@ -496,7 +496,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # Example
     ///
     /// ```rust
-    /// # use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
     /// # use virtio_queue::{Descriptor, Queue, QueueState, QueueStateT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
@@ -520,8 +520,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// #     let mut q = vq.create_queue(m);
     /// #
     /// #     let v = vec![
-    /// #         Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-    /// #         Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+    /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+    /// #         Descriptor::new(0x8_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
     /// #     ];
     /// #     let mut chain = vq.build_desc_chain(&v[..2]);
     /// #    q
@@ -653,7 +653,7 @@ mod tests {
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     use virtio_queue::mock::MockSplitQueue;
     use virtio_queue::Descriptor;
 
@@ -705,7 +705,7 @@ mod tests {
         let v = vec![
             // A device-readable packet header descriptor should be invalid.
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
@@ -716,8 +716,8 @@ mod tests {
 
         let v = vec![
             // A header length < PKT_HEADER_SIZE is invalid.
-            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32 - 1, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32 - 1, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -726,8 +726,8 @@ mod tests {
         );
 
         let v = vec![
-            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, MAX_PKT_BUF_SIZE + 1, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, MAX_PKT_BUF_SIZE + 1, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -737,7 +737,7 @@ mod tests {
 
         let v = vec![
             // The data descriptor should always be present on the RX path.
-            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, PKT_HEADER_SIZE as u32, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..1]).unwrap();
         assert_eq!(
@@ -747,7 +747,7 @@ mod tests {
 
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -760,8 +760,8 @@ mod tests {
 
         let v = vec![
             // The header doesn't fit entirely in the memory bounds.
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
@@ -772,8 +772,8 @@ mod tests {
 
         let v = vec![
             // The header is outside the memory bounds.
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -784,7 +784,7 @@ mod tests {
         );
 
         let v = vec![
-            Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // A device-readable packet data descriptor should be invalid.
             Descriptor::new(0x8_0000, 0x100, 0, 0),
         ];
@@ -794,9 +794,9 @@ mod tests {
             Error::UnexpectedReadOnlyDescriptor
         );
         let v = vec![
-            Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // The data array doesn't fit entirely in the memory bounds.
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -805,9 +805,9 @@ mod tests {
         );
 
         let v = vec![
-            Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // The data array is outside the memory bounds.
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -819,8 +819,8 @@ mod tests {
 
         // Let's also test a valid descriptor chain.
         let v = vec![
-            Descriptor::new(0x5_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x8_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
 
@@ -856,7 +856,7 @@ mod tests {
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
             // A device-writable packet header descriptor should be invalid.
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x20_0000, 0x100, 0, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
@@ -1009,7 +1009,7 @@ mod tests {
         let v = vec![
             Descriptor::new(0x5_0000, 0x100, 0, 0),
             // A device-writable packet data descriptor should be invalid.
-            Descriptor::new(0x8_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x8_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -1067,8 +1067,8 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x30_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
@@ -1191,8 +1191,8 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x30_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
@@ -1275,8 +1275,8 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x30_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();

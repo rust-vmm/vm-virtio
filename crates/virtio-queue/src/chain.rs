@@ -17,7 +17,7 @@ use std::ops::Deref;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
-use crate::defs::VIRTQ_DESCRIPTOR_SIZE;
+use virtio_bindings::bindings::virtio_ring::VRING_DESC_ALIGN_SIZE;
 use crate::{Descriptor, Error};
 
 /// A virtio descriptor chain.
@@ -106,15 +106,15 @@ where
         }
 
         // Check the target indirect descriptor table is correctly aligned.
-        if desc.addr().raw_value() & (VIRTQ_DESCRIPTOR_SIZE as u64 - 1) != 0
-            || desc.len() & (VIRTQ_DESCRIPTOR_SIZE as u32 - 1) != 0
+        if desc.addr().raw_value() & (VRING_DESC_ALIGN_SIZE as u64 - 1) != 0
+            || desc.len() & (VRING_DESC_ALIGN_SIZE as u32 - 1) != 0
         {
             return Err(Error::InvalidIndirectDescriptorTable);
         }
 
         // It is safe to do a plain division since we checked above that desc.len() is a multiple of
         // VIRTQ_DESCRIPTOR_SIZE, and VIRTQ_DESCRIPTOR_SIZE is != 0.
-        let table_len = (desc.len() as usize) / VIRTQ_DESCRIPTOR_SIZE;
+        let table_len = (desc.len() as usize) / VRING_DESC_ALIGN_SIZE as usize;
         if table_len > usize::from(u16::MAX) {
             return Err(Error::InvalidIndirectDescriptorTable);
         }
@@ -225,7 +225,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT};
+    use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
     use crate::mock::{DescriptorTable, MockSplitQueue};
     use vm_memory::GuestMemoryMmap;
 
@@ -253,7 +253,7 @@ mod tests {
         {
             // the first desc has a normal len, and the next_descriptor flag is set
             // but the the index of the next descriptor is too large
-            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 16);
+            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 16);
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
@@ -263,7 +263,7 @@ mod tests {
 
         // finally, let's test an ok chain
         {
-            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
             vq.desc_table().store(0, desc).unwrap();
 
             let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
@@ -283,7 +283,7 @@ mod tests {
             let desc = c.next().unwrap();
             assert_eq!(desc.addr(), GuestAddress(0x1000));
             assert_eq!(desc.len(), 0x1000);
-            assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+            assert_eq!(desc.flags(), VRING_DESC_F_NEXT as u16);
             assert_eq!(desc.next(), 1);
             assert_eq!(c.ttl, c.queue_size - 1);
 
@@ -305,7 +305,7 @@ mod tests {
         // Populate the entire descriptor table with entries. Only the last one should not have the
         // VIRTQ_DESC_F_NEXT set.
         for i in 0..QUEUE_SIZE - 1 {
-            let desc = Descriptor::new(0x1000 * (i + 1) as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1);
+            let desc = Descriptor::new(0x1000 * (i + 1) as u64, 0x1000, VRING_DESC_F_NEXT as u16, i + 1);
             vq.desc_table().store(i, desc).unwrap();
         }
         let desc = Descriptor::new((0x1000 * 16) as u64, 0x1000, 0, 0);
@@ -333,11 +333,11 @@ mod tests {
         let dtable = vq.desc_table();
 
         // Create a chain with one normal descriptor and one pointing to an indirect table.
-        let desc = Descriptor::new(0x6000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+        let desc = Descriptor::new(0x6000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
         dtable.store(0, desc).unwrap();
         // The spec forbids setting both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags. We do
         // not currently enforce this rule, we just ignore the VIRTQ_DESC_F_NEXT flag.
-        let desc = Descriptor::new(0x7000, 0x1000, VIRTQ_DESC_F_INDIRECT | VIRTQ_DESC_F_NEXT, 2);
+        let desc = Descriptor::new(0x7000, 0x1000, (VRING_DESC_F_INDIRECT | VRING_DESC_F_NEXT) as u16, 2);
         dtable.store(1, desc).unwrap();
         let desc = Descriptor::new(0x8000, 0x1000, 0, 0);
         dtable.store(2, desc).unwrap();
@@ -348,7 +348,7 @@ mod tests {
         let idtable = DescriptorTable::new(m, GuestAddress(0x7000), 4);
         for i in 0..4u16 {
             let desc: Descriptor = if i < 3 {
-                Descriptor::new(0x1000 * i as u64, 0x1000, VIRTQ_DESC_F_NEXT, i + 1)
+                Descriptor::new(0x1000 * i as u64, 0x1000, VRING_DESC_F_NEXT as u16, i + 1)
             } else {
                 Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0)
             };
@@ -367,7 +367,7 @@ mod tests {
             let desc = c.next().unwrap();
             assert!(c.is_indirect);
             if i < 3 {
-                assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+                assert_eq!(desc.flags(), VRING_DESC_F_NEXT as u16);
                 assert_eq!(desc.next(), i + 1);
             }
         }
@@ -386,7 +386,7 @@ mod tests {
 
             // Create a chain with a descriptor pointing to an invalid indirect table: addr not a
             // multiple of descriptor size.
-            let desc = Descriptor::new(0x1001, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x1001, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
@@ -401,7 +401,7 @@ mod tests {
 
             // Create a chain with a descriptor pointing to an invalid indirect table: len not a
             // multiple of descriptor size.
-            let desc = Descriptor::new(0x1000, 0x1001, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x1000, 0x1001, VRING_DESC_F_INDIRECT as u16, 0);
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
@@ -418,8 +418,8 @@ mod tests {
             // u16::MAX.
             let desc = Descriptor::new(
                 0x1000,
-                (u16::MAX as u32 + 1) * VIRTQ_DESCRIPTOR_SIZE as u32,
-                VIRTQ_DESC_F_INDIRECT,
+                (u16::MAX as u32 + 1) * VRING_DESC_ALIGN_SIZE as u32,
+                VRING_DESC_F_INDIRECT as u16,
                 0,
             );
             vq.desc_table().store(0, desc).unwrap();
@@ -435,7 +435,7 @@ mod tests {
             let vq = MockSplitQueue::new(m, 16);
 
             // Create a chain with a descriptor pointing to an indirect table.
-            let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
             vq.desc_table().store(0, desc).unwrap();
             // It's ok for an indirect descriptor to have flags = 0.
             let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
@@ -447,7 +447,7 @@ mod tests {
 
             // But it's not allowed to have an indirect descriptor that points to another indirect
             // table.
-            let desc = Descriptor::new(0x3000, 0x1000, VIRTQ_DESC_F_INDIRECT, 0);
+            let desc = Descriptor::new(0x3000, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
             m.write_obj(desc, GuestAddress(0x1000)).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =

@@ -7,9 +7,6 @@
 
 #![deny(missing_docs)]
 
-/// Contains virtio block constant definitions.
-pub mod defs;
-
 /// Contains block request parsing abstraction.
 pub mod request;
 

@@ -12,14 +12,15 @@
 
 use vm_memory::{ByteValued, GuestAddress, Le16, Le32, Le64};
 
-use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+// use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 
 /// A virtio descriptor constraints with C representation.
 ///
 /// # Example
 ///
 /// ```rust
-/// # use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+/// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
 /// use virtio_queue::{Descriptor, Queue};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -29,9 +30,9 @@ use crate::defs::{VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 /// #    let mut q = vq.create_queue(m);
 /// #
 /// #    // We have only one chain: (0, 1).
-/// #    let desc = Descriptor::new(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, 1);
+/// #    let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
 /// #    vq.desc_table().store(0, desc);
-/// #    let desc = Descriptor::new(0x2000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+/// #    let desc = Descriptor::new(0x2000, 0x1000, VRING_DESC_F_WRITE as u16, 0);
 /// #    vq.desc_table().store(1, desc);
 /// #
 /// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
@@ -96,12 +97,12 @@ impl Descriptor {
 
     /// Check whether this descriptor refers to a buffer containing an indirect descriptor table.
     pub fn refers_to_indirect_table(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_INDIRECT != 0
+        self.flags() & VRING_DESC_F_INDIRECT as u16 != 0
     }
 
     /// Check whether the `VIRTQ_DESC_F_NEXT` is set for the descriptor.
     pub fn has_next(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_NEXT != 0
+        self.flags() & VRING_DESC_F_NEXT as u16 != 0
     }
 
     /// Check if the driver designated this as a write only descriptor.
@@ -109,7 +110,7 @@ impl Descriptor {
     /// If this is false, this descriptor is read only.
     /// Write only means the the emulated device can write and the driver can read.
     pub fn is_write_only(&self) -> bool {
-        self.flags() & VIRTQ_DESC_F_WRITE != 0
+        self.flags() & VRING_DESC_F_WRITE as u16 != 0
     }
 }
 
@@ -222,18 +223,18 @@ mod tests {
         assert_eq!(desc.addr(), GuestAddress(0x1000));
         desc.set_len(0x2000);
         assert_eq!(desc.len(), 0x2000);
-        desc.set_flags(VIRTQ_DESC_F_NEXT);
-        assert_eq!(desc.flags(), VIRTQ_DESC_F_NEXT);
+        desc.set_flags(VRING_DESC_F_NEXT as u16);
+        assert_eq!(desc.flags(), VRING_DESC_F_NEXT as u16);
         assert!(desc.has_next());
         assert!(!desc.is_write_only());
         assert!(!desc.refers_to_indirect_table());
-        desc.set_flags(VIRTQ_DESC_F_WRITE);
-        assert_eq!(desc.flags(), VIRTQ_DESC_F_WRITE);
+        desc.set_flags(VRING_DESC_F_WRITE as u16);
+        assert_eq!(desc.flags(), VRING_DESC_F_WRITE as u16);
         assert!(!desc.has_next());
         assert!(desc.is_write_only());
         assert!(!desc.refers_to_indirect_table());
-        desc.set_flags(VIRTQ_DESC_F_INDIRECT);
-        assert_eq!(desc.flags(), VIRTQ_DESC_F_INDIRECT);
+        desc.set_flags(VRING_DESC_F_INDIRECT as u16);
+        assert_eq!(desc.flags(), VRING_DESC_F_INDIRECT as u16);
         assert!(!desc.has_next());
         assert!(!desc.is_write_only());
         assert!(desc.refers_to_indirect_table());
@@ -243,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_descriptor_copy() {
-        let e1 = Descriptor::new(1, 2, VIRTQ_DESC_F_NEXT, 3);
+        let e1 = Descriptor::new(1, 2, VRING_DESC_F_NEXT as u16, 3);
         let mut e2 = Descriptor::default();
 
         e2.as_mut_slice().copy_from_slice(e1.as_slice());

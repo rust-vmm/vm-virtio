@@ -27,10 +27,7 @@ use std::fmt::{self, Display};
 use std::ops::Deref;
 use std::result;
 
-use crate::defs::{
-    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN,
-    VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
-};
+use virtio_bindings::bindings::virtio_blk::{VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES};
 
 use virtio_queue::{Descriptor, DescriptorChain};
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
@@ -254,7 +251,7 @@ mod tests {
 
     use vm_memory::GuestMemoryMmap;
 
-    use virtio_queue::defs::VIRTQ_DESC_F_WRITE;
+    use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     use virtio_queue::mock::MockSplitQueue;
 
     impl PartialEq for Error {
@@ -297,9 +294,9 @@ mod tests {
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = vec![
             // A device-writable request header descriptor.
-            Descriptor::new(0x10_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         // Create a queue of max 16 descriptors and a descriptor chain based on the array above.
         let queue = MockSplitQueue::new(&mem, 16);
@@ -320,7 +317,7 @@ mod tests {
 
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // A device-readable request status descriptor.
             Descriptor::new(0x30_0000, 0x100, 0, 0),
         ];
@@ -334,9 +331,9 @@ mod tests {
 
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // Status descriptor with len = 0.
-            Descriptor::new(0x30_0000, 0x0, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x30_0000, 0x0, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
         assert_eq!(
@@ -347,7 +344,7 @@ mod tests {
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, 0, 0),
-            Descriptor::new(0x30_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
@@ -378,9 +375,9 @@ mod tests {
         // Invalid status address.
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x200, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x1100_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x1100_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_OUT,
@@ -403,9 +400,9 @@ mod tests {
         // Valid descriptor chain for OUT.
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x30_0000, 0x200, VIRTQ_DESC_F_WRITE, 0),
-            Descriptor::new(0x40_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
+            Descriptor::new(0x40_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_OUT,
@@ -448,7 +445,7 @@ mod tests {
         // Valid descriptor chain for FLUSH.
         let v = vec![
             Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x40_0000, 0x100, VIRTQ_DESC_F_WRITE, 0),
+            Descriptor::new(0x40_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_FLUSH,

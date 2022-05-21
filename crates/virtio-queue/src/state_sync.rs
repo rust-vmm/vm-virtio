@@ -170,8 +170,8 @@ mod tests {
     use super::*;
     use crate::defs::{
         DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR,
-        VIRTQ_USED_F_NO_NOTIFY,
     };
+    use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
     use std::sync::Barrier;
     use vm_memory::{Address, Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 
@@ -336,7 +336,7 @@ mod tests {
 
         q.disable_notification(m.memory()).unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
-        assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
+        assert_eq!(v, VRING_USED_F_NO_NOTIFY as u16);
 
         q.enable_notification(mem).unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();

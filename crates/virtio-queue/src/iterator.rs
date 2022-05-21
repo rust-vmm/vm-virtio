@@ -16,7 +16,8 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
-use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
+use crate::defs::VIRTQ_AVAIL_RING_HEADER_SIZE;
+use virtio_bindings::bindings::virtio_ring::VRING_AVAIL_ALIGN_SIZE;
 use crate::{error, DescriptorChain, QueueState};
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
@@ -24,7 +25,7 @@ use crate::{error, DescriptorChain, QueueState};
 /// # Example
 ///
 /// ```rust
-/// # use virtio_queue::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+/// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
 /// use virtio_queue::{Descriptor, Queue};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -37,12 +38,12 @@ use crate::{error, DescriptorChain, QueueState};
 /// #    for i in 0..7 {
 /// #        let flags = match i {
 /// #            1 | 6 => 0,
-/// #            2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-/// #            4 => VIRTQ_DESC_F_WRITE,
-/// #            _ => VIRTQ_DESC_F_NEXT,
+/// #            2 | 5 => VRING_DESC_F_NEXT | VRING_DESC_F_WRITE,
+/// #            4 => VRING_DESC_F_WRITE,
+/// #            _ => VRING_DESC_F_NEXT,
 /// #        };
 /// #
-/// #        let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+/// #        let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
 /// #        vq.desc_table().store(i, desc);
 /// #    }
 /// #
@@ -149,7 +150,7 @@ where
 
         // These two operations can not overflow an u64 since they're working with relatively small
         // numbers compared to u64::MAX.
-        let elem_off = u64::from(self.next_avail.0 % self.queue_size) * VIRTQ_AVAIL_ELEMENT_SIZE;
+        let elem_off = u64::from(self.next_avail.0 % self.queue_size) * VRING_AVAIL_ALIGN_SIZE as u64;
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_off;
 
         let addr = self.avail_ring.checked_add(offset)?;
@@ -174,7 +175,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
     use vm_memory::GuestMemoryMmap;
@@ -193,12 +194,12 @@ mod tests {
         for j in 0..7 {
             let flags = match j {
                 1 | 6 => 0,
-                2 | 5 => VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-                4 => VIRTQ_DESC_F_WRITE,
-                _ => VIRTQ_DESC_F_NEXT,
+                2 | 5 => VRING_DESC_F_NEXT | VRING_DESC_F_WRITE,
+                4 => VRING_DESC_F_WRITE,
+                _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
+            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags as u16, j + 1);
             vq.desc_table().store(j, desc).unwrap();
         }
 
@@ -270,10 +271,10 @@ mod tests {
             for j in 0..5u16 {
                 let flags = match j {
                     1 | 4 => 0,
-                    _ => VIRTQ_DESC_F_NEXT,
+                    _ => VRING_DESC_F_NEXT,
                 };
 
-                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags, j + 1);
+                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags as u16, j + 1);
                 vq.desc_table().store(j, desc).unwrap();
             }
 
