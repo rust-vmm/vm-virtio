@@ -33,13 +33,13 @@ use vm_memory::{Address, ByteValued, Bytes, GuestMemory, GuestMemoryError};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroesAt};
 
-use crate::defs::VIRTIO_BLK_T_GET_ID;
-use crate::defs::{
-    SECTOR_SHIFT, SECTOR_SIZE, VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
-    VIRTIO_BLK_F_WRITE_ZEROES, VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK,
-    VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_WRITE_ZEROES,
-};
+use crate::defs::{SECTOR_SHIFT, SECTOR_SIZE};
 use crate::request::{Request, RequestType};
+use virtio_bindings::bindings::virtio_blk::{
+    VIRTIO_BLK_F_DISCARD, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_WRITE_ZEROES,
+    VIRTIO_BLK_ID_BYTES, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
+    VIRTIO_BLK_T_DISCARD, VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_WRITE_ZEROES,
+};
 
 /// Trait that keeps as supertraits the ones that are necessary for the `StdIoBackend` abstraction
 /// used for the virtio block request execution.
@@ -99,7 +99,7 @@ pub enum Error {
 }
 
 impl Error {
-    fn status(&self) -> u8 {
+    fn status(&self) -> u32 {
         match self {
             Error::DiscardWriteZeroes(_) => VIRTIO_BLK_S_IOERR,
             Error::Flush(_) => VIRTIO_BLK_S_IOERR,
@@ -167,9 +167,9 @@ pub type Result<T> = result::Result<T, Error>;
 ///
 /// ```rust
 /// # use virtio_blk::{
-/// #     defs::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_ID_BYTES},
 /// #     stdio_executor::StdIoBackend,
 /// # };
+/// # use virtio_bindings::bindings::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_ID_BYTES};
 /// # use vmm_sys_util::tempfile::TempFile;
 /// let file = TempFile::new().unwrap();
 /// let request_exec = StdIoBackend::new(file.into_file(), 1 << VIRTIO_BLK_F_FLUSH).unwrap();
@@ -184,7 +184,7 @@ pub struct StdIoBackend<B: Backend> {
     features: u64,
     /// The device id string, which is a NUL-padded ASCII string up to 20 bytes long.
     /// If the string is 20 bytes long, then there is no NUL terminator.
-    device_id: Option<[u8; VIRTIO_BLK_ID_BYTES]>,
+    device_id: Option<[u8; VIRTIO_BLK_ID_BYTES as usize]>,
 }
 
 impl<B: Backend> StdIoBackend<B> {
@@ -220,7 +220,7 @@ impl<B: Backend> StdIoBackend<B> {
     /// # Arguments
     /// * `device_id` - The block device id. On Linux guests, this information can be read from
     ///                 `/sys/block/<device>/serial`.
-    pub fn with_device_id(mut self, device_id: [u8; VIRTIO_BLK_ID_BYTES]) -> Self {
+    pub fn with_device_id(mut self, device_id: [u8; VIRTIO_BLK_ID_BYTES as usize]) -> Self {
         self.device_id = Some(device_id);
         self
     }
@@ -272,17 +272,17 @@ impl<B: Backend> StdIoBackend<B> {
     }
 
     fn check_request(&self, request_type: RequestType) -> Result<()> {
-        if self.has_feature(VIRTIO_BLK_F_RO) && request_type != RequestType::In {
+        if self.has_feature(VIRTIO_BLK_F_RO.into()) && request_type != RequestType::In {
             return Err(Error::ReadOnly);
         }
         match request_type {
-            RequestType::Flush if !self.has_feature(VIRTIO_BLK_F_FLUSH) => {
+            RequestType::Flush if !self.has_feature(VIRTIO_BLK_F_FLUSH.into()) => {
                 Err(Error::Unsupported(VIRTIO_BLK_T_FLUSH))
             }
-            RequestType::Discard if !self.has_feature(VIRTIO_BLK_F_DISCARD) => {
+            RequestType::Discard if !self.has_feature(VIRTIO_BLK_F_DISCARD.into()) => {
                 Err(Error::Unsupported(VIRTIO_BLK_T_DISCARD))
             }
-            RequestType::WriteZeroes if !self.has_feature(VIRTIO_BLK_F_WRITE_ZEROES) => {
+            RequestType::WriteZeroes if !self.has_feature(VIRTIO_BLK_F_WRITE_ZEROES.into()) => {
                 Err(Error::Unsupported(VIRTIO_BLK_T_WRITE_ZEROES))
             }
             _ => Ok(()),
@@ -1097,7 +1097,7 @@ mod tests {
             req_exec.execute(&mem, &get_id_req).unwrap(),
             VIRTIO_BLK_ID_BYTES as u32
         );
-        let mut buf = [0x00; VIRTIO_BLK_ID_BYTES];
+        let mut buf = [0x00; VIRTIO_BLK_ID_BYTES as usize];
         mem.read_slice(&mut buf, GuestAddress(0x100)).unwrap();
         assert_eq!(buf, dev_id);
 
@@ -1120,7 +1120,7 @@ mod tests {
         assert_eq!(buf, dev_id[0..8]);
         let mut buf = [0x00; 12];
         mem.read_slice(&mut buf, GuestAddress(0x200)).unwrap();
-        assert_eq!(buf, dev_id[8..VIRTIO_BLK_ID_BYTES]);
+        assert_eq!(buf, dev_id[8..VIRTIO_BLK_ID_BYTES as usize]);
     }
 
     #[test]
@@ -1140,7 +1140,7 @@ mod tests {
         let mut req_exec = StdIoBackend::new(f, 0).unwrap();
         assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x600)).unwrap(),
             VIRTIO_BLK_S_UNSUPP
         );
 
@@ -1148,7 +1148,7 @@ mod tests {
         req_exec.features = 1 << VIRTIO_BLK_F_FLUSH;
         assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x600)).unwrap(),
             VIRTIO_BLK_S_OK
         );
 
@@ -1162,7 +1162,7 @@ mod tests {
         // 0x600 bytes should've been written in memory.
         assert_eq!(req_exec.process_request(&mem, &in_req).unwrap(), 0x601);
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x900)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x900)).unwrap(),
             VIRTIO_BLK_S_OK
         );
 
@@ -1198,7 +1198,7 @@ mod tests {
         );
         assert_eq!(req_exec.process_request(&mem, &discard_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x2000)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(),
             VIRTIO_BLK_S_UNSUPP
         );
 
@@ -1211,7 +1211,7 @@ mod tests {
         );
         assert_eq!(req_exec.process_request(&mem, &out_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
             VIRTIO_BLK_S_IOERR
         );
 
@@ -1227,7 +1227,7 @@ mod tests {
             0x1000_0000 - 0xFFF_FFF0 + 1
         );
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
             VIRTIO_BLK_S_IOERR
         );
 
@@ -1249,7 +1249,7 @@ mod tests {
             0x1000_0000 - 0xFFF_FFFA + 1
         );
         assert_eq!(
-            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
             VIRTIO_BLK_S_IOERR
         );
     }
