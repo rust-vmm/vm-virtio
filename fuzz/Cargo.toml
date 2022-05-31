@@ -1,0 +1,23 @@
+[package]
+name = "rust-vmm-fuzz"
+version = "0.1.0"
+authors = ["Delia-Maria Pavel <delia_maria.pavel@stud.acs.upb.ro>", "rust-vmm AWS maintainers rust-vmm-maintainers@amazon.com"]
+description = "virtio fuzzing"
+edition = "2018"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = []
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1",  features = ["derive"] }
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"]}
+virtio-queue = { path = "../crates/virtio-queue", features = ["test-utils"] }
+vm-memory = { version = ">=0.8.0", features = ["backend-mmap", "backend-atomic"] }
+
+[[bin]]
+name = "virtio_queue_fuzz_target"
+path = "fuzz_targets/virtio_queue_fuzz_target.rs"
