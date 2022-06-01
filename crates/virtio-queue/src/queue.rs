@@ -462,16 +462,22 @@ mod tests {
             assert_eq!((q.needs_notification().unwrap(), i), (expected, i));
         }
 
-        m.write_obj::<u16>(8, avail_addr.unchecked_add(4 + qsize as u64 * 2))
-            .unwrap();
+        m.write_obj::<u16>(
+            u16::to_le(8),
+            avail_addr.unchecked_add(4 + qsize as u64 * 2),
+        )
+        .unwrap();
 
         // Returns `false` because the current `used_event` value is behind both `next_used` and
         // the value of `next_used` at the time when `needs_notification` last returned (which is
         // computed based on `num_added` as described in the comments for `needs_notification`.
         assert!(!q.needs_notification().unwrap());
 
-        m.write_obj::<u16>(15, avail_addr.unchecked_add(4 + qsize as u64 * 2))
-            .unwrap();
+        m.write_obj::<u16>(
+            u16::to_le(15),
+            avail_addr.unchecked_add(4 + qsize as u64 * 2),
+        )
+        .unwrap();
 
         q.state.num_added = Wrapping(1);
         assert!(!q.needs_notification().unwrap());
@@ -487,8 +493,11 @@ mod tests {
         // Calling `needs_notification` again immediately returns `false`.
         assert!(!q.needs_notification().unwrap());
 
-        m.write_obj::<u16>(u16::MAX - 3, avail_addr.unchecked_add(4 + qsize as u64 * 2))
-            .unwrap();
+        m.write_obj::<u16>(
+            u16::to_le(u16::MAX - 3),
+            avail_addr.unchecked_add(4 + qsize as u64 * 2),
+        )
+        .unwrap();
         q.state.next_used = Wrapping(u16::MAX - 2);
         q.state.num_added = Wrapping(1);
         // Returns `true` because, when looking at circular sequence of indices of the used ring,
