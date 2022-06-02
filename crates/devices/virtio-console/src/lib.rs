@@ -1,4 +1,4 @@
-// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
@@ -7,5 +7,5 @@
 
 #![deny(missing_docs)]
 
-/// Contains an abstraction for the virtio console descriptor chain handling.
+/// Provides an abstraction for the virtio console descriptor chain handling.
 pub mod console;
