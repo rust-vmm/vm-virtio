@@ -11,7 +11,7 @@ use std::sync::Arc;
 use log::error;
 
 use crate::{VirtioDevice, WithDriverSelect};
-use virtio_queue::{QueueState, QueueStateT};
+use virtio_queue::{Queue, QueueStateT};
 
 /// An object that provides a common virtio device configuration representation. It is not part
 /// of the main `vm-virtio` set of interfaces, but rather can be used as a helper object in
@@ -91,10 +91,10 @@ pub trait VirtioDeviceActions {
 // implement `WithVirtioConfig` and `WithDeviceOps`.
 impl<T> VirtioDevice for T
 where
-    T: VirtioDeviceType + VirtioDeviceActions + BorrowMut<VirtioConfig<QueueState>>,
+    T: VirtioDeviceType + VirtioDeviceActions + BorrowMut<VirtioConfig<Queue>>,
 {
     type E = <Self as VirtioDeviceActions>::E;
-    type Q = QueueState;
+    type Q = Queue;
 
     fn device_type(&self) -> u32 {
         // Avoid infinite recursion.
@@ -106,11 +106,11 @@ where
         self.borrow().queues.len() as u16
     }
 
-    fn queue(&self, index: u16) -> Option<&QueueState> {
+    fn queue(&self, index: u16) -> Option<&Queue> {
         self.borrow().queues.get(usize::from(index))
     }
 
-    fn queue_mut(&mut self, index: u16) -> Option<&mut QueueState> {
+    fn queue_mut(&mut self, index: u16) -> Option<&mut Queue> {
         self.borrow_mut().queues.get_mut(usize::from(index))
     }
 
@@ -191,7 +191,7 @@ where
 impl<T> WithDriverSelect for T
 where
     // Added a `static bound here while `M` is around to simplify dealing with lifetimes.
-    T: BorrowMut<VirtioConfig<QueueState>> + VirtioDevice,
+    T: BorrowMut<VirtioConfig<Queue>> + VirtioDevice,
 {
     fn queue_select(&self) -> u16 {
         self.borrow().queue_select
@@ -225,7 +225,7 @@ pub(crate) mod tests {
     use std::borrow::Borrow;
 
     pub struct Dummy {
-        pub cfg: VirtioConfig<QueueState>,
+        pub cfg: VirtioConfig<Queue>,
         pub device_type: u32,
         pub activate_count: u64,
         pub reset_count: u64,
@@ -234,7 +234,7 @@ pub(crate) mod tests {
 
     impl Dummy {
         pub fn new(device_type: u32, features: u64, config_space: Vec<u8>) -> Self {
-            let queue = QueueState::new(256);
+            let queue = Queue::new(256);
 
             let cfg = VirtioConfig::new(features, vec![queue], config_space);
             Dummy {
@@ -253,14 +253,14 @@ pub(crate) mod tests {
         }
     }
 
-    impl Borrow<VirtioConfig<QueueState>> for Dummy {
-        fn borrow(&self) -> &VirtioConfig<QueueState> {
+    impl Borrow<VirtioConfig<Queue>> for Dummy {
+        fn borrow(&self) -> &VirtioConfig<Queue> {
             &self.cfg
         }
     }
 
-    impl BorrowMut<VirtioConfig<QueueState>> for Dummy {
-        fn borrow_mut(&mut self) -> &mut VirtioConfig<QueueState> {
+    impl BorrowMut<VirtioConfig<Queue>> for Dummy {
+        fn borrow_mut(&mut self) -> &mut VirtioConfig<Queue> {
             &mut self.cfg
         }
     }

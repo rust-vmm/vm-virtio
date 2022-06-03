@@ -7,7 +7,7 @@ use std::num::Wrapping;
 use serde::{Deserialize, Serialize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_queue::QueueState;
+use virtio_queue::Queue;
 use vm_memory::GuestAddress;
 
 /// Wrapper over a `QueueState` that has serialization capabilities.
@@ -49,9 +49,9 @@ pub struct QueueStateSer {
 // Nevertheless, we don't make any assumptions in the virtio-queue code about the queue's state that
 // would otherwise result in a panic, when initialized with random data, so from this point of view
 // these conversions are safe to use.
-impl From<&QueueStateSer> for QueueState {
+impl From<&QueueStateSer> for Queue {
     fn from(state: &QueueStateSer) -> Self {
-        QueueState {
+        Queue {
             max_size: state.max_size,
             next_avail: Wrapping(state.next_avail),
             next_used: Wrapping(state.next_used),
@@ -66,8 +66,8 @@ impl From<&QueueStateSer> for QueueState {
     }
 }
 
-impl From<&QueueState> for QueueStateSer {
-    fn from(state: &QueueState) -> Self {
+impl From<&Queue> for QueueStateSer {
+    fn from(state: &Queue) -> Self {
         QueueStateSer {
             max_size: state.max_size,
             next_avail: state.next_avail.0,
@@ -85,7 +85,7 @@ impl From<&QueueState> for QueueStateSer {
 
 impl Default for QueueStateSer {
     fn default() -> Self {
-        QueueStateSer::from(&QueueState::default())
+        QueueStateSer::from(&Queue::default())
     }
 }
 
@@ -99,7 +99,7 @@ mod tests {
     fn test_state_ser() {
         const SOME_VALUE: u16 = 16;
 
-        let state = QueueState {
+        let state = Queue {
             max_size: SOME_VALUE * 2,
             next_avail: Wrapping(SOME_VALUE - 1),
             next_used: Wrapping(SOME_VALUE + 1),
@@ -113,7 +113,7 @@ mod tests {
         };
 
         let ser_state = QueueStateSer::from(&state);
-        let state_from_ser = QueueState::from(&ser_state);
+        let state_from_ser = Queue::from(&ser_state);
 
         // Check that the old and the new state are identical when using the intermediate
         // `QueueStateSer` object.
@@ -121,10 +121,7 @@ mod tests {
 
         // Test the `Default` implementation of `QueueStateSer`.
         let default_queue_state_ser = QueueStateSer::default();
-        assert_eq!(
-            QueueState::from(&default_queue_state_ser),
-            QueueState::default()
-        );
+        assert_eq!(Queue::from(&default_queue_state_ser), Queue::default());
     }
 
     #[test]
@@ -151,7 +148,7 @@ mod tests {
             used_ring: 276,
         };
 
-        let mut queue = QueueState::from(&queue_ser);
+        let mut queue = Queue::from(&queue_ser);
         let desc_chain = vec![Descriptor::new(0x0, 0x100, 0, 0)];
         vq.build_desc_chain(&desc_chain).unwrap();
         assert!(queue.pop_descriptor_chain(m).is_none());

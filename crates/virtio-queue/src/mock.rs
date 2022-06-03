@@ -11,7 +11,7 @@ use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsiz
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 use crate::{
-    Descriptor, DescriptorChain, QueueState, QueueStateOwnedT, QueueStateT, VirtqUsedElem,
+    Descriptor, DescriptorChain, Queue, QueueStateOwnedT, QueueStateT, VirtqUsedElem,
 };
 use std::fmt::{self, Debug, Display};
 use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
@@ -421,7 +421,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         descs: &[Descriptor],
     ) -> Result<DescriptorChain<&M>, MockError> {
         self.add_desc_chains(descs, 0)?;
-        self.create_queue::<QueueState>()
+        self.create_queue::<Queue>()
             .iter(self.mem)
             .unwrap()
             .next()

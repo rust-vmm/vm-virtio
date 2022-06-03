@@ -34,7 +34,7 @@ use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 /// do the checks that we normally do in the queue's field setters when starting from scratch, when
 /// trying to create a `Queue` from a `QueueState`.
 #[derive(Debug, Default, PartialEq)]
-pub struct QueueState {
+pub struct Queue {
     /// The maximum size in elements offered by the device.
     pub max_size: u16,
 
@@ -67,7 +67,7 @@ pub struct QueueState {
     pub used_ring: GuestAddress,
 }
 
-impl QueueState {
+impl Queue {
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event<M: GuestMemory>(
@@ -150,13 +150,13 @@ impl QueueState {
     }
 }
 
-impl<'a> QueueStateGuard<'a> for QueueState {
+impl<'a> QueueStateGuard<'a> for Queue {
     type G = &'a mut Self;
 }
 
-impl QueueStateT for QueueState {
+impl QueueStateT for Queue {
     fn new(max_size: u16) -> Self {
-        QueueState {
+        Queue {
             max_size,
             size: max_size,
             ready: false,
@@ -471,7 +471,7 @@ impl QueueStateT for QueueState {
     }
 }
 
-impl QueueStateOwnedT for QueueState {
+impl QueueStateOwnedT for Queue {
     fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
     where
         M: Deref,
@@ -489,12 +489,12 @@ impl QueueStateOwnedT for QueueState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{
-        DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR,
-        VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE, VIRTQ_USED_F_NO_NOTIFY,
-    };
+    use crate::defs::{DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR};
     use crate::mock::MockSplitQueue;
     use crate::Descriptor;
+    use virtio_bindings::bindings::virtio_ring::{
+        VRING_DESC_F_NEXT, VRING_DESC_F_WRITE, VRING_USED_F_NO_NOTIFY,
+    };
 
     use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -502,7 +502,7 @@ mod tests {
     fn test_queue_is_valid() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         // q is currently valid
         assert!(q.is_valid(m));
@@ -580,7 +580,7 @@ mod tests {
     fn test_add_used() {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         assert_eq!(q.used_idx(mem, Ordering::Acquire).unwrap(), Wrapping(0));
         assert_eq!(u16::from_le(vq.used().idx().load()), 0);
@@ -604,7 +604,7 @@ mod tests {
     fn test_reset_queue() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         q.set_size(8);
         // The address set by `MockSplitQueue` for the descriptor table is DEFAULT_DESC_TABLE_ADDR,
@@ -643,7 +643,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let qsize = 16;
         let vq = MockSplitQueue::new(mem, qsize);
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
         let avail_addr = vq.avail_addr();
 
         // It should always return true when EVENT_IDX isn't enabled.
@@ -723,7 +723,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
         let used_addr = vq.used_addr();
 
         assert!(!q.event_idx_enabled);
@@ -734,7 +734,7 @@ mod tests {
 
         q.disable_notification(mem).unwrap();
         let v = mem.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
-        assert_eq!(v, VIRTQ_USED_F_NO_NOTIFY);
+        assert_eq!(v, VRING_USED_F_NO_NOTIFY as u16);
 
         q.enable_notification(mem).unwrap();
         let v = mem.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
@@ -762,7 +762,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         // q is currently valid.
         assert!(q.is_valid(mem));
@@ -771,10 +771,10 @@ mod tests {
         for i in 0..13 {
             let flags = match i {
                 1 | 4 | 6 | 8 | 12 => 0,
-                _ => VIRTQ_DESC_F_NEXT,
+                _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
             vq.desc_table().store(i, desc).unwrap();
         }
 
@@ -800,7 +800,7 @@ mod tests {
                 let head_index = chain.head_index();
                 let mut desc_len = 0;
                 chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                    if d.flags() as u32 & VRING_DESC_F_WRITE == VRING_DESC_F_WRITE {
                         desc_len += d.len();
                     }
                 });
@@ -830,7 +830,7 @@ mod tests {
                 let head_index = chain.head_index();
                 let mut desc_len = 0;
                 chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                    if d.flags() as u32 & VRING_DESC_F_WRITE == VRING_DESC_F_WRITE {
                         desc_len += d.len();
                     }
                 });
@@ -863,7 +863,7 @@ mod tests {
                 let head_index = chain.head_index();
                 let mut desc_len = 0;
                 chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                    if d.flags() as u32 & VRING_DESC_F_WRITE == VRING_DESC_F_WRITE {
                         desc_len += d.len();
                     }
                 });
@@ -885,7 +885,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         // q is currently valid.
         assert!(q.is_valid(mem));
@@ -894,10 +894,10 @@ mod tests {
         for i in 0..7 {
             let flags = match i {
                 1 | 4 | 6 => 0,
-                _ => VIRTQ_DESC_F_NEXT,
+                _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags, i + 1);
+            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
             vq.desc_table().store(i, desc).unwrap();
         }
 
@@ -919,7 +919,7 @@ mod tests {
                 let head_index = chain.head_index();
                 let mut desc_len = 0;
                 chain.for_each(|d| {
-                    if d.flags() & VIRTQ_DESC_F_WRITE == VIRTQ_DESC_F_WRITE {
+                    if d.flags() as u32 & VRING_DESC_F_WRITE == VRING_DESC_F_WRITE {
                         desc_len += d.len();
                     }
                 });

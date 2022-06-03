@@ -18,7 +18,7 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 
-use crate::{error, DescriptorChain, QueueState};
+use crate::{error, DescriptorChain, Queue};
 
 /// Consuming iterator over all available descriptor chain heads in the queue.
 ///
@@ -27,12 +27,12 @@ use crate::{error, DescriptorChain, QueueState};
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, QueueState, QueueStateOwnedT};
+/// use virtio_queue::{Descriptor, Queue, QueueStateOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
-/// # fn populate_queue(m: &GuestMemoryMmap) -> QueueState {
+/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
 /// #    let vq = MockSplitQueue::new(m, 16);
-/// #    let mut q: QueueState = vq.create_queue();
+/// #    let mut q: Queue = vq.create_queue();
 /// #
 /// #    // The chains are (0, 1), (2, 3, 4) and (5, 6).
 /// #    for i in 0..7 {
@@ -113,7 +113,7 @@ where
     ///           available descriptor chain.
     /// * `state` - the `QueueState` object from which the needed data to create the `AvailIter` can
     ///             be retrieved.
-    pub(crate) fn new(mem: M, idx: Wrapping<u16>, state: &'b mut QueueState) -> Self {
+    pub(crate) fn new(mem: M, idx: Wrapping<u16>, state: &'b mut Queue) -> Self {
         AvailIter {
             mem,
             desc_table: state.desc_table,
@@ -186,7 +186,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         // q is currently valid
         assert!(q.is_valid(m));
@@ -249,7 +249,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: QueueState = vq.create_queue();
+        let mut q: Queue = vq.create_queue();
 
         q.size = q.max_size;
         q.desc_table = vq.desc_table_addr();
@@ -334,7 +334,7 @@ mod tests {
         )];
         vq.build_desc_chain(&descriptors).unwrap();
 
-        let mut q = QueueState {
+        let mut q = Queue {
             max_size: 38,
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
