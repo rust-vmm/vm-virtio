@@ -16,9 +16,7 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::GuestAddressSpace;
 
-use crate::{
-    AvailIter, Error, QueueGuard, QueueState, QueueStateGuard, QueueStateOwnedT, QueueStateT,
-};
+use crate::{AvailIter, Error, QueueState, QueueStateGuard, QueueStateOwnedT, QueueStateT};
 
 /// A convenient wrapper struct for a virtio queue, with associated `GuestMemory` object.
 ///
@@ -105,17 +103,6 @@ impl<M: GuestAddressSpace, S: QueueStateT> Queue<M, S> {
     /// The lock will be released when the returned object gets dropped.
     pub fn lock(&mut self) -> <S as QueueStateGuard>::G {
         self.state.lock()
-    }
-
-    /// Get an exclusive reference to the underlying `QueueState` object with an associated
-    /// `GuestMemory` object.
-    ///
-    /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
-    /// The lock will be released when the returned object gets dropped.
-    pub fn lock_with_memory(
-        &mut self,
-    ) -> QueueGuard<<M as GuestAddressSpace>::T, <S as QueueStateGuard>::G> {
-        QueueGuard::new(self.state.lock(), self.mem.memory())
     }
 
     /// Get the maximum size of the virtio queue.
