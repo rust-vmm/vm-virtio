@@ -17,7 +17,7 @@ use crate::{DescriptorChain, Error, QueueState, QueueStateGuard, QueueStateT};
 /// # Example
 ///
 /// ```rust
-/// use virtio_queue::{Queue, QueueState, QueueStateSync, QueueStateT};
+/// use virtio_queue::{QueueState, QueueStateSync, QueueStateT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
