@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 use criterion::{black_box, BatchSize, Criterion};
-use virtio_queue::{QueueState, QueueStateOwnedT, QueueStateT};
+use virtio_queue::{Queue, QueueStateOwnedT, QueueStateT};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use virtio_queue::mock::MockSplitQueue;
 
 pub fn benchmark_queue(c: &mut Criterion) {
-    fn walk_queue<M: GuestMemory>(q: &mut QueueState, mem: &M) -> (usize, usize) {
+    fn walk_queue<M: GuestMemory>(q: &mut Queue, mem: &M) -> (usize, usize) {
         let mut num_chains = 0;
         let mut num_descriptors = 0;
 
@@ -22,8 +22,8 @@ pub fn benchmark_queue(c: &mut Criterion) {
 
     fn bench_queue<S, R>(c: &mut Criterion, bench_name: &str, setup: S, mut routine: R)
     where
-        S: FnMut() -> QueueState + Clone,
-        R: FnMut(QueueState),
+        S: FnMut() -> Queue + Clone,
+        R: FnMut(Queue),
     {
         c.bench_function(bench_name, move |b| {
             b.iter_batched(

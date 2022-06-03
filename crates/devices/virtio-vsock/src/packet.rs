@@ -193,13 +193,13 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// ```rust
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, QueueState, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
     /// #     let mut q = vq.create_queue();
     /// #
@@ -372,14 +372,14 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// ```rust
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, QueueState, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
     /// const OP_RW: u16 = 5;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
     /// #     let mut q = vq.create_queue();
     /// #
@@ -498,7 +498,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// ```rust
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, QueueState, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
@@ -515,7 +515,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # const BUF_ALLOC: u32 = 256;
     /// # const FWD_CNT: u32 = 9;
     ///
-    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> QueueState {
+    /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
     /// #     let mut q = vq.create_queue();
     /// #

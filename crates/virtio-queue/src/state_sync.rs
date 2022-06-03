@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use vm_memory::GuestMemory;
 
-use crate::{DescriptorChain, Error, QueueState, QueueStateGuard, QueueStateT};
+use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
 
 /// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
 /// context.
@@ -17,7 +17,7 @@ use crate::{DescriptorChain, Error, QueueState, QueueStateGuard, QueueStateT};
 /// # Example
 ///
 /// ```rust
-/// use virtio_queue::{QueueState, QueueStateSync, QueueStateT};
+/// use virtio_queue::{Queue, QueueStateSync, QueueStateT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
@@ -39,24 +39,24 @@ use crate::{DescriptorChain, Error, QueueState, QueueStateGuard, QueueStateT};
 /// ```
 #[derive(Clone, Debug)]
 pub struct QueueStateSync {
-    state: Arc<Mutex<QueueState>>,
+    state: Arc<Mutex<Queue>>,
 }
 
 impl QueueStateSync {
-    fn lock_state(&self) -> MutexGuard<QueueState> {
+    fn lock_state(&self) -> MutexGuard<Queue> {
         // Do not expect poisoned lock.
         self.state.lock().unwrap()
     }
 }
 
 impl<'a> QueueStateGuard<'a> for QueueStateSync {
-    type G = MutexGuard<'a, QueueState>;
+    type G = MutexGuard<'a, Queue>;
 }
 
 impl QueueStateT for QueueStateSync {
     fn new(max_size: u16) -> Self {
         QueueStateSync {
-            state: Arc::new(Mutex::new(QueueState::new(max_size))),
+            state: Arc::new(Mutex::new(Queue::new(max_size))),
         }
     }
 

@@ -25,7 +25,7 @@ use vm_memory::{GuestMemory, GuestMemoryError};
 pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
 pub use self::descriptor::{Descriptor, VirtqUsedElem};
 pub use self::iterator::AvailIter;
-pub use self::state::QueueState;
+pub use self::queue::Queue;
 pub use self::state_sync::QueueStateSync;
 
 pub mod defs;
@@ -35,7 +35,7 @@ pub mod mock;
 mod chain;
 mod descriptor;
 mod iterator;
-mod state;
+mod queue;
 mod state_sync;
 
 /// Virtio Queue related errors.
@@ -75,7 +75,7 @@ impl std::error::Error for Error {}
 /// Trait for objects returned by `QueueStateT::lock()`.
 pub trait QueueStateGuard<'a> {
     /// Type for guard returned by `Self::lock()`.
-    type G: DerefMut<Target = QueueState>;
+    type G: DerefMut<Target = Queue>;
 }
 
 /// Trait to access and manipulate a virtio queue.
