@@ -1,8 +1,9 @@
+// Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright (C) 2020-2021 Alibaba Cloud. All rights reserved.
+// Copyright © 2019 Intel Corporation.
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE-BSD-3-Clause file.
-//
-// Copyright (C) 2020-2021 Alibaba Cloud. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
@@ -24,15 +25,61 @@ use crate::{
 };
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 
-/// Struct to maintain information and manipulate state of a virtio queue.
+/// Struct to maintain information and manipulate a virtio queue.
 ///
-/// WARNING: The way the `QueueState` is defined now, it can be used as the queue object, therefore
-/// it is allowed to set up and use an invalid queue (initialized with random data since the
-/// `QueueState`'s fields are public). When fixing <https://github.com/rust-vmm/vm-virtio/issues/143>,
-/// we plan to rename `QueueState` to `Queue`, and define a new `QueueState` that would be the
-/// actual state of the queue (no `Wrapping`s in it, for example). This way, we will also be able to
-/// do the checks that we normally do in the queue's field setters when starting from scratch, when
-/// trying to create a `Queue` from a `QueueState`.
+/// # Example
+///
+/// ```rust
+/// use virtio_queue::{Queue, QueueStateOwnedT, QueueStateT};
+/// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
+///
+/// let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// let mut queue = Queue::new(1024);
+///
+/// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
+/// queue.set_size(8);
+/// queue.set_desc_table_address(Some(0x1000), None);
+/// queue.set_avail_ring_address(Some(0x2000), None);
+/// queue.set_used_ring_address(Some(0x3000), None);
+/// queue.set_event_idx(true);
+/// queue.set_ready(true);
+/// // The user should check if the queue is valid before starting to use it.
+/// assert!(queue.is_valid(&m));
+///
+/// // Here the driver would add entries in the available ring and then update the `idx` field of
+/// // the available ring (address = 0x2000 + 2).
+/// m.write_obj(3, GuestAddress(0x2002));
+///
+/// loop {
+///     queue.disable_notification(&m).unwrap();
+///
+///     // Consume entries from the available ring.
+///     while let Some(chain) = queue.iter(&m).unwrap().next() {
+///         // Process the descriptor chain, and then add an entry in the used ring and optionally
+///         // notify the driver.
+///         queue.add_used(&m, chain.head_index(), 0x100).unwrap();
+///
+///         if queue.needs_notification(&m).unwrap() {
+///             // Here we would notify the driver it has new entries in the used ring to consume.
+///         }
+///     }
+///     if !queue.enable_notification(&m).unwrap() {
+///         break;
+///     }
+/// }
+///
+/// // We can reset the queue at some point.
+/// queue.reset();
+/// // The queue should not be ready after reset.
+/// assert!(!queue.ready());
+/// ```
+///
+/// WARNING: The current implementation allows setting up and using an invalid queue
+/// (initialized with random data since the `Queue`'s fields are public). When fixing
+/// <https://github.com/rust-vmm/vm-virtio/issues/172>, we plan to define a `QueueState` that
+/// represents the actual state of the queue (no `Wrapping`s in it, for example). This way, we
+/// will also be able to do the checks that we normally do in the queue's field setters when
+/// starting from scratch, when trying to create a `Queue` from a `QueueState`.
 #[derive(Debug, Default, PartialEq)]
 pub struct Queue {
     /// The maximum size in elements offered by the device.
