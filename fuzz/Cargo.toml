@@ -16,8 +16,13 @@ cargo-fuzz = true
 arbitrary = { version = "1",  features = ["derive"] }
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"]}
 virtio-queue = { path = "../crates/virtio-queue", features = ["test-utils"] }
+virtio-queue-ser = { path = "../crates/virtio-queue-ser" }
 vm-memory = { version = ">=0.8.0", features = ["backend-mmap", "backend-atomic"] }
 
 [[bin]]
-name = "virtio_queue_fuzz_target"
-path = "fuzz_targets/virtio_queue_fuzz_target.rs"
+name = "virtio_queue"
+path = "fuzz_targets/virtio_queue.rs"
+
+[[bin]]
+name = "virtio_queue_ser"
+path = "fuzz_targets/virtio_queue_ser.rs"

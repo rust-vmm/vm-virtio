@@ -1,5 +1,7 @@
 use std::convert::Into;
-use virtio_queue::Descriptor;
+use std::sync::atomic::Ordering;
+use virtio_queue::{Descriptor, QueueState, QueueStateT};
+use vm_memory::GuestMemoryMmap;
 use libfuzzer_sys::arbitrary::Arbitrary;
 
 /// Similar to a Descriptor structure, the only difference is that instead of having fields of types
@@ -21,10 +23,21 @@ pub struct FuzzingDescriptor {
     pub next: u16,
 }
 
-/// The virtio queue functions that are called from the driver side
+// Identical to Ordering except it derives the Arbitrary trait
+#[derive(Arbitrary, Debug, Copy, Clone)]
+pub enum LoadOrdering {
+    Relaxed,
+    Acquire,
+    SeqCst,
+}
+
+/// The QueueState functions
 #[derive(Arbitrary, Debug)]
-pub enum VirtioQueueFunctionType {
+pub enum VirtioQueueFunction {
+    IsValid,
+    Reset,
     MaxSize,
+    Size,
     SetSize { size: u16 },
     Ready,
     SetReady { ready: bool },
@@ -32,12 +45,56 @@ pub enum VirtioQueueFunctionType {
     SetAvailRingAddress { low: Option<u32>, high: Option<u32> },
     SetUsedRingAddress { low: Option<u32>, high: Option<u32> },
     SetEventIdx { enabled: bool },
+    AvailIdx { order: LoadOrdering },
+    UsedIdx { order: LoadOrdering },
+    AddUsed { head_index: u16, len: u32 },
+    EnableNotification,
+    DisableNotification,
+    NeedsNotification,
+    NextAvail,
+    SetNextAvail { next_avail: u16 },
+    NextUsed,
+    SetNextUsed { next_used: u16 },
+    PopDescriptorChain,
 }
 
-#[derive(Arbitrary, Debug)]
-pub struct VirtioQueueInput {
-    pub fuzzing_descriptors: Vec<FuzzingDescriptor>,
-    pub functions: Vec<VirtioQueueFunctionType>,
+impl VirtioQueueFunction {
+    pub fn call(&self, q: &mut QueueState, m: &GuestMemoryMmap ) {
+        match self {
+            VirtioQueueFunction::IsValid => { q.is_valid(m); },
+            VirtioQueueFunction::Reset => { q.reset(); },
+            VirtioQueueFunction::MaxSize => { q.max_size(); },
+            VirtioQueueFunction::Size => { q.size(); },
+            VirtioQueueFunction::SetSize { size } => { q.set_size(*size); },
+            VirtioQueueFunction::Ready => { q.ready(); },
+            VirtioQueueFunction::SetReady { ready }=> { q.set_ready(*ready); },
+            VirtioQueueFunction::SetDescTableAddress { low, high } => { q.set_desc_table_address(*low, *high); },
+            VirtioQueueFunction::SetAvailRingAddress { low, high } => { q.set_avail_ring_address(*low, *high); },
+            VirtioQueueFunction::SetUsedRingAddress { low, high } => { q.set_used_ring_address(*low, *high); },
+            VirtioQueueFunction::SetEventIdx { enabled } => { q.set_event_idx(*enabled); },
+            VirtioQueueFunction::AvailIdx { order } => { let _ = q.avail_idx(m, (*order).into()); },
+            VirtioQueueFunction::UsedIdx { order } => { let _ = q.used_idx(m, (*order).into()); },
+            VirtioQueueFunction::AddUsed { head_index, len } => { let _ = q.add_used(m, *head_index, *len); },
+            VirtioQueueFunction::EnableNotification => { let _ = q.enable_notification(m); },
+            VirtioQueueFunction::DisableNotification => { let _ = q.disable_notification(m); },
+            VirtioQueueFunction::NeedsNotification => { let _ = q.needs_notification(m); },
+            VirtioQueueFunction::NextAvail => { q.next_avail(); },
+            VirtioQueueFunction::SetNextAvail { next_avail } => { q.set_next_avail(*next_avail); },
+            VirtioQueueFunction::NextUsed => { q.next_used(); },
+            VirtioQueueFunction::SetNextUsed { next_used } => { q.set_next_used(*next_used); },
+            VirtioQueueFunction::PopDescriptorChain => { q.pop_descriptor_chain(m); },
+        }
+    }
+}
+
+impl Into<Ordering> for LoadOrdering {
+    fn into(self) -> Ordering {
+        match self {
+            LoadOrdering::Relaxed => Ordering::Relaxed,
+            LoadOrdering::Acquire => Ordering::Acquire,
+            LoadOrdering::SeqCst => Ordering::SeqCst,
+        }
+    }
 }
 
 impl Into<Descriptor> for FuzzingDescriptor {
