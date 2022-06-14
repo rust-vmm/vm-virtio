@@ -19,7 +19,11 @@ fuzz_target!(|virtio_queue_input: VirtioQueueInput| {
     for fuzzing_descriptor in fuzzing_descriptors {
         descriptors.push(fuzzing_descriptor.into());
     }
-    vq.build_multiple_desc_chains(&descriptors[..]);
+    // we return early because the coverage is not increasing, we expect the fuzzer to abandon the
+    // paths that would generate invalid descriptors
+    if vq.build_multiple_desc_chains(&descriptors).is_err() {
+        return;
+    }
     let mut q = vq.create_queue(m);
 
     for function in virtio_queue_input.functions {
