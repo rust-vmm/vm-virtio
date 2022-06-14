@@ -55,7 +55,11 @@ fuzz_target!(|queue_state_ser_input: QueueStateSerInput| {
     for fuzzing_descriptor in fuzzing_descriptors {
         descriptors.push(fuzzing_descriptor.into());
     }
-    vq.build_multiple_desc_chains(&descriptors[..]);
+    // we return early because the coverage is not increasing, we expect the fuzzer to abandon the
+    // paths that would generate invalid descriptors
+    if vq.build_multiple_desc_chains(&descriptors).is_err() {
+        return;
+    }
     let mut q = QueueState::from(&queue_state_ser_input.fuzzing_queue_state_ser.into());
 
     for function in queue_state_ser_input.functions {
