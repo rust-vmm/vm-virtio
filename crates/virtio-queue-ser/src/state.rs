@@ -92,6 +92,8 @@ impl Default for QueueStateSer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use virtio_queue::{mock::MockSplitQueue, Descriptor, QueueStateT};
+    use vm_memory::GuestMemoryMmap;
 
     #[test]
     fn test_state_ser() {
@@ -123,5 +125,35 @@ mod tests {
             QueueState::from(&default_queue_state_ser),
             QueueState::default()
         );
+    }
+
+    #[test]
+    fn test_ser_with_len_zero() {
+        // This is a regression test that tests that a queue where the size is set to 0 does not
+        // cause any problems when poping the descriptor chain.
+        //
+        // In the future this should be updated such that the Queue does not have the fields as
+        // public, and the way to obtain a Queue from a serialized Queue is by using a `try_from`
+        // function which then makes sure that the deserialized values are valid before creating
+        // a queue that might be invalid.
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+        let queue_ser = QueueStateSer {
+            max_size: 16,
+            next_avail: 0,
+            next_used: 0,
+            event_idx_enabled: false,
+            num_added: 0,
+            size: 0,
+            ready: true,
+            desc_table: 0,
+            avail_ring: 256,
+            used_ring: 276,
+        };
+
+        let mut queue = QueueState::from(&queue_ser);
+        let desc_chain = vec![Descriptor::new(0x0, 0x100, 0, 0)];
+        vq.build_desc_chain(&desc_chain).unwrap();
+        assert!(queue.pop_descriptor_chain(m).is_none());
     }
 }
