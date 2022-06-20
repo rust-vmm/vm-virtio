@@ -61,5 +61,10 @@ Now the `VsockPacket` can only be created from a single descriptor chain, using 
 calling all the functions from the public interface.
 
 ## To run cargo fuzz
+cargo +nightly fuzz run virtio_queue
 
-cargo +nightly fuzz run virtio_queue_fuzz_target.
+## To run cargo fuzz with sanitizers
+
+cargo +nightly fuzz run --sanitizer address virtio_queue
+The example is for running the fuzzer with AddressSanitizer, but it is similar for the others as well.
+You can just specify leak, thread, or memory instead of address to run with the other sanitizers.
