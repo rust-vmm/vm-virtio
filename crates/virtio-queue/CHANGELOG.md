@@ -1,3 +1,17 @@
+# v0.4.0
+
+## Fixed
+- [[#173]](https://github.com/rust-vmm/vm-virtio/pull/173) Fix potential division by zero in
+  iterator when the queue size is 0.
+
+## Changed
+- [[#162]](https://github.com/rust-vmm/vm-virtio/pull/162) Added error handling in the mock
+  interface and the ability to create multiple descriptor chains for testing in order to
+  support running fuzzing.
+- [[#174]](https://github.com/rust-vmm/vm-virtio/pull/174) Updated the `avail_idx` and `used_idx`
+  documentation to specify when these functions panic.
+
+
 # v0.3.0
 
 ## Added
