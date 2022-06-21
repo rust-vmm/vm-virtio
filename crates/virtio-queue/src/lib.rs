@@ -155,11 +155,19 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     fn set_event_idx(&mut self, enabled: bool);
 
     /// Read the `idx` field from the available ring.
+    ///
+    /// # Panics
+    ///
+    /// Panics if order is Release or AcqRel.
     fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
     where
         M: GuestMemory + ?Sized;
 
     /// Read the `idx` field from the used ring.
+    ///
+    /// # Panics
+    ///
+    /// Panics if order is Release or AcqRel.
     fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
 
     /// Put a used descriptor head into the used ring.
