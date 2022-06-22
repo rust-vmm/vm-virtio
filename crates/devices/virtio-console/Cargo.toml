@@ -1,0 +1,16 @@
+[package]
+name = "virtio-console"
+version = "0.1.0"
+authors = ["rust-vmm community", "rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>",
+    "Niculae Radu-Alexandru <r.niculae99@gmail.com>"]
+description = "virtio console device implementation"
+repository = "https://github.com/rust-vmm/vm-virtio"
+keywords = ["virtio", "console"]
+readme = "README.md"
+license = "Apache-2.0 OR BSD-3-Clause"
+edition = "2021"
+
+
+[dependencies]
+virtio-queue = { path = "../../virtio-queue", version = ">=0.3.0" }
+vm-memory = "0.8.0"
