@@ -234,7 +234,7 @@ pub(crate) mod tests {
 
     impl Dummy {
         pub fn new(device_type: u32, features: u64, config_space: Vec<u8>) -> Self {
-            let queue = Queue::new(256);
+            let queue = Queue::new(256).unwrap();
 
             let cfg = VirtioConfig::new(features, vec![queue], config_space);
             Dummy {

@@ -20,10 +20,13 @@ use crate::defs::{
     VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_RING_HEADER_SIZE, VIRTQ_USED_RING_META_SIZE,
 };
 use crate::{
-    error, AvailIter, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT,
-    QueueT, VirtqUsedElem,
+    error, AvailIter, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueT,
+    VirtqUsedElem,
 };
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
+
+/// The maximum queue size as defined in the Virtio Spec.
+pub const MAX_QUEUE_SIZE: u16 = 32768;
 
 /// Struct to maintain information and manipulate a virtio queue.
 ///
@@ -34,7 +37,7 @@ use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-/// let mut queue = Queue::new(1024);
+/// let mut queue = Queue::new(1024).unwrap();
 ///
 /// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
 /// queue.set_size(8);
@@ -202,8 +205,13 @@ impl<'a> QueueGuard<'a> for Queue {
 }
 
 impl QueueT for Queue {
-    fn new(max_size: u16) -> Self {
-        Queue {
+    fn new(max_size: u16) -> Result<Self, Error> {
+        // We need to check that the max size is a power of 2 because we're setting this as the
+        // queue size, and the valid queue sizes are a power of 2 as per the specification.
+        if max_size == 0 || max_size > MAX_QUEUE_SIZE || (max_size & (max_size - 1)) != 0 {
+            return Err(Error::AddressOverflow);
+        }
+        Ok(Queue {
             max_size,
             size: max_size,
             ready: false,
@@ -214,7 +222,7 @@ impl QueueT for Queue {
             next_used: Wrapping(0),
             event_idx_enabled: false,
             num_added: Wrapping(0),
-        }
+        })
     }
 
     fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {

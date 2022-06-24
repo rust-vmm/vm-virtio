@@ -393,7 +393,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
     pub fn create_queue<Q: QueueT>(&self) -> Q {
-        let mut q = Q::new(self.len);
+        let mut q = Q::new(self.len).unwrap();
         q.set_size(self.len);
         q.set_ready(true);
         // we cannot directly set the u64 address, we need to compose it from low & high.
