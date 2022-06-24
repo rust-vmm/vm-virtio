@@ -193,7 +193,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// ```rust
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
@@ -372,7 +372,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// ```rust
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
@@ -498,7 +498,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// ```rust
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
-    /// # use virtio_queue::{Descriptor, Queue, QueueStateT};
+    /// # use virtio_queue::{Descriptor, Queue, QueueT};
     /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///

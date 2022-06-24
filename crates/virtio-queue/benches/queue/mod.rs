@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 use criterion::{black_box, BatchSize, Criterion};
-use virtio_queue::{Queue, QueueStateOwnedT, QueueStateT};
+use virtio_queue::{Queue, QueueOwnedT, QueueT};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use virtio_queue::mock::MockSplitQueue;

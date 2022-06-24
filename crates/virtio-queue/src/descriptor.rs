@@ -23,7 +23,7 @@ use virtio_bindings::bindings::virtio_ring::{
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, Queue, QueueStateOwnedT};
+/// use virtio_queue::{Descriptor, Queue, QueueOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
 /// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {

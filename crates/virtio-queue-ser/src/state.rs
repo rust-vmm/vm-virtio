@@ -92,7 +92,7 @@ impl Default for QueueStateSer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use virtio_queue::{mock::MockSplitQueue, Descriptor, QueueStateT};
+    use virtio_queue::{mock::MockSplitQueue, Descriptor, QueueT};
     use vm_memory::GuestMemoryMmap;
 
     #[test]

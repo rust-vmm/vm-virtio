@@ -18,7 +18,7 @@ use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use log::warn;
-use virtio_queue::QueueStateT;
+use virtio_queue::QueueT;
 
 pub use mmio::VirtioMmioDevice;
 pub use virtio_config::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType};
@@ -78,7 +78,7 @@ pub trait VirtioDevice {
     /// Error type for operations such as `activate` and `reset`.
     type E;
     /// The type of queue used for the operation of this device.
-    type Q: QueueStateT;
+    type Q: QueueT;
 
     /// The virtio device type.
     fn device_type(&self) -> u32;
