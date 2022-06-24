@@ -21,7 +21,7 @@ use crate::{DescriptorChain, Error, Queue, QueueGuard, QueueT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-/// let mut queue = QueueSync::new(1024);
+/// let mut queue = QueueSync::new(1024).unwrap();
 ///
 /// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
 /// queue.set_size(8);
@@ -54,10 +54,10 @@ impl<'a> QueueGuard<'a> for QueueSync {
 }
 
 impl QueueT for QueueSync {
-    fn new(max_size: u16) -> Self {
-        QueueSync {
-            state: Arc::new(Mutex::new(Queue::new(max_size))),
-        }
+    fn new(max_size: u16) -> Result<Self, Error> {
+        Ok(QueueSync {
+            state: Arc::new(Mutex::new(Queue::new(max_size)?)),
+        })
     }
 
     fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_queue_state_sync() {
-        let mut q = QueueSync::new(0x1000);
+        let mut q = QueueSync::new(0x1000).unwrap();
         let mut q2 = q.clone();
         let q3 = q.clone();
         let barrier = Arc::new(Barrier::new(3));
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_state_sync_add_used() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut q = QueueSync::new(0x100);
+        let mut q = QueueSync::new(0x100).unwrap();
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_sync_state_reset_queue() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut q = QueueSync::new(0x100);
+        let mut q = QueueSync::new(0x100).unwrap();
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);
@@ -317,7 +317,7 @@ mod tests {
     fn test_enable_disable_notification() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mem = m.memory();
-        let mut q = QueueSync::new(0x100);
+        let mut q = QueueSync::new(0x100).unwrap();
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);

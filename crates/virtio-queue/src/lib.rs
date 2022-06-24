@@ -53,6 +53,8 @@ pub enum Error {
     InvalidChain,
     /// Invalid descriptor index.
     InvalidDescriptorIndex,
+    /// Invalid max_size.
+    InvalidMaxSize,
 }
 
 impl Display for Error {
@@ -66,6 +68,7 @@ impl Display for Error {
             InvalidIndirectDescriptor => write!(f, "invalid indirect descriptor"),
             InvalidIndirectDescriptorTable => write!(f, "invalid indirect descriptor table"),
             InvalidDescriptorIndex => write!(f, "invalid descriptor index"),
+            InvalidMaxSize => write!(f, "invalid queue maximum size"),
         }
     }
 }
@@ -87,7 +90,11 @@ pub trait QueueGuard<'a> {
 /// lifetime parameter, without tagging the `QueueStateT` trait with a lifetime as well.
 pub trait QueueT: for<'a> QueueGuard<'a> {
     /// Construct an empty virtio queue state object with the given `max_size`.
-    fn new(max_size: u16) -> Self;
+    ///
+    /// Returns an error if `max_size` is invalid.
+    fn new(max_size: u16) -> Result<Self, Error>
+    where
+        Self: Sized;
 
     /// Check whether the queue configuration is valid.
     fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool;
