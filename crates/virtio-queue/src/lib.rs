@@ -55,6 +55,14 @@ pub enum Error {
     InvalidDescriptorIndex,
     /// Invalid max_size.
     InvalidMaxSize,
+    /// Invalid Queue Size.
+    InvalidSize,
+    /// Invalid alignment of descriptor table address.
+    InvalidDescTableAlign,
+    /// Invalid alignment of available ring address.
+    InvalidAvailRingAlign,
+    /// Invalid alignment of used ring address.
+    InvalidUsedRingAlign,
 }
 
 impl Display for Error {
@@ -69,6 +77,18 @@ impl Display for Error {
             InvalidIndirectDescriptorTable => write!(f, "invalid indirect descriptor table"),
             InvalidDescriptorIndex => write!(f, "invalid descriptor index"),
             InvalidMaxSize => write!(f, "invalid queue maximum size"),
+            InvalidSize => write!(f, "invalid queue size"),
+            InvalidDescTableAlign => write!(
+                f,
+                "virtio queue descriptor table breaks alignment constraints"
+            ),
+            InvalidAvailRingAlign => write!(
+                f,
+                "virtio queue available ring breaks alignment constraints"
+            ),
+            InvalidUsedRingAlign => {
+                write!(f, "virtio queue used ring breaks alignment constraints")
+            }
         }
     }
 }
