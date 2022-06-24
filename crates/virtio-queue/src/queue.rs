@@ -118,6 +118,61 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// Equivalent of [`QueueT::set_size`] returning an error in case of invalid size.
+    ///
+    /// This should not be directly used, as the preferred method is part of the [`QueueT`]
+    /// interface. This is a convenience function for implementing save/restore capabilities.
+    pub fn try_set_size(&mut self, size: u16) -> Result<(), Error> {
+        if size > self.max_size() || size == 0 || (size & (size - 1)) != 0 {
+            return Err(Error::InvalidSize);
+        }
+        self.size = size;
+        Ok(())
+    }
+
+    /// Tries to set the descriptor table address. In case of an invalid value, the address is
+    /// not updated.
+    ///
+    /// This should not be directly used, as the preferred method is
+    /// [`QueueT::set_desc_table_address`]. This is a convenience function for implementing
+    /// save/restore capabilities.
+    pub fn try_set_desc_table_address(&mut self, desc_table: GuestAddress) -> Result<(), Error> {
+        if desc_table.mask(0xf) != 0 {
+            return Err(Error::InvalidDescTableAlign);
+        }
+        self.desc_table = desc_table;
+
+        Ok(())
+    }
+
+    /// Tries to update the available ring address. In case of an invalid value, the address is
+    /// not updated.
+    ///
+    /// This should not be directly used, as the preferred method is
+    /// [`QueueT::set_avail_ring_address`]. This is a convenience function for implementing
+    /// save/restore capabilities.
+    pub fn try_set_avail_ring_address(&mut self, avail_ring: GuestAddress) -> Result<(), Error> {
+        if avail_ring.mask(0x1) != 0 {
+            return Err(Error::InvalidAvailRingAlign);
+        }
+        self.avail_ring = avail_ring;
+        Ok(())
+    }
+
+    /// Tries to update the used ring address. In cae of an invalid value, the address is not
+    /// updated.
+    ///
+    /// This should not be directly used, as the preferred method is
+    /// [`QueueT::set_used_ring_address`]. This is a convenience function for implementing
+    /// save/restore capabilities.
+    pub fn try_set_used_ring_address(&mut self, used_ring: GuestAddress) -> Result<(), Error> {
+        if used_ring.mask(0x3) != 0 {
+            return Err(Error::InvalidUsedRingAlign);
+        }
+        self.used_ring = used_ring;
+        Ok(())
+    }
+
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
     fn set_avail_event<M: GuestMemory>(
@@ -301,11 +356,9 @@ impl QueueT for Queue {
     }
 
     fn set_size(&mut self, size: u16) {
-        if size > self.max_size() || size == 0 || (size & (size - 1)) != 0 {
+        if self.try_set_size(size).is_err() {
             error!("virtio queue with invalid size: {}", size);
-            return;
         }
-        self.size = size;
     }
 
     fn ready(&self) -> bool {
@@ -321,11 +374,9 @@ impl QueueT for Queue {
         let high = high.unwrap_or((self.desc_table.0 >> 32) as u32) as u64;
 
         let desc_table = GuestAddress((high << 32) | low);
-        if desc_table.mask(0xf) != 0 {
+        if self.try_set_desc_table_address(desc_table).is_err() {
             error!("virtio queue descriptor table breaks alignment constraints");
-            return;
         }
-        self.desc_table = desc_table;
     }
 
     fn set_avail_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
@@ -333,11 +384,9 @@ impl QueueT for Queue {
         let high = high.unwrap_or((self.avail_ring.0 >> 32) as u32) as u64;
 
         let avail_ring = GuestAddress((high << 32) | low);
-        if avail_ring.mask(0x1) != 0 {
+        if self.try_set_avail_ring_address(avail_ring).is_err() {
             error!("virtio queue available ring breaks alignment constraints");
-            return;
         }
-        self.avail_ring = avail_ring;
     }
 
     fn set_used_ring_address(&mut self, low: Option<u32>, high: Option<u32>) {
@@ -345,11 +394,9 @@ impl QueueT for Queue {
         let high = high.unwrap_or((self.used_ring.0 >> 32) as u32) as u64;
 
         let used_ring = GuestAddress((high << 32) | low);
-        if used_ring.mask(0x3) != 0 {
+        if self.try_set_used_ring_address(used_ring).is_err() {
             error!("virtio queue used ring breaks alignment constraints");
-            return;
         }
-        self.used_ring = used_ring;
     }
 
     fn set_event_idx(&mut self, enabled: bool) {
