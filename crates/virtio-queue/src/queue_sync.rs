@@ -17,11 +17,11 @@ use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
 /// # Example
 ///
 /// ```rust
-/// use virtio_queue::{Queue, QueueStateSync, QueueStateT};
+/// use virtio_queue::{Queue, QueueSync, QueueStateT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-/// let mut queue = QueueStateSync::new(1024);
+/// let mut queue = QueueSync::new(1024);
 ///
 /// // First, the driver sets up the queue; this set up is done via writes on the bus (PCI, MMIO).
 /// queue.set_size(8);
@@ -38,24 +38,24 @@ use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
 /// queue.needs_notification(m.memory()).unwrap();
 /// ```
 #[derive(Clone, Debug)]
-pub struct QueueStateSync {
+pub struct QueueSync {
     state: Arc<Mutex<Queue>>,
 }
 
-impl QueueStateSync {
+impl QueueSync {
     fn lock_state(&self) -> MutexGuard<Queue> {
         // Do not expect poisoned lock.
         self.state.lock().unwrap()
     }
 }
 
-impl<'a> QueueStateGuard<'a> for QueueStateSync {
+impl<'a> QueueStateGuard<'a> for QueueSync {
     type G = MutexGuard<'a, Queue>;
 }
 
-impl QueueStateT for QueueStateSync {
+impl QueueStateT for QueueSync {
     fn new(max_size: u16) -> Self {
-        QueueStateSync {
+        QueueSync {
             state: Arc::new(Mutex::new(Queue::new(max_size))),
         }
     }
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_queue_state_sync() {
-        let mut q = QueueStateSync::new(0x1000);
+        let mut q = QueueSync::new(0x1000);
         let mut q2 = q.clone();
         let q3 = q.clone();
         let barrier = Arc::new(Barrier::new(3));
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_state_sync_add_used() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut q = QueueStateSync::new(0x100);
+        let mut q = QueueSync::new(0x100);
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_sync_state_reset_queue() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let mut q = QueueStateSync::new(0x100);
+        let mut q = QueueSync::new(0x100);
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);
@@ -317,7 +317,7 @@ mod tests {
     fn test_enable_disable_notification() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mem = m.memory();
-        let mut q = QueueStateSync::new(0x100);
+        let mut q = QueueSync::new(0x100);
 
         q.set_desc_table_address(Some(0x1000), None);
         q.set_avail_ring_address(Some(0x2000), None);
