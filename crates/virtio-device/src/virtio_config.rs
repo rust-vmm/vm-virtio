@@ -11,7 +11,7 @@ use std::sync::Arc;
 use log::error;
 
 use crate::{VirtioDevice, WithDriverSelect};
-use virtio_queue::{Queue, QueueStateT};
+use virtio_queue::{Queue, QueueT};
 
 /// An object that provides a common virtio device configuration representation. It is not part
 /// of the main `vm-virtio` set of interfaces, but rather can be used as a helper object in
@@ -21,7 +21,7 @@ use virtio_queue::{Queue, QueueStateT};
 // The various members have `pub` visibility until we determine whether it makes sense to drop
 // this in favor of adding accessors.
 #[derive(Debug)]
-pub struct VirtioConfig<Q: QueueStateT> {
+pub struct VirtioConfig<Q: QueueT> {
     /// The set of features exposed by the device.
     pub device_features: u64,
     /// The set of features acknowledged by the driver.
@@ -46,7 +46,7 @@ pub struct VirtioConfig<Q: QueueStateT> {
     pub interrupt_status: Arc<AtomicU8>,
 }
 
-impl<Q: QueueStateT> VirtioConfig<Q> {
+impl<Q: QueueT> VirtioConfig<Q> {
     /// Build and initialize a `VirtioConfig` object.
     pub fn new(device_features: u64, queues: Vec<Q>, config_space: Vec<u8>) -> Self {
         VirtioConfig {

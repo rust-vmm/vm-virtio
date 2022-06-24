@@ -20,8 +20,8 @@ use crate::defs::{
     VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_RING_HEADER_SIZE, VIRTQ_USED_RING_META_SIZE,
 };
 use crate::{
-    error, AvailIter, Descriptor, DescriptorChain, Error, QueueStateGuard, QueueStateOwnedT,
-    QueueStateT, VirtqUsedElem,
+    error, AvailIter, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT,
+    QueueT, VirtqUsedElem,
 };
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 
@@ -30,7 +30,7 @@ use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 /// # Example
 ///
 /// ```rust
-/// use virtio_queue::{Queue, QueueStateOwnedT, QueueStateT};
+/// use virtio_queue::{Queue, QueueOwnedT, QueueT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
@@ -197,11 +197,11 @@ impl Queue {
     }
 }
 
-impl<'a> QueueStateGuard<'a> for Queue {
+impl<'a> QueueGuard<'a> for Queue {
     type G = &'a mut Self;
 }
 
-impl QueueStateT for Queue {
+impl QueueT for Queue {
     fn new(max_size: u16) -> Self {
         Queue {
             max_size,
@@ -280,7 +280,7 @@ impl QueueStateT for Queue {
         self.event_idx_enabled = false;
     }
 
-    fn lock(&mut self) -> <Self as QueueStateGuard>::G {
+    fn lock(&mut self) -> <Self as QueueGuard>::G {
         self
     }
 
@@ -518,7 +518,7 @@ impl QueueStateT for Queue {
     }
 }
 
-impl QueueStateOwnedT for Queue {
+impl QueueOwnedT for Queue {
     fn iter<M>(&mut self, mem: M) -> Result<AvailIter<'_, M>, Error>
     where
         M: Deref,

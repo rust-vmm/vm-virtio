@@ -10,9 +10,7 @@ use std::mem::size_of;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
-use crate::{
-    Descriptor, DescriptorChain, Queue, QueueStateOwnedT, QueueStateT, VirtqUsedElem,
-};
+use crate::{Descriptor, DescriptorChain, Queue, QueueOwnedT, QueueT, VirtqUsedElem};
 use std::fmt::{self, Debug, Display};
 use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
 
@@ -394,7 +392,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
-    pub fn create_queue<Q: QueueStateT>(&self) -> Q {
+    pub fn create_queue<Q: QueueT>(&self) -> Q {
         let mut q = Q::new(self.len);
         q.set_size(self.len);
         q.set_ready(true);
@@ -434,7 +432,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     // keeps the other characteristics of the input descriptors (`addr`, `len`, other flags).
     // TODO: make this function work with a generic queue. For now that's not possible because
     // we cannot create the descriptor chain from an iterator as iterator is not implemented for
-    // a generic T, just for `QueueState`.
+    // a generic T, just for `Queue`.
     pub fn build_desc_chain(&self, descs: &[Descriptor]) -> Result<DescriptorChain<&M>, MockError> {
         let mut modified_descs: Vec<Descriptor> = Vec::with_capacity(descs.len());
         for (idx, desc) in descs.iter().enumerate() {

@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use vm_memory::GuestMemory;
 
-use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
+use crate::{DescriptorChain, Error, Queue, QueueGuard, QueueT};
 
 /// Struct to maintain information and manipulate state of a virtio queue for multi-threaded
 /// context.
@@ -17,7 +17,7 @@ use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
 /// # Example
 ///
 /// ```rust
-/// use virtio_queue::{Queue, QueueSync, QueueStateT};
+/// use virtio_queue::{Queue, QueueSync, QueueT};
 /// use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
 ///
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
@@ -32,7 +32,7 @@ use crate::{DescriptorChain, Error, Queue, QueueStateGuard, QueueStateT};
 /// // The user should check if the queue is valid before starting to use it.
 /// assert!(queue.is_valid(m.memory()));
 ///
-/// // The memory object is not embedded in the `QueueStateSync`, so we have to pass it as a
+/// // The memory object is not embedded in the `QueueSync`, so we have to pass it as a
 /// // parameter to the methods that access the guest memory. Examples would be:
 /// queue.add_used(m.memory(), 1, 0x100).unwrap();
 /// queue.needs_notification(m.memory()).unwrap();
@@ -49,11 +49,11 @@ impl QueueSync {
     }
 }
 
-impl<'a> QueueStateGuard<'a> for QueueSync {
+impl<'a> QueueGuard<'a> for QueueSync {
     type G = MutexGuard<'a, Queue>;
 }
 
-impl QueueStateT for QueueSync {
+impl QueueT for QueueSync {
     fn new(max_size: u16) -> Self {
         QueueSync {
             state: Arc::new(Mutex::new(Queue::new(max_size))),
@@ -68,7 +68,7 @@ impl QueueStateT for QueueSync {
         self.lock_state().reset();
     }
 
-    fn lock(&mut self) -> <Self as QueueStateGuard>::G {
+    fn lock(&mut self) -> <Self as QueueGuard>::G {
         self.lock_state()
     }
 

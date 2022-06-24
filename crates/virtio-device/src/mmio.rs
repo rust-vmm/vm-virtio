@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use log::warn;
 
 use crate::{status, VirtioDevice, WithDriverSelect};
-use virtio_queue::QueueStateT;
+use virtio_queue::QueueT;
 
 // Required by the Virtio MMIO device register layout at offset 0 from base. Turns out this
 // is actually the ASCII sequence for "virt" (in little endian ordering).
@@ -33,7 +33,7 @@ const VENDOR_ID: u32 = 0;
 fn update_queue_field<D, F, Q>(device: &mut D, f: F)
 where
     D: WithDriverSelect + ?Sized + VirtioDevice<Q = Q>,
-    Q: QueueStateT,
+    Q: QueueT,
     F: FnOnce(&mut Q),
 {
     if device.check_device_status(status::FEATURES_OK, status::DRIVER_OK | status::FAILED) {
@@ -83,7 +83,7 @@ pub trait VirtioMmioDevice: WithDriverSelect {
                     },
                     0x34 => self
                         .selected_queue()
-                        .map(QueueStateT::max_size)
+                        .map(QueueT::max_size)
                         .unwrap_or(0)
                         .into(),
                     0x44 => self

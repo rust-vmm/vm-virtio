@@ -72,20 +72,20 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Trait for objects returned by `QueueStateT::lock()`.
-pub trait QueueStateGuard<'a> {
+/// Trait for objects returned by `QueueT::lock()`.
+pub trait QueueGuard<'a> {
     /// Type for guard returned by `Self::lock()`.
     type G: DerefMut<Target = Queue>;
 }
 
 /// Trait to access and manipulate a virtio queue.
 ///
-/// To optimize for performance, different implementations of the `QueueStateT` trait may be
+/// To optimize for performance, different implementations of the `QueueT` trait may be
 /// provided for single-threaded context and multi-threaded context.
 ///
 /// Using Higher-Rank Trait Bounds (HRTBs) to effectively define an associated type that has a
 /// lifetime parameter, without tagging the `QueueStateT` trait with a lifetime as well.
-pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
+pub trait QueueT: for<'a> QueueGuard<'a> {
     /// Construct an empty virtio queue state object with the given `max_size`.
     fn new(max_size: u16) -> Self;
 
@@ -95,11 +95,11 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
     /// Reset the queue to the initial state.
     fn reset(&mut self);
 
-    /// Get an exclusive reference to the underlying `QueueState` object.
+    /// Get an exclusive reference to the underlying `Queue` object.
     ///
-    /// Logically this method will acquire the underlying lock protecting the `QueueState` Object.
+    /// Logically this method will acquire the underlying lock protecting the `Queue` Object.
     /// The lock will be released when the returned object gets dropped.
-    fn lock(&mut self) -> <Self as QueueStateGuard>::G;
+    fn lock(&mut self) -> <Self as QueueGuard>::G;
 
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
@@ -200,7 +200,7 @@ pub trait QueueStateT: for<'a> QueueStateGuard<'a> {
 
 /// Trait to access and manipulate a Virtio queue that's known to be exclusively accessed
 /// by a single execution thread.
-pub trait QueueStateOwnedT: QueueStateT {
+pub trait QueueOwnedT: QueueT {
     /// Get a consuming iterator over all available descriptor chain heads offered by the driver.
     ///
     /// # Arguments
