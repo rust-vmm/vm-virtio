@@ -21,9 +21,6 @@ pub struct QueueStateSer {
     pub next_used: u16,
     /// VIRTIO_F_RING_EVENT_IDX negotiated.
     pub event_idx_enabled: bool,
-    /// The number of descriptor chains placed in the used ring via `add_used`
-    /// since the last time `needs_notification` was called on the associated queue.
-    pub num_added: u16,
     /// The queue size in elements the driver selected.
     pub size: u16,
     /// Indicates if the queue finished with the configuration.
@@ -56,7 +53,7 @@ impl From<&QueueStateSer> for Queue {
             next_avail: Wrapping(state.next_avail),
             next_used: Wrapping(state.next_used),
             event_idx_enabled: state.event_idx_enabled,
-            num_added: Wrapping(state.num_added),
+            num_added: Wrapping(0),
             size: state.size,
             ready: state.ready,
             desc_table: GuestAddress(state.desc_table),
@@ -73,7 +70,6 @@ impl From<&Queue> for QueueStateSer {
             next_avail: state.next_avail.0,
             next_used: state.next_used.0,
             event_idx_enabled: state.event_idx_enabled,
-            num_added: state.num_added.0,
             size: state.size,
             ready: state.ready,
             desc_table: state.desc_table.0,
@@ -140,7 +136,6 @@ mod tests {
             next_avail: 0,
             next_used: 0,
             event_idx_enabled: false,
-            num_added: 0,
             size: 0,
             ready: true,
             desc_table: 0,
