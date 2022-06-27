@@ -212,6 +212,21 @@ pub trait QueueT: for<'a> QueueGuard<'a> {
     /// Set the index for the next descriptor in the used ring.
     fn set_next_used(&mut self, next_used: u16);
 
+    /// Return the address of the descriptor table.
+    fn desc_table(&self) -> u64;
+
+    /// Return the address of the available ring.
+    fn avail_ring(&self) -> u64;
+
+    /// Return the address of the used ring.
+    fn used_ring(&self) -> u64;
+
+    /// Checks whether `VIRTIO_F_RING_EVENT_IDX` is negotiated.
+    ///
+    /// This getter is only returning the correct value after the device passes the `FEATURES_OK`
+    /// status.
+    fn event_idx_enabled(&self) -> bool;
+
     /// Pop and return the next available descriptor chain, or `None` when there are no more
     /// descriptor chains available.
     ///

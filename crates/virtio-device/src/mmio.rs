@@ -246,16 +246,16 @@ mod tests {
         // The max size for the queue in `Dummy` is 256.
         assert_eq!(mmio_read(&d, 0x34), 256);
 
-        assert_eq!(d.cfg.queues[0].size, 256);
+        assert_eq!(d.cfg.queues[0].size(), 256);
         d.write(0x38, &32u32.to_le_bytes());
         // Updating the queue field has no effect due to invalid device status.
-        assert_eq!(d.cfg.queues[0].size, 256);
+        assert_eq!(d.cfg.queues[0].size(), 256);
 
         d.cfg.device_status |= status::FEATURES_OK;
 
         // Let's try the update again.
         d.write(0x38, &32u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].size, 32);
+        assert_eq!(d.cfg.queues[0].size(), 32);
 
         // The queue in `Dummy` is not ready yet.
         assert_eq!(mmio_read(&d, 0x44), 0);
@@ -269,23 +269,23 @@ mod tests {
         d.write(0x50, &2u32.to_le_bytes());
         assert_eq!(d.last_queue_notify, 2);
 
-        assert_eq!(d.cfg.queues[0].desc_table.0, 0);
+        assert_eq!(d.cfg.queues[0].desc_table(), 0);
         d.write(0x80, &16u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].desc_table.0, 16);
+        assert_eq!(d.cfg.queues[0].desc_table(), 16);
         d.write(0x84, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].desc_table.0, (2 << 32) + 16);
+        assert_eq!(d.cfg.queues[0].desc_table(), (2 << 32) + 16);
 
-        assert_eq!(d.cfg.queues[0].avail_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].avail_ring(), 0);
         d.write(0x90, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].avail_ring.0, 2);
+        assert_eq!(d.cfg.queues[0].avail_ring(), 2);
         d.write(0x94, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].avail_ring.0, (2 << 32) + 2);
+        assert_eq!(d.cfg.queues[0].avail_ring(), (2 << 32) + 2);
 
-        assert_eq!(d.cfg.queues[0].used_ring.0, 0);
+        assert_eq!(d.cfg.queues[0].used_ring(), 0);
         d.write(0xa0, &4u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].used_ring.0, 4);
+        assert_eq!(d.cfg.queues[0].used_ring(), 4);
         d.write(0xa4, &2u32.to_le_bytes());
-        assert_eq!(d.cfg.queues[0].used_ring.0, (2 << 32) + 4);
+        assert_eq!(d.cfg.queues[0].used_ring(), (2 << 32) + 4);
 
         // Let's select a non-existent queue.
         d.write(0x30, &1u32.to_le_bytes());
