@@ -20,7 +20,8 @@ use crate::defs::{
     VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_RING_HEADER_SIZE, VIRTQ_USED_RING_META_SIZE,
 };
 use crate::{
-    error, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueT, VirtqUsedElem,
+    error, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueState, QueueT,
+    VirtqUsedElem,
 };
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 
@@ -75,45 +76,38 @@ pub const MAX_QUEUE_SIZE: u16 = 32768;
 /// // The queue should not be ready after reset.
 /// assert!(!queue.ready());
 /// ```
-///
-/// WARNING: The current implementation allows setting up and using an invalid queue
-/// (initialized with random data since the `Queue`'s fields are public). When fixing
-/// <https://github.com/rust-vmm/vm-virtio/issues/172>, we plan to define a `QueueState` that
-/// represents the actual state of the queue (no `Wrapping`s in it, for example). This way, we
-/// will also be able to do the checks that we normally do in the queue's field setters when
-/// starting from scratch, when trying to create a `Queue` from a `QueueState`.
 #[derive(Debug, Default, PartialEq)]
 pub struct Queue {
     /// The maximum size in elements offered by the device.
-    pub max_size: u16,
+    max_size: u16,
 
     /// Tail position of the available ring.
-    pub next_avail: Wrapping<u16>,
+    next_avail: Wrapping<u16>,
 
     /// Head position of the used ring.
-    pub next_used: Wrapping<u16>,
+    next_used: Wrapping<u16>,
 
     /// VIRTIO_F_RING_EVENT_IDX negotiated.
-    pub event_idx_enabled: bool,
+    event_idx_enabled: bool,
 
     /// The number of descriptor chains placed in the used ring via `add_used`
     /// since the last time `needs_notification` was called on the associated queue.
-    pub num_added: Wrapping<u16>,
+    num_added: Wrapping<u16>,
 
     /// The queue size in elements the driver selected.
-    pub size: u16,
+    size: u16,
 
     /// Indicates if the queue is finished with configuration.
-    pub ready: bool,
+    ready: bool,
 
     /// Guest physical address of the descriptor table.
-    pub desc_table: GuestAddress,
+    desc_table: GuestAddress,
 
     /// Guest physical address of the available ring.
-    pub avail_ring: GuestAddress,
+    avail_ring: GuestAddress,
 
     /// Guest physical address of the used ring.
-    pub used_ring: GuestAddress,
+    used_ring: GuestAddress,
 }
 
 impl Queue {
@@ -170,6 +164,29 @@ impl Queue {
         }
         self.used_ring = used_ring;
         Ok(())
+    }
+
+    /// Returns the state of the `Queue`.
+    ///
+    /// This is useful for implementing save/restore capabilities.
+    /// The state does not have support for serialization, but this can be
+    /// added by VMMs locally through the use of a
+    /// [remote type](https://serde.rs/remote-derive.html).
+    ///
+    /// Alternatively, a version aware and serializable/deserializable QueueState
+    /// is available in the `virtio-queue-ser` crate.
+    pub fn state(&self) -> QueueState {
+        QueueState {
+            max_size: self.max_size,
+            next_avail: self.next_avail(),
+            next_used: self.next_used(),
+            event_idx_enabled: self.event_idx_enabled,
+            size: self.size,
+            ready: self.ready,
+            desc_table: self.desc_table(),
+            avail_ring: self.avail_ring(),
+            used_ring: self.used_ring(),
+        }
     }
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using

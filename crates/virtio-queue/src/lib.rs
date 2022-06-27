@@ -26,6 +26,7 @@ pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
 pub use self::descriptor::{Descriptor, VirtqUsedElem};
 pub use self::queue::{AvailIter, Queue};
 pub use self::queue_sync::QueueSync;
+pub use self::state::QueueState;
 
 pub mod defs;
 #[cfg(any(test, feature = "test-utils"))]
@@ -35,6 +36,7 @@ mod chain;
 mod descriptor;
 mod queue;
 mod queue_sync;
+mod state;
 
 /// Virtio Queue related errors.
 #[derive(Debug)]
