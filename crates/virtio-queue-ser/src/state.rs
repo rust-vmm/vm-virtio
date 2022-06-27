@@ -1,14 +1,10 @@
 // Copyright 2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
-use std::num::Wrapping;
-
 use serde::{Deserialize, Serialize};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_queue::Queue;
-use vm_memory::GuestAddress;
+use virtio_queue::QueueState;
 
 /// Wrapper over a `QueueState` that has serialization capabilities.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Versionize)]
@@ -46,70 +42,68 @@ pub struct QueueStateSer {
 // Nevertheless, we don't make any assumptions in the virtio-queue code about the queue's state that
 // would otherwise result in a panic, when initialized with random data, so from this point of view
 // these conversions are safe to use.
-impl From<&QueueStateSer> for Queue {
+impl From<&QueueStateSer> for QueueState {
     fn from(state: &QueueStateSer) -> Self {
-        Queue {
+        QueueState {
             max_size: state.max_size,
-            next_avail: Wrapping(state.next_avail),
-            next_used: Wrapping(state.next_used),
+            next_avail: state.next_avail,
+            next_used: state.next_used,
             event_idx_enabled: state.event_idx_enabled,
-            num_added: Wrapping(0),
             size: state.size,
             ready: state.ready,
-            desc_table: GuestAddress(state.desc_table),
-            avail_ring: GuestAddress(state.avail_ring),
-            used_ring: GuestAddress(state.used_ring),
+            desc_table: state.desc_table,
+            avail_ring: state.avail_ring,
+            used_ring: state.used_ring,
         }
     }
 }
 
-impl From<&Queue> for QueueStateSer {
-    fn from(state: &Queue) -> Self {
+impl From<&QueueState> for QueueStateSer {
+    fn from(state: &QueueState) -> Self {
         QueueStateSer {
             max_size: state.max_size,
-            next_avail: state.next_avail.0,
-            next_used: state.next_used.0,
+            next_avail: state.next_avail,
+            next_used: state.next_used,
             event_idx_enabled: state.event_idx_enabled,
             size: state.size,
             ready: state.ready,
-            desc_table: state.desc_table.0,
-            avail_ring: state.avail_ring.0,
-            used_ring: state.used_ring.0,
+            desc_table: state.desc_table,
+            avail_ring: state.avail_ring,
+            used_ring: state.used_ring,
         }
     }
 }
 
 impl Default for QueueStateSer {
     fn default() -> Self {
-        QueueStateSer::from(&Queue::default())
+        QueueStateSer::from(&QueueState::default())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use virtio_queue::{mock::MockSplitQueue, Descriptor, QueueT};
-    use vm_memory::GuestMemoryMmap;
+    use std::convert::TryFrom;
+    use virtio_queue::{Error, Queue};
 
     #[test]
     fn test_state_ser() {
         const SOME_VALUE: u16 = 16;
 
-        let state = Queue {
+        let state = QueueState {
             max_size: SOME_VALUE * 2,
-            next_avail: Wrapping(SOME_VALUE - 1),
-            next_used: Wrapping(SOME_VALUE + 1),
+            next_avail: SOME_VALUE - 1,
+            next_used: SOME_VALUE + 1,
             event_idx_enabled: false,
-            num_added: Wrapping(0),
             size: SOME_VALUE,
             ready: true,
-            desc_table: GuestAddress(SOME_VALUE as u64),
-            avail_ring: GuestAddress(SOME_VALUE as u64 * 2),
-            used_ring: GuestAddress(SOME_VALUE as u64 * 4),
+            desc_table: SOME_VALUE as u64,
+            avail_ring: SOME_VALUE as u64 * 2,
+            used_ring: SOME_VALUE as u64 * 4,
         };
 
         let ser_state = QueueStateSer::from(&state);
-        let state_from_ser = Queue::from(&ser_state);
+        let state_from_ser = QueueState::from(&ser_state);
 
         // Check that the old and the new state are identical when using the intermediate
         // `QueueStateSer` object.
@@ -117,7 +111,10 @@ mod tests {
 
         // Test the `Default` implementation of `QueueStateSer`.
         let default_queue_state_ser = QueueStateSer::default();
-        assert_eq!(Queue::from(&default_queue_state_ser), Queue::default());
+        assert_eq!(
+            QueueState::from(&default_queue_state_ser),
+            QueueState::default()
+        );
     }
 
     #[test]
@@ -129,8 +126,6 @@ mod tests {
         // public, and the way to obtain a Queue from a serialized Queue is by using a `try_from`
         // function which then makes sure that the deserialized values are valid before creating
         // a queue that might be invalid.
-        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = MockSplitQueue::new(m, 16);
         let queue_ser = QueueStateSer {
             max_size: 16,
             next_avail: 0,
@@ -143,9 +138,8 @@ mod tests {
             used_ring: 276,
         };
 
-        let mut queue = Queue::from(&queue_ser);
-        let desc_chain = vec![Descriptor::new(0x0, 0x100, 0, 0)];
-        vq.build_desc_chain(&desc_chain).unwrap();
-        assert!(queue.pop_descriptor_chain(m).is_none());
+        let queue_state = QueueState::from(&queue_ser);
+        let err = Queue::try_from(queue_state).unwrap_err();
+        assert_eq!(err.to_string(), Error::InvalidSize.to_string());
     }
 }
