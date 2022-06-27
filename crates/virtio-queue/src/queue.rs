@@ -556,6 +556,22 @@ impl QueueT for Queue {
         self.next_used = Wrapping(next_used);
     }
 
+    fn desc_table(&self) -> u64 {
+        self.desc_table.0
+    }
+
+    fn avail_ring(&self) -> u64 {
+        self.avail_ring.0
+    }
+
+    fn used_ring(&self) -> u64 {
+        self.used_ring.0
+    }
+
+    fn event_idx_enabled(&self) -> bool {
+        self.event_idx_enabled
+    }
+
     fn pop_descriptor_chain<M>(&mut self, mem: M) -> Option<DescriptorChain<M>>
     where
         M: Clone + Deref,

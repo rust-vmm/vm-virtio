@@ -85,7 +85,7 @@ impl QueueT for QueueSync {
     }
 
     fn ready(&self) -> bool {
-        self.lock_state().ready
+        self.lock_state().ready()
     }
 
     fn set_ready(&mut self, ready: bool) {
@@ -156,6 +156,22 @@ impl QueueT for QueueSync {
         self.lock_state().set_next_used(next_used);
     }
 
+    fn desc_table(&self) -> u64 {
+        self.lock_state().desc_table()
+    }
+
+    fn avail_ring(&self) -> u64 {
+        self.lock_state().avail_ring()
+    }
+
+    fn used_ring(&self) -> u64 {
+        self.lock_state().used_ring()
+    }
+
+    fn event_idx_enabled(&self) -> bool {
+        self.lock_state().event_idx_enabled()
+    }
+
     fn pop_descriptor_chain<M>(&mut self, mem: M) -> Option<DescriptorChain<M>>
     where
         M: Clone + Deref,
@@ -221,7 +237,7 @@ mod tests {
         q.set_event_idx(true);
         q.set_ready(true);
         assert!(q.is_valid(m.memory()));
-        assert_eq!(q.lock().size, 0x100);
+        assert_eq!(q.lock().size(), 0x100);
 
         assert_eq!(q.max_size(), 0x100);
         assert_eq!(q.size(), 0x100);
@@ -273,44 +289,24 @@ mod tests {
 
         q.needs_notification(m.memory()).unwrap();
 
-        assert_eq!(q.lock_state().size, 0x8);
-        assert!(q.lock_state().ready);
-        assert_ne!(
-            q.lock_state().desc_table,
-            GuestAddress(DEFAULT_DESC_TABLE_ADDR)
-        );
-        assert_ne!(
-            q.lock_state().avail_ring,
-            GuestAddress(DEFAULT_AVAIL_RING_ADDR)
-        );
-        assert_ne!(
-            q.lock_state().used_ring,
-            GuestAddress(DEFAULT_USED_RING_ADDR)
-        );
-        assert_ne!(q.lock_state().next_avail, Wrapping(0));
-        assert_ne!(q.lock_state().next_used, Wrapping(0));
-        assert_eq!(q.lock_state().num_added, Wrapping(0));
-        assert!(q.lock_state().event_idx_enabled);
+        assert_eq!(q.lock_state().size(), 0x8);
+        assert!(q.lock_state().ready());
+        assert_ne!(q.lock_state().desc_table(), DEFAULT_DESC_TABLE_ADDR);
+        assert_ne!(q.lock_state().avail_ring(), DEFAULT_AVAIL_RING_ADDR);
+        assert_ne!(q.lock_state().used_ring(), DEFAULT_USED_RING_ADDR);
+        assert_ne!(q.lock_state().next_avail(), 0);
+        assert_ne!(q.lock_state().next_used(), 0);
+        assert!(q.lock_state().event_idx_enabled());
 
         q.reset();
-        assert_eq!(q.lock_state().size, 0x100);
-        assert!(!q.lock_state().ready);
-        assert_eq!(
-            q.lock_state().desc_table,
-            GuestAddress(DEFAULT_DESC_TABLE_ADDR)
-        );
-        assert_eq!(
-            q.lock_state().avail_ring,
-            GuestAddress(DEFAULT_AVAIL_RING_ADDR)
-        );
-        assert_eq!(
-            q.lock_state().used_ring,
-            GuestAddress(DEFAULT_USED_RING_ADDR)
-        );
-        assert_eq!(q.lock_state().next_avail, Wrapping(0));
-        assert_eq!(q.lock_state().next_used, Wrapping(0));
-        assert_eq!(q.lock_state().num_added, Wrapping(0));
-        assert!(!q.lock_state().event_idx_enabled);
+        assert_eq!(q.lock_state().size(), 0x100);
+        assert!(!q.lock_state().ready());
+        assert_eq!(q.lock_state().desc_table(), DEFAULT_DESC_TABLE_ADDR);
+        assert_eq!(q.lock_state().avail_ring(), DEFAULT_AVAIL_RING_ADDR);
+        assert_eq!(q.lock_state().used_ring(), DEFAULT_USED_RING_ADDR);
+        assert_eq!(q.lock_state().next_avail(), 0);
+        assert_eq!(q.lock_state().next_used(), 0);
+        assert!(!q.lock_state().event_idx_enabled());
     }
 
     #[test]
@@ -325,9 +321,9 @@ mod tests {
         q.set_ready(true);
         assert!(q.is_valid(mem));
 
-        let used_addr = q.lock_state().used_ring;
+        let used_addr = GuestAddress(q.lock_state().used_ring());
 
-        assert!(!q.lock_state().event_idx_enabled);
+        assert!(!q.lock_state().event_idx_enabled());
         q.enable_notification(mem).unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);
@@ -341,19 +337,19 @@ mod tests {
         assert_eq!(v, 0);
 
         q.set_event_idx(true);
-        let avail_addr = q.lock_state().avail_ring;
+        let avail_addr = GuestAddress(q.lock_state().avail_ring());
         m.write_obj::<u16>(u16::to_le(2), avail_addr.unchecked_add(2))
             .unwrap();
 
         assert!(q.enable_notification(mem).unwrap());
-        q.lock_state().next_avail = Wrapping(2);
+        q.lock_state().set_next_avail(2);
         assert!(!q.enable_notification(mem).unwrap());
 
         m.write_obj::<u16>(u16::to_le(8), avail_addr.unchecked_add(2))
             .unwrap();
 
         assert!(q.enable_notification(mem).unwrap());
-        q.lock_state().next_avail = Wrapping(8);
+        q.lock_state().set_next_avail(8);
         assert!(!q.enable_notification(mem).unwrap());
     }
 }
