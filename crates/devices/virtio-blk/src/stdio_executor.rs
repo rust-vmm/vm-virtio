@@ -99,20 +99,21 @@ pub enum Error {
 }
 
 impl Error {
-    fn status(&self) -> u32 {
+    fn status(&self) -> u8 {
         match self {
-            Error::DiscardWriteZeroes(_) => VIRTIO_BLK_S_IOERR,
-            Error::Flush(_) => VIRTIO_BLK_S_IOERR,
-            Error::GuestMemory(_) => VIRTIO_BLK_S_IOERR,
-            Error::InvalidAccess => VIRTIO_BLK_S_IOERR,
-            Error::InvalidFlags => VIRTIO_BLK_S_UNSUPP,
-            Error::InvalidDataLength => VIRTIO_BLK_S_IOERR,
-            Error::Overflow => VIRTIO_BLK_S_IOERR,
-            Error::Read(_, _) => VIRTIO_BLK_S_IOERR,
-            Error::ReadOnly => VIRTIO_BLK_S_IOERR,
-            Error::Write(_) => VIRTIO_BLK_S_IOERR,
-            Error::Seek(_) => VIRTIO_BLK_S_IOERR,
-            Error::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+            // The conversions from u32 to u8 are all safe because the status constants are <= 2.
+            Error::DiscardWriteZeroes(_) => VIRTIO_BLK_S_IOERR as u8,
+            Error::Flush(_) => VIRTIO_BLK_S_IOERR as u8,
+            Error::GuestMemory(_) => VIRTIO_BLK_S_IOERR as u8,
+            Error::InvalidAccess => VIRTIO_BLK_S_IOERR as u8,
+            Error::InvalidFlags => VIRTIO_BLK_S_UNSUPP as u8,
+            Error::InvalidDataLength => VIRTIO_BLK_S_IOERR as u8,
+            Error::Overflow => VIRTIO_BLK_S_IOERR as u8,
+            Error::Read(_, _) => VIRTIO_BLK_S_IOERR as u8,
+            Error::ReadOnly => VIRTIO_BLK_S_IOERR as u8,
+            Error::Write(_) => VIRTIO_BLK_S_IOERR as u8,
+            Error::Seek(_) => VIRTIO_BLK_S_IOERR as u8,
+            Error::Unsupported(_) => VIRTIO_BLK_S_UNSUPP as u8,
         }
     }
 }
@@ -246,7 +247,7 @@ impl<B: Backend> StdIoBackend<B> {
         request: &Request,
     ) -> result::Result<u32, ProcessReqError> {
         let (status, length) = match self.execute(mem, request) {
-            Ok(length) => (VIRTIO_BLK_S_OK, length),
+            Ok(length) => (VIRTIO_BLK_S_OK as u8, length),
             Err(e) => {
                 error!("failed executing block request: {}", e);
                 match e {
@@ -1140,16 +1141,16 @@ mod tests {
         let mut req_exec = StdIoBackend::new(f, 0).unwrap();
         assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x600)).unwrap(),
-            VIRTIO_BLK_S_UNSUPP
+            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            VIRTIO_BLK_S_UNSUPP as u8
         );
 
         // VIRTIO_BLK_F_FLUSH negotiated.
         req_exec.features = 1 << VIRTIO_BLK_F_FLUSH;
         assert_eq!(req_exec.process_request(&mem, &flush_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x600)).unwrap(),
-            VIRTIO_BLK_S_OK
+            mem.read_obj::<u8>(GuestAddress(0x600)).unwrap(),
+            VIRTIO_BLK_S_OK as u8
         );
 
         // Ok In request.
@@ -1162,8 +1163,8 @@ mod tests {
         // 0x600 bytes should've been written in memory.
         assert_eq!(req_exec.process_request(&mem, &in_req).unwrap(), 0x601);
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x900)).unwrap(),
-            VIRTIO_BLK_S_OK
+            mem.read_obj::<u8>(GuestAddress(0x900)).unwrap(),
+            VIRTIO_BLK_S_OK as u8
         );
 
         // Invalid status address.
@@ -1198,8 +1199,8 @@ mod tests {
         );
         assert_eq!(req_exec.process_request(&mem, &discard_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x2000)).unwrap(),
-            VIRTIO_BLK_S_UNSUPP
+            mem.read_obj::<u8>(GuestAddress(0x2000)).unwrap(),
+            VIRTIO_BLK_S_UNSUPP as u8
         );
 
         // Invalid memory address for write operation.
@@ -1211,8 +1212,8 @@ mod tests {
         );
         assert_eq!(req_exec.process_request(&mem, &out_req).unwrap(), 1);
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
-            VIRTIO_BLK_S_IOERR
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR as u8
         );
 
         // Invalid memory address for read operation.
@@ -1227,8 +1228,8 @@ mod tests {
             0x1000_0000 - 0xFFF_FFF0 + 1
         );
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
-            VIRTIO_BLK_S_IOERR
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR as u8
         );
 
         let dev_id = [
@@ -1249,8 +1250,8 @@ mod tests {
             0x1000_0000 - 0xFFF_FFFA + 1
         );
         assert_eq!(
-            mem.read_obj::<u32>(GuestAddress(0x200)).unwrap(),
-            VIRTIO_BLK_S_IOERR
+            mem.read_obj::<u8>(GuestAddress(0x200)).unwrap(),
+            VIRTIO_BLK_S_IOERR as u8
         );
     }
 }
