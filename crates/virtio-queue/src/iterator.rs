@@ -16,8 +16,7 @@ use std::sync::atomic::Ordering;
 
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
-use crate::defs::VIRTQ_AVAIL_RING_HEADER_SIZE;
-use virtio_bindings::bindings::virtio_ring::VRING_AVAIL_ALIGN_SIZE;
+use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 
 use crate::{error, DescriptorChain, QueueState};
 
@@ -151,8 +150,8 @@ where
 
         // These two operations can not overflow an u64 since they're working with relatively small
         // numbers compared to u64::MAX.
-        let elem_off = u64::from(self.next_avail.0.checked_rem(self.queue_size)?)
-            * VRING_AVAIL_ALIGN_SIZE as u64;
+        let elem_off =
+            u64::from(self.next_avail.0.checked_rem(self.queue_size)?) * VIRTQ_AVAIL_ELEMENT_SIZE;
         let offset = VIRTQ_AVAIL_RING_HEADER_SIZE + elem_off;
 
         let addr = self.avail_ring.checked_add(offset)?;

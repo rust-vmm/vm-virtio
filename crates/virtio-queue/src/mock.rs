@@ -11,12 +11,10 @@ use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestAddressSpace, GuestMemory, GuestUsize,
 };
 
-use crate::defs::VIRTQ_AVAIL_RING_HEADER_SIZE;
+use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 use crate::{Descriptor, DescriptorChain, Queue, QueueState, VirtqUsedElem};
 use std::fmt::{self, Debug, Display};
-use virtio_bindings::bindings::virtio_ring::{
-    VRING_AVAIL_ALIGN_SIZE, VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT,
-};
+use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
 
 /// Mock related errors.
 #[derive(Debug)]
@@ -466,7 +464,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
                         i,
                         self.avail_addr().unchecked_add(
                             VIRTQ_AVAIL_RING_HEADER_SIZE
-                                + (avail_idx + new_entries) as u64 * VRING_AVAIL_ALIGN_SIZE as u64,
+                                + (avail_idx + new_entries) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
                         ),
                     )
                     .unwrap();
