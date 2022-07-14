@@ -140,6 +140,6 @@ mod tests {
 
         let queue_state = QueueState::from(&queue_ser);
         let err = Queue::try_from(queue_state).unwrap_err();
-        assert_eq!(err.to_string(), Error::InvalidSize.to_string());
+        assert_eq!(err, Error::InvalidSize);
     }
 }

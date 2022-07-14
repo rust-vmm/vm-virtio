@@ -316,14 +316,17 @@ mod tests {
         let mut q = QueueSync::new(0x100).unwrap();
 
         q.set_desc_table_address(Some(0x1000), None);
+        assert_eq!(q.desc_table(), 0x1000);
         q.set_avail_ring_address(Some(0x2000), None);
+        assert_eq!(q.avail_ring(), 0x2000);
         q.set_used_ring_address(Some(0x3000), None);
+        assert_eq!(q.used_ring(), 0x3000);
         q.set_ready(true);
         assert!(q.is_valid(mem));
 
         let used_addr = GuestAddress(q.lock_state().used_ring());
 
-        assert!(!q.lock_state().event_idx_enabled());
+        assert!(!q.event_idx_enabled());
         q.enable_notification(mem).unwrap();
         let v = m.read_obj::<u16>(used_addr).map(u16::from_le).unwrap();
         assert_eq!(v, 0);

@@ -773,6 +773,15 @@ where
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+// It is convenient for tests to implement `PartialEq`, but it is not a
+// proper implementation as `GuestMemory` errors cannot implement `PartialEq`.
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        format!("{}", &self) == format!("{}", other)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1407,5 +1416,36 @@ mod tests {
         };
 
         assert!(q.pop_descriptor_chain(m).is_none());
+    }
+
+    #[test]
+    fn test_setters_error_cases() {
+        assert_eq!(Queue::new(15).unwrap_err(), Error::InvalidMaxSize);
+        let mut q = Queue::new(16).unwrap();
+
+        let expected_val = q.desc_table.0;
+        assert_eq!(
+            q.try_set_desc_table_address(GuestAddress(0xf)).unwrap_err(),
+            Error::InvalidDescTableAlign
+        );
+        assert_eq!(q.desc_table(), expected_val);
+
+        let expected_val = q.avail_ring.0;
+        assert_eq!(
+            q.try_set_avail_ring_address(GuestAddress(0x1)).unwrap_err(),
+            Error::InvalidAvailRingAlign
+        );
+        assert_eq!(q.avail_ring(), expected_val);
+
+        let expected_val = q.used_ring.0;
+        assert_eq!(
+            q.try_set_used_ring_address(GuestAddress(0x3)).unwrap_err(),
+            Error::InvalidUsedRingAlign
+        );
+        assert_eq!(q.used_ring(), expected_val);
+
+        let expected_val = q.size;
+        assert_eq!(q.try_set_size(15).unwrap_err(), Error::InvalidSize);
+        assert_eq!(q.size(), expected_val)
     }
 }
