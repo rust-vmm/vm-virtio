@@ -280,7 +280,7 @@ impl QueueT for Queue {
         // We need to check that the max size is a power of 2 because we're setting this as the
         // queue size, and the valid queue sizes are a power of 2 as per the specification.
         if max_size == 0 || max_size > MAX_QUEUE_SIZE || (max_size & (max_size - 1)) != 0 {
-            return Err(Error::AddressOverflow);
+            return Err(Error::InvalidMaxSize);
         }
         Ok(Queue {
             max_size,
