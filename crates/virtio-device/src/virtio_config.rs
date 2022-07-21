@@ -190,7 +190,6 @@ where
 
 impl<T> WithDriverSelect for T
 where
-    // Added a `static bound here while `M` is around to simplify dealing with lifetimes.
     T: BorrowMut<VirtioConfig<Queue>> + VirtioDevice,
 {
     fn queue_select(&self) -> u16 {

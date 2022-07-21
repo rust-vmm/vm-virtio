@@ -9,9 +9,7 @@ format.
 The purpose of the virtio-queue API is to be consumed by virtio device
 implementations (such as the block device or vsock device).
 The main abstraction is the `Queue`. The crate is also defining a state object
-for the queue, i.e. `QueueState`. The `Queue` objects are always created from a
-state (even if it’s an empty one) in order to avoid branching in the calling
-functions.
+for the queue, i.e. `QueueState`.
 
 ## Usage
 
@@ -40,9 +38,7 @@ Each virtqueue consists of three parts:
 
 Before booting the virtual machine (VM), the VMM does the following set up:
 
-1. initialize an array of Queues based on a `max_size` and a reference to the
-   memory object, by using `Queue::new(mem: M, max_size: u16)`, the queue
-   objects are created from a default state.
+1. initialize an array of Queues using the Queue constructor.
 2. register the device to the MMIO bus, so that the driver can later send
    read/write requests from/to the MMIO space, some of those requests also set
    up the queues’ state.
@@ -135,17 +131,13 @@ of the next descriptor if VIRTQ_DESC_F_NEXT is set.
 
 ## Design
 
-`QueueStateT` is a trait that allows different implementations for a `Queue`
+`QueueT` is a trait that allows different implementations for a `Queue`
 object for single-threaded context and multi-threaded context. The
 implementations provided in `virtio-queue` are:
 
-1. `QueueState` → it is used for the single-threaded context, and keeps the
-   state of a virtio queue.
-2. `QueueStateSync` → it is used for the multi-threaded context, and is simply
-   a wrapper over an `Arc<Mutex<QueueState>>`.
-
-`Queue` is a wrapper over a `QueueState` that also holds the guest memory
-object associated with the queue.
+1. `Queue` → it is used for the single-threaded context.
+2. `QueueSync` → it is used for the multi-threaded context, and is simply
+   a wrapper over an `Arc<Mutex<Queue>>`.
 
 Besides the above abstractions, the `virtio-queue` crate provides also the
 following ones:
@@ -158,6 +150,13 @@ following ones:
   just the device writable descriptors (`DescriptorChainRwIter`).
 * `AvailIter` - is a consuming iterator over all available descriptor chain
   heads in the queue.
+
+## Save/Restore Queue
+
+The `Queue` allows saving the state through the `state` function which returns
+a `QueueState`. `Queue` objects can be created from a previously saved state by
+using `QueueState::try_from`. The VMM should check for errors when restoring
+a `Queue` from a previously saved state.
 
 ### Notification suppression
 

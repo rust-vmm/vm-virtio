@@ -56,14 +56,6 @@ pub mod status {
     pub const DEVICE_NEEDS_RESET: u8 = 64;
 }
 
-// Adding a `M: GuestAddressSpace` generic type parameter here as well until we sort out the
-// current discussion about how a memory object/reference gets passed to a queue.
-// We might end up with the queue type as an associated type here in the future, if it makes
-// sense to define an interface for queues which abstracts away whether they are split or packed.
-// On the other hand, if we split the queue into a config/state part and a live part, then we'd
-// only need to work with the configuration here, and there's no need for generic type parameters
-// or associated types related to that.
-
 // We're currently relying on macros from the `log` crate to output messages (as do other modules
 // from `vm-virtio`). This is temporary solution until we agree on a better alternative going
 // forward since different customers most likely have different expectation around levels,
