@@ -31,17 +31,6 @@ pub struct QueueStateSer {
 
 // The following `From` implementations can be used to convert from a `QueueStateSer` to the
 // `QueueState` from the base crate and vice versa.
-// WARNING: They don't check for any invalid data, that would otherwise be checked when initializing
-// a queue object from scratch (for example setting a queue size greater than its max possible
-// size). The problem with the current `QueueState` implementation is that it can be used as the
-// queue object itself. `QueueState`'s fields are public, which allows the user to set up and use an
-// invalid queue. Once we fix https://github.com/rust-vmm/vm-virtio/issues/143, `QueueState` will be
-// renamed to `Queue`, its fields will no longer be public, and `QueueState` will consist of the
-// actual state. This way we can also check against any invalid data when trying to get a `Queue`
-// from the state object.
-// Nevertheless, we don't make any assumptions in the virtio-queue code about the queue's state that
-// would otherwise result in a panic, when initialized with random data, so from this point of view
-// these conversions are safe to use.
 impl From<&QueueStateSer> for QueueState {
     fn from(state: &QueueStateSer) -> Self {
         QueueState {
@@ -121,11 +110,6 @@ mod tests {
     fn test_ser_with_len_zero() {
         // This is a regression test that tests that a queue where the size is set to 0 does not
         // cause any problems when poping the descriptor chain.
-        //
-        // In the future this should be updated such that the Queue does not have the fields as
-        // public, and the way to obtain a Queue from a serialized Queue is by using a `try_from`
-        // function which then makes sure that the deserialized values are valid before creating
-        // a queue that might be invalid.
         let queue_ser = QueueStateSer {
             max_size: 16,
             next_avail: 0,

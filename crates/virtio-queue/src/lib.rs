@@ -107,7 +107,7 @@ pub trait QueueGuard<'a> {
 /// provided for single-threaded context and multi-threaded context.
 ///
 /// Using Higher-Rank Trait Bounds (HRTBs) to effectively define an associated type that has a
-/// lifetime parameter, without tagging the `QueueStateT` trait with a lifetime as well.
+/// lifetime parameter, without tagging the `QueueT` trait with a lifetime as well.
 pub trait QueueT: for<'a> QueueGuard<'a> {
     /// Construct an empty virtio queue state object with the given `max_size`.
     ///
