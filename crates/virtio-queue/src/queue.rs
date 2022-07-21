@@ -711,16 +711,16 @@ where
     /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
     /// * `idx` - the index of the available ring entry where the driver would put the next
     ///           available descriptor chain.
-    /// * `state` - the `Queue` object from which the needed data to create the `AvailIter` can
+    /// * `queue` - the `Queue` object from which the needed data to create the `AvailIter` can
     ///             be retrieved.
-    pub(crate) fn new(mem: M, idx: Wrapping<u16>, state: &'b mut Queue) -> Self {
+    pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Self {
         AvailIter {
             mem,
-            desc_table: state.desc_table,
-            avail_ring: state.avail_ring,
-            queue_size: state.size,
+            desc_table: queue.desc_table,
+            avail_ring: queue.avail_ring,
+            queue_size: queue.size,
             last_index: idx,
-            next_avail: &mut state.next_avail,
+            next_avail: &mut queue.next_avail,
         }
     }
 
