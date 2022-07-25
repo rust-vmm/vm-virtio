@@ -28,7 +28,7 @@ use virtio_bindings::bindings::virtio_ring::{
 ///
 /// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
 /// #    let vq = MockSplitQueue::new(m, 16);
-/// #    let mut q = vq.create_queue();
+/// #    let mut q = vq.create_queue().unwrap();
 /// #
 /// #    // We have only one chain: (0, 1).
 /// #    let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);

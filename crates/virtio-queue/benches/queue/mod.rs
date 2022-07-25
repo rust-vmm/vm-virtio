@@ -45,12 +45,12 @@ pub fn benchmark_queue(c: &mut Criterion) {
                 mq.add_chain(len).unwrap();
             }
         }
-        mq.create_queue()
+        mq.create_queue().unwrap()
     };
 
     let empty_queue = || {
         let mq = MockSplitQueue::new(&mem, 256);
-        mq.create_queue()
+        mq.create_queue().unwrap()
     };
 
     for indirect in [false, true].iter().copied() {

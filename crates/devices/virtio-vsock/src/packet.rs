@@ -201,7 +201,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue();
+    /// #     let mut q = vq.create_queue().unwrap();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
@@ -381,7 +381,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue();
+    /// #     let mut q = vq.create_queue().unwrap();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, 0, 0),
@@ -517,7 +517,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ///
     /// # fn create_queue_with_chain(m: &GuestMemoryMmap) -> Queue {
     /// #     let vq = MockSplitQueue::new(m, 16);
-    /// #     let mut q = vq.create_queue();
+    /// #     let mut q = vq.create_queue().unwrap();
     /// #
     /// #     let v = vec![
     /// #         Descriptor::new(0x5_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
