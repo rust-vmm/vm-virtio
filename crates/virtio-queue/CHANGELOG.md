@@ -1,3 +1,34 @@
+# v0.5.0
+
+## Added
+- Added getters and setters for the Virtio Queue fields.
+- Added the `state` method for retrieving the `QueueState` of a `Queue`.
+
+## Fixed
+- Validate the state of the Virtio Queue when restoring from state and return errors on invalid
+  input.
+
+## Removed
+- Removed the wrapper over the Virtio Queue that was wrapping the Guest Memory. VMMs can define
+  this wrapper if needed, but this is no longer provided as part of virtio-queue crate so that the
+  naming scheme can be simplified. As a consequence, a couple of functions now receive the
+  memory as a parameter (more details in the Changed section).
+- Removed `num_added` field from the `QueueState` because this is an implementation detail of
+  the notification suppression feature and thus should not be part of the state.
+- Removed `QueueGuard` and `lock_with_memory`.
+
+## Changed
+- `QueueState` is now renamed to `Queue`.
+- `QueueStateSync` is now renamed to `QueueSync`.
+- The `QueueState` structure now represents the state of the `Queue` without any implementation
+  details. This can be used for implementing save/restore.
+- Initializing a `Queue` now returns an error in case the `max_size` is invalid.
+- The `Queue` fields are now private and can be updated only through the dedicated setters.
+- The following Queue methods now receive the memory as a parameter: `iter`, `is_valid`,
+  `add_used`, `needs_notification`, `enable_notification`, `disable_notification`, `avail_idx`,
+  `used_idx`.
+- Use the constant definition from the `virtio-queue` crate.
+
 # v0.4.0
 
 ## Fixed
