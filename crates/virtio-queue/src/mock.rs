@@ -10,13 +10,15 @@ use std::mem::size_of;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
-use crate::{Descriptor, DescriptorChain, Queue, QueueOwnedT, QueueT, VirtqUsedElem};
+use crate::{Descriptor, DescriptorChain, Error, Queue, QueueOwnedT, QueueT, VirtqUsedElem};
 use std::fmt::{self, Debug, Display};
 use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
 
 /// Mock related errors.
 #[derive(Debug)]
 pub enum MockError {
+    /// Cannot create the Queue object due to invalid parameters.
+    InvalidQueueParams(Error),
     /// Invalid Ref index
     InvalidIndex,
     /// Invalid next avail
@@ -28,6 +30,7 @@ impl Display for MockError {
         use self::MockError::*;
 
         match self {
+            InvalidQueueParams(_) => write!(f, "cannot create queue due to invalid parameter"),
             InvalidIndex => write!(
                 f,
                 "invalid index for pointing to an address in a region when defining a Ref object"
@@ -392,8 +395,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
     /// Creates a new `Queue`, using the underlying memory regions represented
     /// by the `MockSplitQueue`.
-    pub fn create_queue<Q: QueueT>(&self) -> Q {
-        let mut q = Q::new(self.len).unwrap();
+    pub fn create_queue<Q: QueueT>(&self) -> Result<Q, Error> {
+        let mut q = Q::new(self.len)?;
         q.set_size(self.len);
         q.set_ready(true);
         // we cannot directly set the u64 address, we need to compose it from low & high.
@@ -409,7 +412,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             Some(self.used_addr.0 as u32),
             Some((self.used_addr.0 >> 32) as u32),
         );
-        q
+        Ok(q)
     }
 
     /// Writes multiple descriptor chains to the memory object of the queue, at the beginning of
@@ -420,6 +423,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     ) -> Result<DescriptorChain<&M>, MockError> {
         self.add_desc_chains(descs, 0)?;
         self.create_queue::<Queue>()
+            .map_err(MockError::InvalidQueueParams)?
             .iter(self.mem)
             .unwrap()
             .next()

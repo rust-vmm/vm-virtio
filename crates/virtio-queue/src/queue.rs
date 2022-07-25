@@ -632,7 +632,7 @@ impl QueueOwnedT for Queue {
 ///
 /// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
 /// #    let vq = MockSplitQueue::new(m, 16);
-/// #    let mut q: Queue = vq.create_queue();
+/// #    let mut q: Queue = vq.create_queue().unwrap();
 /// #
 /// #    // The chains are (0, 1), (2, 3, 4) and (5, 6).
 /// #    for i in 0..7 {
@@ -798,7 +798,7 @@ mod tests {
     fn test_queue_is_valid() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         // q is currently valid
         assert!(q.is_valid(m));
@@ -876,7 +876,7 @@ mod tests {
     fn test_add_used() {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         assert_eq!(q.used_idx(mem, Ordering::Acquire).unwrap(), Wrapping(0));
         assert_eq!(u16::from_le(vq.used().idx().load()), 0);
@@ -900,7 +900,7 @@ mod tests {
     fn test_reset_queue() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         q.set_size(8);
         // The address set by `MockSplitQueue` for the descriptor table is DEFAULT_DESC_TABLE_ADDR,
@@ -939,7 +939,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let qsize = 16;
         let vq = MockSplitQueue::new(mem, qsize);
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
         let avail_addr = vq.avail_addr();
 
         // It should always return true when EVENT_IDX isn't enabled.
@@ -1019,7 +1019,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
         let used_addr = vq.used_addr();
 
         assert!(!q.event_idx_enabled);
@@ -1058,7 +1058,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         // q is currently valid.
         assert!(q.is_valid(mem));
@@ -1181,7 +1181,7 @@ mod tests {
         let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(mem, 16);
 
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         // q is currently valid.
         assert!(q.is_valid(mem));
@@ -1254,7 +1254,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         // q is currently valid
         assert!(q.is_valid(m));
@@ -1317,7 +1317,7 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
 
-        let mut q: Queue = vq.create_queue();
+        let mut q: Queue = vq.create_queue().unwrap();
 
         q.size = q.max_size;
         q.desc_table = vq.desc_table_addr();
