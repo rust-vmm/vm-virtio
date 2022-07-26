@@ -24,9 +24,13 @@ fuzz_target!(|virtio_queue_input: VirtioQueueInput| {
     if vq.build_multiple_desc_chains(&descriptors).is_err() {
         return;
     }
-    let mut q = vq.create_queue(m);
+
+    let mut q = match vq.create_queue() {
+        Ok(q) => q,
+        Err(_) => return,
+    };
 
     for function in virtio_queue_input.functions {
-        function.call(&mut q.state, m);
+        function.call(&mut q, m);
     }
 });

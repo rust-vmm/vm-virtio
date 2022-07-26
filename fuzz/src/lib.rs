@@ -1,6 +1,6 @@
 use std::convert::Into;
 use std::sync::atomic::Ordering;
-use virtio_queue::{Descriptor, QueueState, QueueStateT};
+use virtio_queue::{Descriptor, Queue, QueueT};
 use vm_memory::GuestMemoryMmap;
 use libfuzzer_sys::arbitrary::Arbitrary;
 
@@ -59,7 +59,7 @@ pub enum VirtioQueueFunction {
 }
 
 impl VirtioQueueFunction {
-    pub fn call(&self, q: &mut QueueState, m: &GuestMemoryMmap ) {
+    pub fn call(&self, q: &mut Queue, m: &GuestMemoryMmap ) {
         match self {
             VirtioQueueFunction::IsValid => { q.is_valid(m); },
             VirtioQueueFunction::Reset => { q.reset(); },
