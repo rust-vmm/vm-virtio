@@ -1,8 +1,8 @@
+use libfuzzer_sys::arbitrary::Arbitrary;
 use std::convert::Into;
 use std::sync::atomic::Ordering;
 use virtio_queue::{Descriptor, Queue, QueueT};
 use vm_memory::GuestMemoryMmap;
-use libfuzzer_sys::arbitrary::Arbitrary;
 
 /// Similar to a Descriptor structure, the only difference is that instead of having fields of types
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.
@@ -62,34 +62,84 @@ pub enum VirtioQueueFunction {
 }
 
 impl VirtioQueueFunction {
-    pub fn call(&self, q: &mut Queue, m: &GuestMemoryMmap ) {
+    pub fn call(&self, q: &mut Queue, m: &GuestMemoryMmap) {
         use VirtioQueueFunction::*;
         match self {
-            IsValid => { q.is_valid(m); },
-            Reset => { q.reset(); },
-            MaxSize => { q.max_size(); },
-            Size => { q.size(); },
-            SetSize { size } => { q.set_size(*size); },
-            Ready => { q.ready(); },
-            SetReady { ready }=> { q.set_ready(*ready); },
-            SetDescTableAddress { low, high } => { q.set_desc_table_address(*low, *high); },
-            SetAvailRingAddress { low, high } => { q.set_avail_ring_address(*low, *high); },
-            SetUsedRingAddress { low, high } => { q.set_used_ring_address(*low, *high); },
-            SetEventIdx { enabled } => { q.set_event_idx(*enabled); },
-            AvailIdx { order } => { let _ = q.avail_idx(m, (*order).into()); },
-            UsedIdx { order } => { let _ = q.used_idx(m, (*order).into()); },
-            AddUsed { head_index, len } => { let _ = q.add_used(m, *head_index, *len); },
-            EnableNotification => { let _ = q.enable_notification(m); },
-            DisableNotification => { let _ = q.disable_notification(m); },
-            NeedsNotification => { let _ = q.needs_notification(m); },
-            NextAvail => { q.next_avail(); },
-            SetNextAvail { next_avail } => { q.set_next_avail(*next_avail); },
-            NextUsed => { q.next_used(); },
-            SetNextUsed { next_used } => { q.set_next_used(*next_used); },
-            AvailRing => { q.avail_ring(); },
-            UsedRing => { q.used_ring(); },
-            EventIdxEnabled => { q.event_idx_enabled(); },
-            PopDescriptorChain => { q.pop_descriptor_chain(m); },
+            IsValid => {
+                q.is_valid(m);
+            }
+            Reset => {
+                q.reset();
+            }
+            MaxSize => {
+                q.max_size();
+            }
+            Size => {
+                q.size();
+            }
+            SetSize { size } => {
+                q.set_size(*size);
+            }
+            Ready => {
+                q.ready();
+            }
+            SetReady { ready } => {
+                q.set_ready(*ready);
+            }
+            SetDescTableAddress { low, high } => {
+                q.set_desc_table_address(*low, *high);
+            }
+            SetAvailRingAddress { low, high } => {
+                q.set_avail_ring_address(*low, *high);
+            }
+            SetUsedRingAddress { low, high } => {
+                q.set_used_ring_address(*low, *high);
+            }
+            SetEventIdx { enabled } => {
+                q.set_event_idx(*enabled);
+            }
+            AvailIdx { order } => {
+                let _ = q.avail_idx(m, (*order).into());
+            }
+            UsedIdx { order } => {
+                let _ = q.used_idx(m, (*order).into());
+            }
+            AddUsed { head_index, len } => {
+                let _ = q.add_used(m, *head_index, *len);
+            }
+            EnableNotification => {
+                let _ = q.enable_notification(m);
+            }
+            DisableNotification => {
+                let _ = q.disable_notification(m);
+            }
+            NeedsNotification => {
+                let _ = q.needs_notification(m);
+            }
+            NextAvail => {
+                q.next_avail();
+            }
+            SetNextAvail { next_avail } => {
+                q.set_next_avail(*next_avail);
+            }
+            NextUsed => {
+                q.next_used();
+            }
+            SetNextUsed { next_used } => {
+                q.set_next_used(*next_used);
+            }
+            AvailRing => {
+                q.avail_ring();
+            }
+            UsedRing => {
+                q.used_ring();
+            }
+            EventIdxEnabled => {
+                q.event_idx_enabled();
+            }
+            PopDescriptorChain => {
+                q.pop_descriptor_chain(m);
+            }
         }
     }
 }

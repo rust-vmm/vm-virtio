@@ -1,9 +1,9 @@
 #![no_main]
+use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use rust_vmm_fuzz::{FuzzingDescriptor, VirtioQueueFunction};
-use virtio_queue::{Queue, QueueState, Descriptor, mock::MockSplitQueue};
-use vm_memory::{GuestMemoryMmap, GuestAddress};
-use libfuzzer_sys::{fuzz_target, arbitrary::Arbitrary};
 use std::convert::{Into, TryFrom};
+use virtio_queue::{mock::MockSplitQueue, Descriptor, Queue, QueueState};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 /// FuzzingQueueState structure is similar to QueueState, except it derives the Arbitrary
 /// trait used for structure-aware fuzzing. The reason why we need a separate structure
@@ -50,7 +50,11 @@ fuzz_target!(|fuzz_input: QueueStateInput| {
     let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
     let vq = MockSplitQueue::new(m, fuzz_input.descriptors.len() as u16);
 
-    let descriptors: Vec<Descriptor> = fuzz_input.descriptors.iter().map(|desc| (*desc).into()).collect();
+    let descriptors: Vec<Descriptor> = fuzz_input
+        .descriptors
+        .iter()
+        .map(|desc| (*desc).into())
+        .collect();
     // we return early because the coverage is not increasing, we expect the fuzzer to abandon the
     // paths that would generate invalid descriptors
     if vq.build_multiple_desc_chains(&descriptors).is_err() {

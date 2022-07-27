@@ -1,9 +1,9 @@
 #![no_main]
+use libfuzzer_sys::{arbitrary::Arbitrary, fuzz_target};
 use rust_vmm_fuzz::FuzzingDescriptor;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
 use virtio_queue::{mock::MockSplitQueue, Descriptor};
 use virtio_vsock::packet::VsockPacket;
-use libfuzzer_sys::{fuzz_target, arbitrary::Arbitrary};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 /// All the functions that can be called on a VsockPacket
 #[derive(Arbitrary, Debug)]
@@ -38,31 +38,81 @@ pub enum VsockFunctionType<'a> {
 impl VsockFunctionType<'_> {
     pub fn call<B: vm_memory::bitmap::BitmapSlice>(&self, packet: &mut VsockPacket<B>) {
         match self {
-            VsockFunctionType::HeaderSlice => { packet.header_slice(); },
-            VsockFunctionType::Len => { packet.len(); },
-            VsockFunctionType::DataSlice => { packet.data_slice(); },
-            VsockFunctionType::SrcCid => { packet.src_cid(); },
-            VsockFunctionType::SetSrcCid { cid } => { packet.set_src_cid(*cid); },
-            VsockFunctionType::DstCid => { packet.dst_cid(); },
-            VsockFunctionType::SetDstCid { cid } => { packet.set_dst_cid(*cid); },
-            VsockFunctionType::SrcPort => { packet.src_port(); },
-            VsockFunctionType::SetSrcPort { port } => { packet.set_src_port(*port); },
-            VsockFunctionType::DstPort => { packet.dst_port(); },
-            VsockFunctionType::SetDstPort { port } => { packet.set_dst_port(*port); },
-            VsockFunctionType::IsEmpty => { packet.is_empty(); },
-            VsockFunctionType::SetLen { len } => { packet.set_len(*len); },
-            VsockFunctionType::Type_ => { packet.type_(); },
-            VsockFunctionType::SetType { type_ } => { packet.set_type(*type_); },
-            VsockFunctionType::Op => { packet.op(); },
-            VsockFunctionType::SetOp { op } => { packet.set_op(*op); },
-            VsockFunctionType::Flags => { packet.flags(); },
-            VsockFunctionType::SetFlags { flags } => { packet.set_flags(*flags); },
-            VsockFunctionType::SetFlag { flag } => { packet.set_flag(*flag); },
-            VsockFunctionType::BufAlloc => { packet.buf_alloc(); },
-            VsockFunctionType::SetBufAlloc { buf_alloc } => { packet.set_buf_alloc(*buf_alloc); },
-            VsockFunctionType::FwdCnt => { packet.fwd_cnt(); },
-            VsockFunctionType::SetFwdCnt { fwd_cnt } => { packet.set_fwd_cnt(*fwd_cnt); },
-            VsockFunctionType::SetHeaderFromRaw { bytes } => { let _ = packet.set_header_from_raw(*bytes); },
+            VsockFunctionType::HeaderSlice => {
+                packet.header_slice();
+            }
+            VsockFunctionType::Len => {
+                packet.len();
+            }
+            VsockFunctionType::DataSlice => {
+                packet.data_slice();
+            }
+            VsockFunctionType::SrcCid => {
+                packet.src_cid();
+            }
+            VsockFunctionType::SetSrcCid { cid } => {
+                packet.set_src_cid(*cid);
+            }
+            VsockFunctionType::DstCid => {
+                packet.dst_cid();
+            }
+            VsockFunctionType::SetDstCid { cid } => {
+                packet.set_dst_cid(*cid);
+            }
+            VsockFunctionType::SrcPort => {
+                packet.src_port();
+            }
+            VsockFunctionType::SetSrcPort { port } => {
+                packet.set_src_port(*port);
+            }
+            VsockFunctionType::DstPort => {
+                packet.dst_port();
+            }
+            VsockFunctionType::SetDstPort { port } => {
+                packet.set_dst_port(*port);
+            }
+            VsockFunctionType::IsEmpty => {
+                packet.is_empty();
+            }
+            VsockFunctionType::SetLen { len } => {
+                packet.set_len(*len);
+            }
+            VsockFunctionType::Type_ => {
+                packet.type_();
+            }
+            VsockFunctionType::SetType { type_ } => {
+                packet.set_type(*type_);
+            }
+            VsockFunctionType::Op => {
+                packet.op();
+            }
+            VsockFunctionType::SetOp { op } => {
+                packet.set_op(*op);
+            }
+            VsockFunctionType::Flags => {
+                packet.flags();
+            }
+            VsockFunctionType::SetFlags { flags } => {
+                packet.set_flags(*flags);
+            }
+            VsockFunctionType::SetFlag { flag } => {
+                packet.set_flag(*flag);
+            }
+            VsockFunctionType::BufAlloc => {
+                packet.buf_alloc();
+            }
+            VsockFunctionType::SetBufAlloc { buf_alloc } => {
+                packet.set_buf_alloc(*buf_alloc);
+            }
+            VsockFunctionType::FwdCnt => {
+                packet.fwd_cnt();
+            }
+            VsockFunctionType::SetFwdCnt { fwd_cnt } => {
+                packet.set_fwd_cnt(*fwd_cnt);
+            }
+            VsockFunctionType::SetHeaderFromRaw { bytes } => {
+                let _ = packet.set_header_from_raw(*bytes);
+            }
         }
     }
 }
@@ -87,16 +137,20 @@ fuzz_target!(|fuzz_input: VsockInput| {
     let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
     let vq = MockSplitQueue::new(m, fuzz_input.descriptors.len() as u16);
 
-    let descriptors: Vec<Descriptor> = fuzz_input.descriptors.iter().map(|desc| (*desc).into()).collect();
+    let descriptors: Vec<Descriptor> = fuzz_input
+        .descriptors
+        .iter()
+        .map(|desc| (*desc).into())
+        .collect();
 
     if let Ok(mut chain) = vq.build_desc_chain(&descriptors) {
         let packet = match fuzz_input.init_function {
             InitFunction::FromRX => {
                 VsockPacket::from_rx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
-            },
+            }
             InitFunction::FromTX => {
                 VsockPacket::from_tx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
-            },
+            }
         };
         if let Ok(mut p) = packet {
             fuzz_input.functions.iter().for_each(|f| f.call(&mut p));
