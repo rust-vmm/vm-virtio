@@ -9,6 +9,11 @@
       "test_name": "build-musl-backend-stdio",
       "command": "cargo build --release --workspace --features virtio-blk/backend-stdio --target {target_platform}-unknown-linux-musl",
       "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "fuzz-fmt",
+      "command": "cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check --config format_code_in_doc_comments=true",
+      "platform": ["x86_64"]
     }
   ]
 }
