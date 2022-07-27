@@ -79,31 +79,27 @@ pub enum InitFunction {
 pub struct VsockInput<'a> {
     pub pkt_max_data: u32,
     pub init_function: InitFunction,
-    pub fuzzing_descriptors: Vec<FuzzingDescriptor>,
+    pub descriptors: Vec<FuzzingDescriptor>,
     pub functions: Vec<VsockFunctionType<'a>>,
 }
 
-fuzz_target!(|vsock_input: VsockInput| {
+fuzz_target!(|fuzz_input: VsockInput| {
     let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-    let fuzzing_descriptors = vsock_input.fuzzing_descriptors;
-    let vq = MockSplitQueue::new(m, fuzzing_descriptors.len() as u16);
-    let mut descriptors: Vec<Descriptor> = Vec::with_capacity(fuzzing_descriptors.len());
-    for fuzzing_descriptor in fuzzing_descriptors {
-        descriptors.push(fuzzing_descriptor.into());
-    }
+    let vq = MockSplitQueue::new(m, fuzz_input.descriptors.len() as u16);
+
+    let descriptors: Vec<Descriptor> = fuzz_input.descriptors.iter().map(|desc| (*desc).into()).collect();
+
     if let Ok(mut chain) = vq.build_desc_chain(&descriptors) {
-        let packet = match vsock_input.init_function {
+        let packet = match fuzz_input.init_function {
             InitFunction::FromRX => {
-                VsockPacket::from_rx_virtq_chain(m, &mut chain, vsock_input.pkt_max_data)
+                VsockPacket::from_rx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
             },
             InitFunction::FromTX => {
-                VsockPacket::from_tx_virtq_chain(m, &mut chain, vsock_input.pkt_max_data)
+                VsockPacket::from_tx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
             },
         };
         if let Ok(mut p) = packet {
-            for function in vsock_input.functions {
-                function.call(&mut p);
-            }
+            fuzz_input.functions.iter().for_each(|f| f.call(&mut p));
         }
     }
 });
