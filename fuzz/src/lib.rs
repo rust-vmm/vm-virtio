@@ -1,4 +1,5 @@
 use libfuzzer_sys::arbitrary::Arbitrary;
+use serde::{Deserialize, Serialize};
 use std::convert::Into;
 use std::sync::atomic::Ordering;
 use virtio_queue::{Descriptor, Queue, QueueT};
@@ -8,7 +9,7 @@ use vm_memory::GuestMemoryMmap;
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.
 /// This is needed because the Arbitrary trait is already implemented for base types like the ones
 /// used in FuzzingDescriptor, but not for Le64, Le32, Le16.
-#[derive(Arbitrary, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Arbitrary, Debug, Copy, Clone)]
 pub struct FuzzingDescriptor {
     /// Guest physical address of device specific data.
     pub addr: u64,
@@ -24,7 +25,7 @@ pub struct FuzzingDescriptor {
 }
 
 // Identical to Ordering except it derives the Arbitrary trait
-#[derive(Arbitrary, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Arbitrary, Debug, Copy, Clone)]
 pub enum LoadOrdering {
     Relaxed,
     Acquire,
@@ -32,7 +33,7 @@ pub enum LoadOrdering {
 }
 
 /// The QueueState functions
-#[derive(Arbitrary, Debug)]
+#[derive(Serialize, Deserialize, Arbitrary, Debug)]
 pub enum VirtioQueueFunction {
     IsValid,
     Reset,
