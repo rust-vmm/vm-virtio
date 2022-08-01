@@ -13,9 +13,8 @@ members = []
 cargo-fuzz = true
 
 [dependencies]
-arbitrary = { version = "1",  features = ["derive"] }
 bincode = "1.3.3"
-libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"]}
+libfuzzer-sys = "0.4"
 serde = "1.0.63"
 virtio-queue = { path = "../crates/virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../crates/devices/virtio-vsock" }
