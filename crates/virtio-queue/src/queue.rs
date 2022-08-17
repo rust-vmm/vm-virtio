@@ -635,6 +635,7 @@ impl QueueOwnedT for Queue {
 /// #    let mut q: Queue = vq.create_queue().unwrap();
 /// #
 /// #    // The chains are (0, 1), (2, 3, 4) and (5, 6).
+/// #    let mut descs = Vec::new();
 /// #    for i in 0..7 {
 /// #        let flags = match i {
 /// #            1 | 6 => 0,
@@ -643,14 +644,10 @@ impl QueueOwnedT for Queue {
 /// #            _ => VRING_DESC_F_NEXT,
 /// #        };
 /// #
-/// #        let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
-/// #        vq.desc_table().store(i, desc);
+/// #        descs.push(Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1));
 /// #    }
 /// #
-/// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-/// #    vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
-/// #    vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
-/// #    vq.avail().idx().store(u16::to_le(3));
+/// #    vq.add_desc_chains(&descs, 0).unwrap();
 /// #    q
 /// # }
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
@@ -1064,22 +1061,25 @@ mod tests {
         assert!(q.is_valid(mem));
 
         // The chains are (0, 1), (2, 3, 4), (5, 6), (7, 8), (9, 10, 11, 12).
+        let mut descs = Vec::new();
         for i in 0..13 {
             let flags = match i {
                 1 | 4 | 6 | 8 | 12 => 0,
                 _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
-            vq.desc_table().store(i, desc).unwrap();
+            descs.push(Descriptor::new(
+                (0x1000 * (i + 1)) as u64,
+                0x1000,
+                flags as u16,
+                i + 1,
+            ));
         }
 
-        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
-        vq.avail().ring().ref_at(3).unwrap().store(u16::to_le(7));
-        vq.avail().ring().ref_at(4).unwrap().store(u16::to_le(9));
-        // Let the device know it can consume chains with the index < 2.
+        vq.add_desc_chains(&descs, 0).unwrap();
+        // Update the index of the chain that can be consumed to not be the last one.
+        // This enables us to consume chains in multiple iterations as opposed to consuming
+        // all the driver written chains at once.
         vq.avail().idx().store(u16::to_le(2));
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
@@ -1187,19 +1187,22 @@ mod tests {
         assert!(q.is_valid(mem));
 
         // The chains are (0, 1), (2, 3, 4), (5, 6).
+        let mut descs = Vec::new();
         for i in 0..7 {
             let flags = match i {
                 1 | 4 | 6 => 0,
                 _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1);
-            vq.desc_table().store(i, desc).unwrap();
+            descs.push(Descriptor::new(
+                (0x1000 * (i + 1)) as u64,
+                0x1000,
+                flags as u16,
+                i + 1,
+            ));
         }
 
-        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
+        vq.add_desc_chains(&descs, 0).unwrap();
         // Let the device know it can consume chains with the index < 2.
         vq.avail().idx().store(u16::to_le(3));
         // No descriptor chains are consumed at this point.
@@ -1260,6 +1263,7 @@ mod tests {
         assert!(q.is_valid(m));
 
         // the chains are (0, 1), (2, 3, 4) and (5, 6)
+        let mut descs = Vec::new();
         for j in 0..7 {
             let flags = match j {
                 1 | 6 => 0,
@@ -1268,14 +1272,15 @@ mod tests {
                 _ => VRING_DESC_F_NEXT,
             };
 
-            let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags as u16, j + 1);
-            vq.desc_table().store(j, desc).unwrap();
+            descs.push(Descriptor::new(
+                (0x1000 * (j + 1)) as u64,
+                0x1000,
+                flags as u16,
+                j + 1,
+            ));
         }
 
-        vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-        vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
-        vq.avail().ring().ref_at(2).unwrap().store(u16::to_le(5));
-        vq.avail().idx().store(u16::to_le(3));
+        vq.add_desc_chains(&descs, 0).unwrap();
 
         let mut i = q.iter(m).unwrap();
 
@@ -1337,19 +1342,21 @@ mod tests {
         // now let's create two simple descriptor chains
         // the chains are (0, 1) and (2, 3, 4)
         {
+            let mut descs = Vec::new();
             for j in 0..5u16 {
                 let flags = match j {
                     1 | 4 => 0,
                     _ => VRING_DESC_F_NEXT,
                 };
 
-                let desc = Descriptor::new((0x1000 * (j + 1)) as u64, 0x1000, flags as u16, j + 1);
-                vq.desc_table().store(j, desc).unwrap();
+                descs.push(Descriptor::new(
+                    (0x1000 * (j + 1)) as u64,
+                    0x1000,
+                    flags as u16,
+                    j + 1,
+                ));
             }
-
-            vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-            vq.avail().ring().ref_at(1).unwrap().store(u16::to_le(2));
-            vq.avail().idx().store(u16::to_le(2));
+            vq.add_desc_chains(&descs, 0).unwrap();
 
             let mut i = q.iter(m).unwrap();
 
