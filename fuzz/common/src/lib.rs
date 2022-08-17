@@ -1,8 +1,12 @@
-use serde::{Deserialize, Serialize};
-use std::convert::Into;
+use ::virtio_queue::{Descriptor, Queue, QueueT};
 use std::sync::atomic::Ordering;
-use virtio_queue::{Descriptor, Queue, QueueT};
 use vm_memory::GuestMemoryMmap;
+
+use serde::{Deserialize, Serialize};
+
+pub mod virtio_queue;
+pub mod virtio_queue_ser;
+pub mod vsock;
 
 /// Similar to a Descriptor structure, the only difference is that instead of having fields of types
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.
@@ -12,13 +16,10 @@ use vm_memory::GuestMemoryMmap;
 pub struct FuzzingDescriptor {
     /// Guest physical address of device specific data.
     pub addr: u64,
-
     /// Length of device specific data.
     pub len: u32,
-
     /// Includes next, write, and indirect bits.
     pub flags: u16,
-
     /// Index into the descriptor table of the next descriptor if flags has the `next` bit set.
     pub next: u16,
 }
