@@ -11,10 +11,10 @@ edition = "2018"
 
 [dependencies]
 # The `path` part gets stripped when publishing the crate.
-virtio-queue = { path = "../../virtio-queue", version = ">=0.3.0" }
-virtio-bindings = { path = "../../virtio-bindings", version = ">=0.1.0" }
-vm-memory = ">=0.8.0"
+virtio-queue = { path = "../../virtio-queue", version = "0.5.0" }
+virtio-bindings = { path = "../../virtio-bindings", version = "0.1.0" }
+vm-memory = "0.9.0"
 
 [dev-dependencies]
-virtio-queue = { path = "../../virtio-queue", version = ">=0.3.0", features = ["test-utils"] }
-vm-memory = { version = ">=0.8.0", features = ["backend-mmap", "backend-atomic"] }
+virtio-queue = { path = "../../virtio-queue", version = "0.5.0", features = ["test-utils"] }
+vm-memory = { version = "0.9.0", features = ["backend-mmap", "backend-atomic"] }
