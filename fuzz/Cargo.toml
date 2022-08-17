@@ -20,6 +20,7 @@ virtio-queue = { path = "../crates/virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../crates/devices/virtio-vsock" }
 virtio-queue-ser = { path = "../crates/virtio-queue-ser" }
 vm-memory = { version = ">=0.8.0", features = ["backend-mmap", "backend-atomic"] }
+common = { path = "common" }
 
 [[bin]]
 name = "virtio_queue"
