@@ -1,5 +1,5 @@
 #![no_main]
-use common::virtio_queue::VirtioQueueInput;
+use common::virtio_queue::{VirtioQueueInput, DEFAULT_QUEUE_SIZE};
 use libfuzzer_sys::fuzz_target;
 use virtio_queue::{mock::MockSplitQueue, Descriptor};
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-    let vq = MockSplitQueue::new(m, fuzz_input.descriptors.len() as u16);
+    let vq = MockSplitQueue::new(m, DEFAULT_QUEUE_SIZE);
     let descriptors: Vec<Descriptor> = fuzz_input
         .descriptors
         .iter()

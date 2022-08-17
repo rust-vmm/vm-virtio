@@ -12,7 +12,7 @@ pub mod vsock;
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.
 /// This is needed because the Arbitrary trait is already implemented for base types like the ones
 /// used in FuzzingDescriptor, but not for Le64, Le32, Le16.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub struct FuzzingDescriptor {
     /// Guest physical address of device specific data.
     pub addr: u64,
@@ -25,7 +25,7 @@ pub struct FuzzingDescriptor {
 }
 
 // Identical to Ordering except it derives the Arbitrary trait
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum LoadOrdering {
     Relaxed,
     Acquire,
@@ -33,7 +33,7 @@ pub enum LoadOrdering {
 }
 
 /// The QueueState functions
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum VirtioQueueFunction {
     IsValid,
     Reset,
