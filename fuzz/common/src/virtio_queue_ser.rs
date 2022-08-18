@@ -2,10 +2,11 @@ use crate::{FuzzingDescriptor, VirtioQueueFunction};
 use serde::{Deserialize, Serialize};
 use virtio_queue::QueueState;
 
-/// FuzzingQueueState structure is similar to QueueState, except it derives the Arbitrary
-/// trait used for structure-aware fuzzing. The reason why we need a separate structure
-/// that is duplicating the code is because Rust does not allow foreign trait (Arbitrary in this
-/// case) implementations on foreign types.
+/// FuzzingQueueState structure is similar to QueueState, except it derives the
+/// Serialize/Deserialize traits that we're using for structure-aware fuzzing.
+/// The reason why we need a separate structure that is duplicating the code is
+/// because Rust does not allow foreign trait (Arbitrary in this case)
+/// implementations on foreign types.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct FuzzingQueueState {
     pub max_size: u16,

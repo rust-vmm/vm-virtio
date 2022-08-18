@@ -10,8 +10,9 @@ pub mod vsock;
 
 /// Similar to a Descriptor structure, the only difference is that instead of having fields of types
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.
-/// This is needed because the Arbitrary trait is already implemented for base types like the ones
-/// used in FuzzingDescriptor, but not for Le64, Le32, Le16.
+/// This is needed because the constructor of the `Descriptor` uses the primitive types, and
+/// serialize/deserialize is only implemented for primitive types and not for the corresponding
+/// little endian types.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub struct FuzzingDescriptor {
     /// Guest physical address of device specific data.
@@ -24,7 +25,9 @@ pub struct FuzzingDescriptor {
     pub next: u16,
 }
 
-// Identical to Ordering except it derives the Arbitrary trait
+/// The `LoadOrdering` defines the valid ordering for the Load operation. This structures is needed
+/// to avoid crashes when `load` is called with an invalid ordering, and because the
+/// serialize/deserialize traits are not implemented for the `Ordering` enum.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum LoadOrdering {
     Relaxed,
