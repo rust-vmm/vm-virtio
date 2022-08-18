@@ -14,6 +14,11 @@
       "test_name": "fuzz-fmt",
       "command": "cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check --config format_code_in_doc_comments=true",
       "platform": ["x86_64"]
+    },
+    {
+      "test_name": "generate-virtio-queue-input",
+      "command": "cd fuzz && cargo test --package common --lib virtio_queue",
+      "plarform": ["x86_64", "aarch64"]
     }
   ]
 }
