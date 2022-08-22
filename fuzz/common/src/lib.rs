@@ -1,4 +1,6 @@
 use ::virtio_queue::{Descriptor, Queue, QueueT};
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use vm_memory::GuestMemoryMmap;
 
@@ -162,4 +164,23 @@ impl Into<Descriptor> for FuzzingDescriptor {
     fn into(self) -> Descriptor {
         Descriptor::new(self.addr, self.len, self.flags, self.next)
     }
+}
+
+/// Create a file in the dedicated corpus directory for the Fuzz Target specified in `target_name`.
+///
+/// This function is used in creating the custom input for the fuzz targets, and can panic when
+/// creating the file fails.
+///
+/// Returns both the path and the file as the former is needed to be able to read the contents of
+/// the file.
+pub fn create_corpus_file(target_name: &str, filename: &str) -> (File, PathBuf) {
+    // The CARGO_MANIFEST_DIR is the only sane way right now to get a path that can
+    // be used for writing directly into the fuzz/input directory.
+    // The env will output the absolute path of the `common` crate.
+    let dest = format!("{}/../corpus/{}/", env!("CARGO_MANIFEST_DIR"), target_name);
+    let corpus_path = Path::new(&dest);
+    fs::create_dir_all(corpus_path).unwrap();
+
+    let path = corpus_path.join(filename);
+    (File::create(&path).unwrap(), path)
 }

@@ -14,31 +14,16 @@ pub struct VirtioQueueInput {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
-    use std::fs::{self, File};
     use std::io::Write;
-    use std::path::Path;
 
+    use crate::create_corpus_file;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
     use virtio_queue::{mock::MockSplitQueue, Descriptor, Queue, QueueT};
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    #[test]
-    // Running this test will write to the fuzz input directory the
-    // `basic_virtio_queue` file which contains the virtio queue descriptors
-    // and operations on the queues as exemplified in the following test.
-    fn write_basic_virtio_queue_ops() {
-        // The CARGO_MANIFEST_DIR is the only sane way right now to get a path that can
-        // be used for writing directly into the fuzz/input directory.
-        // The env will output the absolute path of the `common` crate.
-        let dest = format!("{}/../corpus/virtio_queue/", env!("CARGO_MANIFEST_DIR"));
-        let corpus_path = Path::new(&dest);
-        fs::create_dir_all(corpus_path).unwrap();
-
-        let path = corpus_path.join("basic_virtio_queue");
-        let mut out_file = File::create(&path).unwrap();
-
+    pub fn create_basic_virtio_queue_ops() -> VirtioQueueInput {
         // We are actually calling the functions that we want the fuzzer to call to validate
         // the test case. To easily track the functions and their order, we just add them to
         // the list as they're being called instead of adding them all at once.
@@ -104,12 +89,22 @@ mod tests {
         q.pop_descriptor_chain(&mem).unwrap();
         functions.push(VirtioQueueFunction::PopDescriptorChain);
 
-        // Now that we ran the functions and validated that they work as expected, we can write the
-        // test case to the file.
-        let virtq_fuzz_input = VirtioQueueInput {
+        // Now that we ran the functions and validated that they work as expected, we can create the
+        // test case that we can later write to the file.
+        VirtioQueueInput {
             descriptors,
             functions,
-        };
+        }
+    }
+
+    #[test]
+    // Running this test will write to the fuzz input directory the
+    // `basic_virtio_queue` file which contains the virtio queue descriptors
+    // and operations on the queues as exemplified in the following test.
+    fn write_basic_virtio_queue_ops() {
+        let (mut out_file, path) = create_corpus_file("virtio_queue", "basic_virtio_queue");
+
+        let virtq_fuzz_input = create_basic_virtio_queue_ops();
         out_file
             .write_all(bincode::serialize(&virtq_fuzz_input).unwrap().as_slice())
             .unwrap();
