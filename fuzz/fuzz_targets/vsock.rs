@@ -11,8 +11,8 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
 
-    let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-    let vq = MockSplitQueue::new(m, fuzz_input.descriptors.len() as u16);
+    let m = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+    let vq = MockSplitQueue::new(&m, fuzz_input.descriptors.len() as u16);
 
     let descriptors: Vec<Descriptor> = fuzz_input
         .descriptors
@@ -23,14 +23,17 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(mut chain) = vq.build_desc_chain(&descriptors) {
         let packet = match fuzz_input.init_function {
             InitFunction::FromRX => {
-                VsockPacket::from_rx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
+                VsockPacket::from_rx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
             }
             InitFunction::FromTX => {
-                VsockPacket::from_tx_virtq_chain(m, &mut chain, fuzz_input.pkt_max_data)
+                VsockPacket::from_tx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
             }
         };
         if let Ok(mut p) = packet {
-            fuzz_input.functions.iter().for_each(|f| f.call(&mut p));
+            fuzz_input
+                .functions
+                .iter()
+                .for_each(|f| f.call(&mut p, &mut m.clone()));
         }
     }
 });

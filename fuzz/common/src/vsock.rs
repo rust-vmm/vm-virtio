@@ -2,6 +2,7 @@ use crate::FuzzingDescriptor;
 use virtio_vsock::packet::VsockPacket;
 
 use serde::{Deserialize, Serialize};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
 /// All the functions that can be called when fuzzing the VsockPacket.
 #[derive(Serialize, Deserialize, Debug)]
@@ -31,10 +32,20 @@ pub enum VsockFunction {
     FwdCnt,
     SetFwdCnt { fwd_cnt: u32 },
     SetHeaderFromRaw { bytes: Vec<u8> },
+    // This function is not part of the VsockPacket interface but it is needed
+    // to be able to read non-zero bytes from Guest Memory.
+    // We're using this to generate custom input for the fuzzer by writing a
+    // VsockPacket to Guest Memory that is later going to be read and altered
+    // during fuzzing.
+    _WriteToMem { addr: u64, bytes: Vec<u8> },
 }
 
 impl VsockFunction {
-    pub fn call<B: vm_memory::bitmap::BitmapSlice>(&self, packet: &mut VsockPacket<B>) {
+    pub fn call<B: vm_memory::bitmap::BitmapSlice>(
+        &self,
+        packet: &mut VsockPacket<B>,
+        mem: &mut GuestMemoryMmap,
+    ) {
         match self {
             VsockFunction::HeaderSlice => {
                 packet.header_slice();
@@ -110,6 +121,9 @@ impl VsockFunction {
             }
             VsockFunction::SetHeaderFromRaw { bytes } => {
                 let _ = packet.set_header_from_raw(bytes.as_slice());
+            }
+            VsockFunction::_WriteToMem { bytes, addr } => {
+                let _ = mem.write_slice(bytes.as_slice(), GuestAddress(*addr));
             }
         }
     }
