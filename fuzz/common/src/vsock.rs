@@ -3,9 +3,9 @@ use virtio_vsock::packet::VsockPacket;
 
 use serde::{Deserialize, Serialize};
 
-/// All the functions that can be called on a VsockPacket
+/// All the functions that can be called when fuzzing the VsockPacket.
 #[derive(Serialize, Deserialize, Debug)]
-pub enum VsockFunctionType {
+pub enum VsockFunction {
     HeaderSlice,
     Len,
     DataSlice,
@@ -33,82 +33,82 @@ pub enum VsockFunctionType {
     SetHeaderFromRaw { bytes: Vec<u8> },
 }
 
-impl VsockFunctionType {
+impl VsockFunction {
     pub fn call<B: vm_memory::bitmap::BitmapSlice>(&self, packet: &mut VsockPacket<B>) {
         match self {
-            VsockFunctionType::HeaderSlice => {
+            VsockFunction::HeaderSlice => {
                 packet.header_slice();
             }
-            VsockFunctionType::Len => {
+            VsockFunction::Len => {
                 packet.len();
             }
-            VsockFunctionType::DataSlice => {
+            VsockFunction::DataSlice => {
                 packet.data_slice();
             }
-            VsockFunctionType::SrcCid => {
+            VsockFunction::SrcCid => {
                 packet.src_cid();
             }
-            VsockFunctionType::SetSrcCid { cid } => {
+            VsockFunction::SetSrcCid { cid } => {
                 packet.set_src_cid(*cid);
             }
-            VsockFunctionType::DstCid => {
+            VsockFunction::DstCid => {
                 packet.dst_cid();
             }
-            VsockFunctionType::SetDstCid { cid } => {
+            VsockFunction::SetDstCid { cid } => {
                 packet.set_dst_cid(*cid);
             }
-            VsockFunctionType::SrcPort => {
+            VsockFunction::SrcPort => {
                 packet.src_port();
             }
-            VsockFunctionType::SetSrcPort { port } => {
+            VsockFunction::SetSrcPort { port } => {
                 packet.set_src_port(*port);
             }
-            VsockFunctionType::DstPort => {
+            VsockFunction::DstPort => {
                 packet.dst_port();
             }
-            VsockFunctionType::SetDstPort { port } => {
+            VsockFunction::SetDstPort { port } => {
                 packet.set_dst_port(*port);
             }
-            VsockFunctionType::IsEmpty => {
+            VsockFunction::IsEmpty => {
                 packet.is_empty();
             }
-            VsockFunctionType::SetLen { len } => {
+            VsockFunction::SetLen { len } => {
                 packet.set_len(*len);
             }
-            VsockFunctionType::Type_ => {
+            VsockFunction::Type_ => {
                 packet.type_();
             }
-            VsockFunctionType::SetType { type_ } => {
+            VsockFunction::SetType { type_ } => {
                 packet.set_type(*type_);
             }
-            VsockFunctionType::Op => {
+            VsockFunction::Op => {
                 packet.op();
             }
-            VsockFunctionType::SetOp { op } => {
+            VsockFunction::SetOp { op } => {
                 packet.set_op(*op);
             }
-            VsockFunctionType::Flags => {
+            VsockFunction::Flags => {
                 packet.flags();
             }
-            VsockFunctionType::SetFlags { flags } => {
+            VsockFunction::SetFlags { flags } => {
                 packet.set_flags(*flags);
             }
-            VsockFunctionType::SetFlag { flag } => {
+            VsockFunction::SetFlag { flag } => {
                 packet.set_flag(*flag);
             }
-            VsockFunctionType::BufAlloc => {
+            VsockFunction::BufAlloc => {
                 packet.buf_alloc();
             }
-            VsockFunctionType::SetBufAlloc { buf_alloc } => {
+            VsockFunction::SetBufAlloc { buf_alloc } => {
                 packet.set_buf_alloc(*buf_alloc);
             }
-            VsockFunctionType::FwdCnt => {
+            VsockFunction::FwdCnt => {
                 packet.fwd_cnt();
             }
-            VsockFunctionType::SetFwdCnt { fwd_cnt } => {
+            VsockFunction::SetFwdCnt { fwd_cnt } => {
                 packet.set_fwd_cnt(*fwd_cnt);
             }
-            VsockFunctionType::SetHeaderFromRaw { bytes } => {
+            VsockFunction::SetHeaderFromRaw { bytes } => {
                 let _ = packet.set_header_from_raw(bytes.as_slice());
             }
         }
@@ -128,5 +128,5 @@ pub struct VsockInput {
     pub pkt_max_data: u32,
     pub init_function: InitFunction,
     pub descriptors: Vec<FuzzingDescriptor>,
-    pub functions: Vec<VsockFunctionType>,
+    pub functions: Vec<VsockFunction>,
 }
