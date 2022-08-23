@@ -16,8 +16,8 @@
       "platform": ["x86_64"]
     },
     {
-      "test_name": "generate-virtio-queue-input",
-      "command": "cd fuzz && cargo test --package common --lib virtio_queue",
+      "test_name": "fuzz-input-tests",
+      "command": "cd fuzz && cargo test --package common",
       "plarform": ["x86_64", "aarch64"]
     }
   ]
