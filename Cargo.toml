@@ -6,7 +6,6 @@ members = [
     "crates/virtio-queue",
     "crates/virtio-queue-ser",
 ]
-resolver = "2"
 
 [profile.bench]
 lto = true

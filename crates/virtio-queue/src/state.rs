@@ -1,5 +1,4 @@
 use crate::{Error, Queue, QueueT};
-use std::convert::TryFrom;
 use vm_memory::GuestAddress;
 
 /// Representation of the `Queue` state.

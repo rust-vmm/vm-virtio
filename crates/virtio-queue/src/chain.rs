@@ -10,7 +10,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
 
-use std::convert::TryFrom;
 use std::fmt::{self, Debug};
 use std::mem::size_of;
 use std::ops::Deref;

@@ -6,7 +6,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-use std::convert::TryInto;
 use std::sync::atomic::Ordering;
 
 use log::warn;

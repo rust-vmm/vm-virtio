@@ -72,7 +72,6 @@ impl Default for QueueStateSer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryFrom;
     use virtio_queue::{Error, Queue};
 
     #[test]
