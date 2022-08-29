@@ -5,13 +5,18 @@ The `vm-virtio` workspace provides
 abstractions and implementation for the virtio queue and devices. For now, it
 consists of the following crates:
 
+- `virtio-bindings` -> provides Rust FFI bindings to the corresponding Linux 
+  kernel API;
+- `virtio-blk` -> contains abstractions for parsing and executing a request of
+  the block device;
+- `virtio-console` -> contains abstractions for the virtio console device;
+- `virtio-device` -> provides abstractions for the common functionality of the
+  virtio devices, and a default implementation for the MMIO
+  transport operations (read, write);
 - `virtio-queue` -> provides a virtio device implementation for a virtio queue,
                     a virtio descriptor and a chain of such descriptors;
-- `virtio-device` -> provides abstractions for the common functionality of the
-                     virtio devices, and a default implementation for the MMIO
-                     transport operations (read, write);
-- `virtio-blk` -> contains abstractions for parsing and executing a request of
-                  the block device.
+- `virtio-queue-ser` -> provides abstractions for serialization and 
+   deserialization for virtio queue states;
 - `virtio-vsock` -> provides an implementation for the vsock packet.
 
 ### Note

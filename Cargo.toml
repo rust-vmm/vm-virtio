@@ -1,10 +1,10 @@
 [workspace]
 members = [
+    "crates/devices/*",
+    "crates/virtio-bindings",
+    "crates/virtio-device",
     "crates/virtio-queue",
     "crates/virtio-queue-ser",
-    "crates/virtio-device",
-    "crates/devices/*",
-    "crates/virtio-bindings"
 ]
 resolver = "2"
 
