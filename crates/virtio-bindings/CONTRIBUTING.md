@@ -23,7 +23,7 @@ For this example we assume that you have both linux and virtio-bindings
 repositories in your root.
 
 ```bash
-# Step 1: Crate a new module using a name with format "bindings_vVERSION" in
+# Step 1: Create a new module using a name with format "bindings_vVERSION" in
 # src/
 cd virtio-bindings
 mkdir src/bindings_v5_0_0
