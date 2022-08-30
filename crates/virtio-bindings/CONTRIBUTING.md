@@ -25,13 +25,13 @@ repositories in your root.
 ```bash
 # Step 1: Create a new module using a name with format "bindings_vVERSION" in
 # src/
-cd virtio-bindings
+cd vm-virtio/crates/virtio-bindings
 mkdir src/bindings_v5_0_0
 cd ~
 
 # Step 2: Copy the "mod.rs" file from the directory of an already existing
 # version module to the one we've just created.
-cd virtio-bindings/src
+cd vm-virtio/crates/virtio-bindings/src
 cp bindings_v4_14_0/mod.rs bindings_v5_0_0/mod.rs
 
 # linux is the repository that you cloned at the previous step.
@@ -55,14 +55,14 @@ done
 cd ~
 
 # Step 6: Copy the generated files to the new version module.
-cp linux/v5_0_headers/*.rs virtio-bindings/src/bindings_v5_0_0
+cp linux/v5_0_headers/*.rs vm-virtio/crates/virtio-bindings/src/bindings_v5_0_0
 ```
 
 Once this is done, edit the generated files to add the proper license header,
-and add the new version module to `virtio-bindings/lib.rs`. If this version
-is newer than the others already present, make this version the default one
-by getting it imported when there isn't any other version specified as a
-feature:
+and add the new version module to `vm-virtio/crates/virtio-bindings/lib.rs`. If
+this version is newer than the others already present, make this version the
+default one by getting it imported when there isn't any other version specified
+as a feature:
 
 ```rust
 #[cfg(all(not(feature = "virtio-v4_14_0"), not(feature = "virtio-v5_0_0")))]
