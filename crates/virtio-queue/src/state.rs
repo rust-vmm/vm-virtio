@@ -12,7 +12,7 @@ use vm_memory::GuestAddress;
 ///
 /// As this structure has all the fields public it is consider to be untrusted. A validated
 /// queue can be created from the state by calling the associated `try_from` function.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct QueueState {
     /// The maximum size in elements offered by the device.
     pub max_size: u16,

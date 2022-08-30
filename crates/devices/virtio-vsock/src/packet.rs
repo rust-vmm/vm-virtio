@@ -103,7 +103,7 @@ impl Display for Error {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 /// The vsock packet header structure.
 pub struct PacketHeader {
     src_cid: Le64,
