@@ -76,7 +76,7 @@ pub const MAX_QUEUE_SIZE: u16 = 32768;
 /// // The queue should not be ready after reset.
 /// assert!(!queue.ready());
 /// ```
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Queue {
     /// The maximum size in elements offered by the device.
     max_size: u16,

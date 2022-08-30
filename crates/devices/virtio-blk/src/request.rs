@@ -71,7 +71,7 @@ impl Display for Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// Type of request from driver to device.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RequestType {
     /// Read request.
     In,
@@ -113,7 +113,7 @@ struct RequestHeader {
 }
 
 /// Stores the necessary information for further execution of a block request.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Request {
     /// The type of the request.
     request_type: RequestType,
