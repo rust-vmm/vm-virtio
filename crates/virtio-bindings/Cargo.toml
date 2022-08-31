@@ -10,6 +10,8 @@ keywords = ["virtio"]
 license = "BSD-3-Clause OR Apache-2.0"
 
 [features]
+# Kernel version features are deprecated and no longer have any effect,
+# as the kernel headers are backwards compatible.
 virtio-v4_14_0 = []
 virtio-v5_0_0 = []
 

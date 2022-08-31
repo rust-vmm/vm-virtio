@@ -1,24 +1,17 @@
 // Copyright 2019 Red Hat, Inc. All Rights Reserved.
 // SPDX-License-Identifier: (BSD-3-Clause OR Apache-2.0)
 
-#[cfg(all(feature = "virtio-v4_14_0", not(feature = "virtio-v5_0_0")))]
-mod bindings_v4_14_0;
-#[cfg(feature = "virtio-v5_0_0")]
-mod bindings_v5_0_0;
+#![allow(clippy::all)]
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+// Keep this until https://github.com/rust-lang/rust-bindgen/issues/1651 is fixed.
+#![cfg_attr(test, allow(deref_nullptr, unaligned_references))]
 
-// Major hack to have a default version in case no feature is specified:
-// If no version is specified by using the features, just use the latest one
-// which currently is 5.0.
-#[cfg(all(not(feature = "virtio-v4_14_0"), not(feature = "virtio-v5_0_0")))]
-mod bindings_v5_0_0;
+pub mod virtio_blk;
+pub mod virtio_net;
+pub mod virtio_ring;
 
 pub mod bindings {
-    #[cfg(all(feature = "virtio-v4_14_0", not(feature = "virtio-v5_0_0")))]
-    pub use super::bindings_v4_14_0::*;
-
-    #[cfg(feature = "virtio-v5_0_0")]
-    pub use super::bindings_v5_0_0::*;
-
-    #[cfg(all(not(feature = "virtio-v4_14_0"), not(feature = "virtio-v5_0_0")))]
-    pub use super::bindings_v5_0_0::*;
+    pub use super::{virtio_blk, virtio_net, virtio_ring};
 }

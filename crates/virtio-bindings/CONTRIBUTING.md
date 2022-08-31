@@ -17,29 +17,18 @@ repository on your machine:
 git clone https://github.com/torvalds/linux.git
 ```
 
-## Example for adding a new version
+## Example for updating to a new kernel version
 
 For this example we assume that you have both linux and virtio-bindings
 repositories in your root.
 
 ```bash
-# Step 1: Create a new module using a name with format "bindings_vVERSION" in
-# src/
-cd vm-virtio/crates/virtio-bindings
-mkdir src/bindings_v5_0_0
-cd ~
-
-# Step 2: Copy the "mod.rs" file from the directory of an already existing
-# version module to the one we've just created.
-cd vm-virtio/crates/virtio-bindings/src
-cp bindings_v4_14_0/mod.rs bindings_v5_0_0/mod.rs
-
 # linux is the repository that you cloned at the previous step.
 cd linux
-# Step 3: Checkout the version you want to generate the bindings for.
+# Step 1: Checkout the version you want to generate the bindings for.
 git checkout v5.0
 
-# Step 4: Generate the bindings from the kernel headers. We need to
+# Step 2: Generate the bindings from the kernel headers. We need to
 # generate a file for each one of the virtio headers we're interested on.
 # For the moment, we're generating "virtio_blk", "virtio_net" and
 # "virtio_ring". Feel free to add additional header files if you need them
@@ -55,16 +44,5 @@ done
 cd ~
 
 # Step 6: Copy the generated files to the new version module.
-cp linux/v5_0_headers/*.rs vm-virtio/crates/virtio-bindings/src/bindings_v5_0_0
-```
-
-Once this is done, edit the generated files to add the proper license header,
-and add the new version module to `vm-virtio/crates/virtio-bindings/lib.rs`. If
-this version is newer than the others already present, make this version the
-default one by getting it imported when there isn't any other version specified
-as a feature:
-
-```rust
-#[cfg(all(not(feature = "virtio-v4_14_0"), not(feature = "virtio-v5_0_0")))]
-pub use super::bindings_v5_0_0::*;
+cp linux/v5_0_headers/*.rs vm-virtio/crates/virtio-bindings/src
 ```
