@@ -344,6 +344,7 @@ fn bindgen_test_layout___kernel_fsid_t() {
 }
 pub type __kernel_off_t = __kernel_long_t;
 pub type __kernel_loff_t = ::std::os::raw::c_longlong;
+pub type __kernel_old_time_t = __kernel_long_t;
 pub type __kernel_time_t = __kernel_long_t;
 pub type __kernel_time64_t = ::std::os::raw::c_longlong;
 pub type __kernel_clock_t = __kernel_long_t;
@@ -364,6 +365,15 @@ pub type __poll_t = ::std::os::raw::c_uint;
 pub type __virtio16 = __u16;
 pub type __virtio32 = __u32;
 pub type __virtio64 = __u64;
+#[doc = " struct vring_desc - Virtio ring descriptors,"]
+#[doc = " 16 bytes long. These can chain together via @next."]
+#[doc = ""]
+#[doc = " @addr: buffer address (guest-physical)"]
+#[doc = " @len: buffer length"]
+#[doc = " @flags: descriptor flags"]
+#[doc = " @next: index of the next descriptor in the chain,"]
+#[doc = "        if the VRING_DESC_F_NEXT flag is set. We chain unused"]
+#[doc = "        descriptors via this, too."]
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct vring_desc {
@@ -520,12 +530,13 @@ fn bindgen_test_layout_vring_used_elem() {
         )
     );
 }
+pub type vring_used_elem_t = vring_used_elem;
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct vring_used {
     pub flags: __virtio16,
     pub idx: __virtio16,
-    pub ring: __IncompleteArrayField<vring_used_elem>,
+    pub ring: __IncompleteArrayField<vring_used_elem_t>,
 }
 #[test]
 fn bindgen_test_layout_vring_used() {
@@ -572,13 +583,25 @@ fn bindgen_test_layout_vring_used() {
         )
     );
 }
+#[doc = " struct vring_desc - Virtio ring descriptors,"]
+#[doc = " 16 bytes long. These can chain together via @next."]
+#[doc = ""]
+#[doc = " @addr: buffer address (guest-physical)"]
+#[doc = " @len: buffer length"]
+#[doc = " @flags: descriptor flags"]
+#[doc = " @next: index of the next descriptor in the chain,"]
+#[doc = "        if the VRING_DESC_F_NEXT flag is set. We chain unused"]
+#[doc = "        descriptors via this, too."]
+pub type vring_desc_t = vring_desc;
+pub type vring_avail_t = vring_avail;
+pub type vring_used_t = vring_used;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct vring {
     pub num: ::std::os::raw::c_uint,
-    pub desc: *mut vring_desc,
-    pub avail: *mut vring_avail,
-    pub used: *mut vring_used,
+    pub desc: *mut vring_desc_t,
+    pub avail: *mut vring_avail_t,
+    pub used: *mut vring_used_t,
 }
 #[test]
 fn bindgen_test_layout_vring() {
