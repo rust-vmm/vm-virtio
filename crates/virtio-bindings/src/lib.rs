@@ -9,6 +9,7 @@
 
 pub mod virtio_blk;
 pub mod virtio_config;
+pub mod virtio_gpu;
 pub mod virtio_mmio;
 pub mod virtio_net;
 pub mod virtio_ring;

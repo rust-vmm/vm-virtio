@@ -30,12 +30,12 @@ git checkout v5.0
 
 # Step 2: Generate the bindings from the kernel headers. We need to
 # generate a file for each one of the virtio headers we're interested on.
-# For the moment, we're generating "virtio_blk", "virtio_net" and
-# "virtio_ring". Feel free to add additional header files if you need them
-# for your project.
+# For the moment, we're generating "virtio_blk", "virtio_gpu", "virtio_mmio",
+# "virtio_net" and "virtio_ring". Feel free to add additional header files if
+# you need them for your project.
 make headers_install INSTALL_HDR_PATH=v5_0_headers
 cd v5_0_headers
-for i in virtio_blk virtio_net virtio_ring virtio_config virtio_mmio ; do \
+for i in virtio_blk virtio_config virtio_gpu virtio_mmio virtio_net virtio_ring ; do \
     bindgen include/linux/$i.h -o $i.rs \
     --with-derive-default \
     --with-derive-partialeq \
