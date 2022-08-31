@@ -19,6 +19,11 @@
       "test_name": "fuzz-input-tests",
       "command": "cd fuzz && cargo test --package common",
       "platform": ["x86_64", "aarch64"]
+    },
+    {
+      "test_name": "fuzz-build",
+      "command": "cd fuzz && cargo +nightly build",
+      "platform": ["x86_64", "aarch64"]
     }
   ]
 }
