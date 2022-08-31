@@ -7,15 +7,47 @@ pub const VIRTIO_ID_BLOCK: u32 = 2;
 pub const VIRTIO_ID_CONSOLE: u32 = 3;
 pub const VIRTIO_ID_RNG: u32 = 4;
 pub const VIRTIO_ID_BALLOON: u32 = 5;
+pub const VIRTIO_ID_IOMEM: u32 = 6;
 pub const VIRTIO_ID_RPMSG: u32 = 7;
 pub const VIRTIO_ID_SCSI: u32 = 8;
 pub const VIRTIO_ID_9P: u32 = 9;
+pub const VIRTIO_ID_MAC80211_WLAN: u32 = 10;
 pub const VIRTIO_ID_RPROC_SERIAL: u32 = 11;
 pub const VIRTIO_ID_CAIF: u32 = 12;
+pub const VIRTIO_ID_MEMORY_BALLOON: u32 = 13;
 pub const VIRTIO_ID_GPU: u32 = 16;
+pub const VIRTIO_ID_CLOCK: u32 = 17;
 pub const VIRTIO_ID_INPUT: u32 = 18;
 pub const VIRTIO_ID_VSOCK: u32 = 19;
 pub const VIRTIO_ID_CRYPTO: u32 = 20;
+pub const VIRTIO_ID_SIGNAL_DIST: u32 = 21;
+pub const VIRTIO_ID_PSTORE: u32 = 22;
+pub const VIRTIO_ID_IOMMU: u32 = 23;
+pub const VIRTIO_ID_MEM: u32 = 24;
+pub const VIRTIO_ID_SOUND: u32 = 25;
+pub const VIRTIO_ID_FS: u32 = 26;
+pub const VIRTIO_ID_PMEM: u32 = 27;
+pub const VIRTIO_ID_RPMB: u32 = 28;
+pub const VIRTIO_ID_MAC80211_HWSIM: u32 = 29;
+pub const VIRTIO_ID_VIDEO_ENCODER: u32 = 30;
+pub const VIRTIO_ID_VIDEO_DECODER: u32 = 31;
+pub const VIRTIO_ID_SCMI: u32 = 32;
+pub const VIRTIO_ID_NITRO_SEC_MOD: u32 = 33;
+pub const VIRTIO_ID_I2C_ADAPTER: u32 = 34;
+pub const VIRTIO_ID_WATCHDOG: u32 = 35;
+pub const VIRTIO_ID_CAN: u32 = 36;
+pub const VIRTIO_ID_DMABUF: u32 = 37;
+pub const VIRTIO_ID_PARAM_SERV: u32 = 38;
+pub const VIRTIO_ID_AUDIO_POLICY: u32 = 39;
+pub const VIRTIO_ID_BT: u32 = 40;
+pub const VIRTIO_ID_GPIO: u32 = 41;
+pub const VIRTIO_TRANS_ID_NET: u32 = 4096;
+pub const VIRTIO_TRANS_ID_BLOCK: u32 = 4097;
+pub const VIRTIO_TRANS_ID_BALLOON: u32 = 4098;
+pub const VIRTIO_TRANS_ID_CONSOLE: u32 = 4099;
+pub const VIRTIO_TRANS_ID_SCSI: u32 = 4100;
+pub const VIRTIO_TRANS_ID_RNG: u32 = 4101;
+pub const VIRTIO_TRANS_ID_9P: u32 = 4105;
 pub const VIRTIO_CONFIG_S_ACKNOWLEDGE: u32 = 1;
 pub const VIRTIO_CONFIG_S_DRIVER: u32 = 2;
 pub const VIRTIO_CONFIG_S_DRIVER_OK: u32 = 4;
@@ -23,14 +55,17 @@ pub const VIRTIO_CONFIG_S_FEATURES_OK: u32 = 8;
 pub const VIRTIO_CONFIG_S_NEEDS_RESET: u32 = 64;
 pub const VIRTIO_CONFIG_S_FAILED: u32 = 128;
 pub const VIRTIO_TRANSPORT_F_START: u32 = 28;
-pub const VIRTIO_TRANSPORT_F_END: u32 = 38;
+pub const VIRTIO_TRANSPORT_F_END: u32 = 41;
 pub const VIRTIO_F_NOTIFY_ON_EMPTY: u32 = 24;
 pub const VIRTIO_F_ANY_LAYOUT: u32 = 27;
 pub const VIRTIO_F_VERSION_1: u32 = 32;
+pub const VIRTIO_F_ACCESS_PLATFORM: u32 = 33;
 pub const VIRTIO_F_IOMMU_PLATFORM: u32 = 33;
 pub const VIRTIO_F_RING_PACKED: u32 = 34;
+pub const VIRTIO_F_IN_ORDER: u32 = 35;
 pub const VIRTIO_F_ORDER_PLATFORM: u32 = 36;
 pub const VIRTIO_F_SR_IOV: u32 = 37;
+pub const VIRTIO_F_RING_RESET: u32 = 40;
 pub const VIRTIO_BLK_F_SIZE_MAX: u32 = 1;
 pub const VIRTIO_BLK_F_SEG_MAX: u32 = 2;
 pub const VIRTIO_BLK_F_GEOMETRY: u32 = 4;
@@ -150,6 +185,7 @@ fn bindgen_test_layout___kernel_fsid_t() {
 }
 pub type __kernel_off_t = __kernel_long_t;
 pub type __kernel_loff_t = ::std::os::raw::c_longlong;
+pub type __kernel_old_time_t = __kernel_long_t;
 pub type __kernel_time_t = __kernel_long_t;
 pub type __kernel_time64_t = ::std::os::raw::c_longlong;
 pub type __kernel_clock_t = __kernel_long_t;
@@ -173,30 +209,30 @@ pub type __virtio64 = __u64;
 #[repr(C, packed)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct virtio_blk_config {
-    pub capacity: __u64,
-    pub size_max: __u32,
-    pub seg_max: __u32,
+    pub capacity: __virtio64,
+    pub size_max: __virtio32,
+    pub seg_max: __virtio32,
     pub geometry: virtio_blk_config_virtio_blk_geometry,
-    pub blk_size: __u32,
+    pub blk_size: __virtio32,
     pub physical_block_exp: __u8,
     pub alignment_offset: __u8,
-    pub min_io_size: __u16,
-    pub opt_io_size: __u32,
+    pub min_io_size: __virtio16,
+    pub opt_io_size: __virtio32,
     pub wce: __u8,
     pub unused: __u8,
-    pub num_queues: __u16,
-    pub max_discard_sectors: __u32,
-    pub max_discard_seg: __u32,
-    pub discard_sector_alignment: __u32,
-    pub max_write_zeroes_sectors: __u32,
-    pub max_write_zeroes_seg: __u32,
+    pub num_queues: __virtio16,
+    pub max_discard_sectors: __virtio32,
+    pub max_discard_seg: __virtio32,
+    pub discard_sector_alignment: __virtio32,
+    pub max_write_zeroes_sectors: __virtio32,
+    pub max_write_zeroes_seg: __virtio32,
     pub write_zeroes_may_unmap: __u8,
     pub unused1: [__u8; 3usize],
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct virtio_blk_config_virtio_blk_geometry {
-    pub cylinders: __u16,
+    pub cylinders: __virtio16,
     pub heads: __u8,
     pub sectors: __u8,
 }
