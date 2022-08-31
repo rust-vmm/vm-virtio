@@ -18,7 +18,7 @@
     {
       "test_name": "fuzz-input-tests",
       "command": "cd fuzz && cargo test --package common",
-      "plarform": ["x86_64", "aarch64"]
+      "platform": ["x86_64", "aarch64"]
     }
   ]
 }
