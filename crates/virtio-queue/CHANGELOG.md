@@ -1,3 +1,13 @@
+# v0.6.0
+
+## Added
+- Derive `Eq` for structures that derive `PartialEq`.
+
+## Changed
+- Use `add_desc_chains` in tests
+- Update dependencies: `vm-memory` from `0.8.0` to `0.9.0` and `log` from `0.4.6` to `0.4.17`.
+- Upgrade to Rust 2021 edition.
+
 # v0.5.0
 
 ## Added
