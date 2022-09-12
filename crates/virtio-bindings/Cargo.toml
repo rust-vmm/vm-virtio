@@ -9,6 +9,8 @@ edition = "2021"
 keywords = ["virtio"]
 license = "BSD-3-Clause OR Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+virtio-v4_14_0 = []
+virtio-v5_0_0 = []
 
 [dependencies]
