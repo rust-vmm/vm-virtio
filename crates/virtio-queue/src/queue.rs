@@ -1253,6 +1253,51 @@ mod tests {
     }
 
     #[test]
+    fn test_iterator_and_avail_idx() {
+        // This test ensures constructing a descriptor chain iterator succeeds
+        // with valid available ring indexes while produces an error with invalid
+        // indexes.
+        let queue_size = 2;
+        let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(mem, queue_size);
+
+        let mut q: Queue = vq.create_queue().unwrap();
+
+        // q is currently valid.
+        assert!(q.is_valid(mem));
+
+        // Create descriptors to fill up the queue
+        let mut descs = Vec::new();
+        for i in 0..queue_size {
+            descs.push(Descriptor::new(
+                (0x1000 * (i + 1)) as u64,
+                0x1000,
+                0_u16,
+                i + 1,
+            ));
+        }
+        vq.add_desc_chains(&descs, 0).unwrap();
+
+        // Set the 'next_available' index to 'u16:MAX' to test the wrapping scenarios
+        q.set_next_avail(u16::MAX);
+
+        // When the number of chains exposed by the driver is equal to or less than the queue
+        // size, the available ring index is valid and constructs an iterator successfully.
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_ok());
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size - 1);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_ok());
+
+        // When the number of chains exposed by the driver is larger than the queue size, the
+        // available ring index is invalid and produces an error from constructing an iterator.
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size + 1);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_err());
+    }
+
+    #[test]
     fn test_descriptor_and_iterator() {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 16);
