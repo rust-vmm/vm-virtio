@@ -612,7 +612,7 @@ impl QueueOwnedT for Queue {
         M::Target: GuestMemory,
     {
         self.avail_idx(mem.deref(), Ordering::Acquire)
-            .map(move |idx| AvailIter::new(mem, idx, self))
+            .map(move |idx| AvailIter::new(mem, idx, self))?
     }
 
     fn go_to_previous_position(&mut self) {
@@ -710,15 +710,25 @@ where
     ///           available descriptor chain.
     /// * `queue` - the `Queue` object from which the needed data to create the `AvailIter` can
     ///             be retrieved.
-    pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Self {
-        AvailIter {
+    pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Result<Self, Error> {
+        // The number of descriptor chain heads to process should always
+        // be smaller or equal to the queue size, as the driver should
+        // never ask the VMM to process a available ring entry more than
+        // once. Checking and reporting such incorrect driver behavior
+        // can prevent potential hanging and Denial-of-Service from
+        // happening on the VMM side.
+        if (idx - queue.next_avail).0 > queue.size {
+            return Err(Error::InvalidAvailRingIndex);
+        }
+
+        Ok(AvailIter {
             mem,
             desc_table: queue.desc_table,
             avail_ring: queue.avail_ring,
             queue_size: queue.size,
             last_index: idx,
             next_avail: &mut queue.next_avail,
-        }
+        })
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -1238,18 +1248,8 @@ mod tests {
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
         vq.avail().idx().store(u16::to_le(1));
-
-        loop {
-            q.disable_notification(mem).unwrap();
-
-            while let Some(_chain) = q.iter(mem).unwrap().next() {
-                // In a real use case, we would do something with the chain here.
-            }
-
-            if !q.enable_notification(mem).unwrap() {
-                break;
-            }
-        }
+        // Invalid available ring index
+        assert!(q.iter(mem).is_err());
     }
 
     #[test]

@@ -63,6 +63,8 @@ pub enum Error {
     InvalidAvailRingAlign,
     /// Invalid alignment of used ring address.
     InvalidUsedRingAlign,
+    /// Invalid available ring index.
+    InvalidAvailRingIndex,
 }
 
 impl Display for Error {
@@ -89,6 +91,10 @@ impl Display for Error {
             InvalidUsedRingAlign => {
                 write!(f, "virtio queue used ring breaks alignment constraints")
             }
+            InvalidAvailRingIndex => write!(
+                f,
+                "invalid available ring index (more descriptors to process than queue size)"
+            ),
         }
     }
 }
