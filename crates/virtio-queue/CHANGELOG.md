@@ -1,3 +1,11 @@
+# v0.6.1
+
+## Fixed
+- Return an error if the number of available descriptor chains exposed by the
+  driver exceeds the queue size. This way we avoid potential hanging and
+  Denial-of-Service in the VMM, that was possible before by iterating multiple
+  times over the same chains.
+
 # v0.6.0
 
 ## Added
