@@ -612,7 +612,7 @@ impl QueueOwnedT for Queue {
         M::Target: GuestMemory,
     {
         self.avail_idx(mem.deref(), Ordering::Acquire)
-            .map(move |idx| AvailIter::new(mem, idx, self))
+            .map(move |idx| AvailIter::new(mem, idx, self))?
     }
 
     fn go_to_previous_position(&mut self) {
@@ -710,15 +710,25 @@ where
     ///           available descriptor chain.
     /// * `queue` - the `Queue` object from which the needed data to create the `AvailIter` can
     ///             be retrieved.
-    pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Self {
-        AvailIter {
+    pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Result<Self, Error> {
+        // The number of descriptor chain heads to process should always
+        // be smaller or equal to the queue size, as the driver should
+        // never ask the VMM to process a available ring entry more than
+        // once. Checking and reporting such incorrect driver behavior
+        // can prevent potential hanging and Denial-of-Service from
+        // happening on the VMM side.
+        if (idx - queue.next_avail).0 > queue.size {
+            return Err(Error::InvalidAvailRingIndex);
+        }
+
+        Ok(AvailIter {
             mem,
             desc_table: queue.desc_table,
             avail_ring: queue.avail_ring,
             queue_size: queue.size,
             last_index: idx,
             next_avail: &mut queue.next_avail,
-        }
+        })
     }
 
     /// Goes back one position in the available descriptor chain offered by the driver.
@@ -1238,18 +1248,53 @@ mod tests {
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
         vq.avail().idx().store(u16::to_le(1));
+        // Invalid available ring index
+        assert!(q.iter(mem).is_err());
+    }
 
-        loop {
-            q.disable_notification(mem).unwrap();
+    #[test]
+    fn test_iterator_and_avail_idx() {
+        // This test ensures constructing a descriptor chain iterator succeeds
+        // with valid available ring indexes while produces an error with invalid
+        // indexes.
+        let queue_size = 2;
+        let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(mem, queue_size);
 
-            while let Some(_chain) = q.iter(mem).unwrap().next() {
-                // In a real use case, we would do something with the chain here.
-            }
+        let mut q: Queue = vq.create_queue().unwrap();
 
-            if !q.enable_notification(mem).unwrap() {
-                break;
-            }
+        // q is currently valid.
+        assert!(q.is_valid(mem));
+
+        // Create descriptors to fill up the queue
+        let mut descs = Vec::new();
+        for i in 0..queue_size {
+            descs.push(Descriptor::new(
+                (0x1000 * (i + 1)) as u64,
+                0x1000,
+                0_u16,
+                i + 1,
+            ));
         }
+        vq.add_desc_chains(&descs, 0).unwrap();
+
+        // Set the 'next_available' index to 'u16:MAX' to test the wrapping scenarios
+        q.set_next_avail(u16::MAX);
+
+        // When the number of chains exposed by the driver is equal to or less than the queue
+        // size, the available ring index is valid and constructs an iterator successfully.
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_ok());
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size - 1);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_ok());
+
+        // When the number of chains exposed by the driver is larger than the queue size, the
+        // available ring index is invalid and produces an error from constructing an iterator.
+        let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size + 1);
+        vq.avail().idx().store(avail_idx.0);
+        assert!(q.iter(mem).is_err());
     }
 
     #[test]
