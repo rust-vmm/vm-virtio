@@ -27,19 +27,19 @@
     },
     {
       "test_name": "fuzz-virtio-queue",
-      "command": "cd fuzz && cargo test --package common --lib virtio_queue && cargo +nightly fuzz run virtio_queue -- -max_total_time=900",
+      "command": "cd fuzz && cargo test --package common --lib virtio_queue && cargo +nightly fuzz run virtio_queue -- -max_total_time=900 -timeout=60s",
       "platform": ["x86_64", "aarch64"],
       "timeout_in_minutes": 20
     },
     {
       "test_name": "fuzz-virtio-queue-ser",
-      "command": "cd fuzz && cargo test --package common --lib virtio_queue_ser && cargo +nightly fuzz run virtio_queue_ser -- -max_total_time=900",
+      "command": "cd fuzz && cargo test --package common --lib virtio_queue_ser && cargo +nightly fuzz run virtio_queue_ser -- -max_total_time=900 -timeout=60s",
       "platform": ["x86_64", "aarch64"],
       "timeout_in_minutes": 20
     },
     {
       "test_name": "fuzz-vsock-packet",
-      "command": "cd fuzz && cargo test --package common --lib vsock && cargo +nightly fuzz run vsock -- -max_total_time=900",
+      "command": "cd fuzz && cargo test --package common --lib vsock && cargo +nightly fuzz run vsock -- -max_total_time=900 -timeout=60s",
       "platform": ["x86_64", "aarch64"],
       "timeout_in_minutes": 20
     }
