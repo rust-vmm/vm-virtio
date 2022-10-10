@@ -9,9 +9,11 @@
 #![cfg_attr(test, allow(deref_nullptr, unaligned_references))]
 
 pub mod virtio_blk;
+pub mod virtio_config;
+pub mod virtio_mmio;
 pub mod virtio_net;
 pub mod virtio_ring;
 
 pub mod bindings {
-    pub use super::{virtio_blk, virtio_net, virtio_ring};
+    pub use super::{virtio_blk, virtio_config, virtio_mmio, virtio_net, virtio_ring};
 }

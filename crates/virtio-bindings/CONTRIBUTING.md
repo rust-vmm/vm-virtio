@@ -35,7 +35,7 @@ git checkout v5.0
 # for your project.
 make headers_install INSTALL_HDR_PATH=v5_0_headers
 cd v5_0_headers
-for i in virtio_blk virtio_net virtio_ring ; do \
+for i in virtio_blk virtio_net virtio_ring virtio_config virtio_mmio ; do \
     bindgen include/linux/$i.h -o $i.rs \
     --with-derive-default \
     --with-derive-partialeq \
