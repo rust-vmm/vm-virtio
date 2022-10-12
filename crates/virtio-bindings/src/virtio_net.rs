@@ -5,7 +5,7 @@
 pub struct __IncompleteArrayField<T>(::std::marker::PhantomData<T>, [T; 0]);
 impl<T> __IncompleteArrayField<T> {
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         __IncompleteArrayField(::std::marker::PhantomData, [])
     }
     #[inline]
@@ -727,7 +727,7 @@ fn bindgen_test_layout_virtio_net_ctrl_hdr() {
 }
 pub type virtio_net_ctrl_ack = __u8;
 #[repr(C, packed)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct virtio_net_ctrl_mac {
     pub entries: __virtio32,
     pub macs: __IncompleteArrayField<[__u8; 6usize]>,
@@ -743,6 +743,26 @@ fn bindgen_test_layout_virtio_net_ctrl_mac() {
         ::std::mem::align_of::<virtio_net_ctrl_mac>(),
         1usize,
         concat!("Alignment of ", stringify!(virtio_net_ctrl_mac))
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<virtio_net_ctrl_mac>())).entries as *const _ as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_mac),
+            "::",
+            stringify!(entries)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<virtio_net_ctrl_mac>())).macs as *const _ as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_mac),
+            "::",
+            stringify!(macs)
+        )
     );
 }
 #[repr(C)]
