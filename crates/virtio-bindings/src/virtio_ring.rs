@@ -5,7 +5,7 @@
 pub struct __IncompleteArrayField<T>(::std::marker::PhantomData<T>, [T; 0]);
 impl<T> __IncompleteArrayField<T> {
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         __IncompleteArrayField(::std::marker::PhantomData, [])
     }
     #[inline]
@@ -39,6 +39,7 @@ impl<T> ::std::clone::Clone for __IncompleteArrayField<T> {
 pub const _STDINT_H: u32 = 1;
 pub const _FEATURES_H: u32 = 1;
 pub const _DEFAULT_SOURCE: u32 = 1;
+pub const __GLIBC_USE_ISOC2X: u32 = 0;
 pub const __USE_ISOC11: u32 = 1;
 pub const __USE_ISOC99: u32 = 1;
 pub const __USE_ISOC95: u32 = 1;
@@ -63,16 +64,19 @@ pub const __STDC_IEC_559_COMPLEX__: u32 = 1;
 pub const __STDC_ISO_10646__: u32 = 201706;
 pub const __GNU_LIBRARY__: u32 = 6;
 pub const __GLIBC__: u32 = 2;
-pub const __GLIBC_MINOR__: u32 = 29;
+pub const __GLIBC_MINOR__: u32 = 31;
 pub const _SYS_CDEFS_H: u32 = 1;
 pub const __glibc_c99_flexarr_available: u32 = 1;
 pub const __WORDSIZE: u32 = 64;
 pub const __WORDSIZE_TIME64_COMPAT32: u32 = 1;
 pub const __SYSCALL_WORDSIZE: u32 = 64;
+pub const __LONG_DOUBLE_USES_FLOAT128: u32 = 0;
 pub const __HAVE_GENERIC_SELECTION: u32 = 1;
 pub const __GLIBC_USE_LIB_EXT2: u32 = 0;
 pub const __GLIBC_USE_IEC_60559_BFP_EXT: u32 = 0;
+pub const __GLIBC_USE_IEC_60559_BFP_EXT_C2X: u32 = 0;
 pub const __GLIBC_USE_IEC_60559_FUNCS_EXT: u32 = 0;
+pub const __GLIBC_USE_IEC_60559_FUNCS_EXT_C2X: u32 = 0;
 pub const __GLIBC_USE_IEC_60559_TYPES_EXT: u32 = 0;
 pub const _BITS_TYPES_H: u32 = 1;
 pub const __TIMESIZE: u32 = 64;
@@ -80,6 +84,7 @@ pub const _BITS_TYPESIZES_H: u32 = 1;
 pub const __OFF_T_MATCHES_OFF64_T: u32 = 1;
 pub const __INO_T_MATCHES_INO64_T: u32 = 1;
 pub const __RLIM_T_MATCHES_RLIM64_T: u32 = 1;
+pub const __STATFS_MATCHES_STATFS64: u32 = 1;
 pub const __FD_SETSIZE: u32 = 1024;
 pub const _BITS_TIME64_H: u32 = 1;
 pub const _BITS_WCHAR_H: u32 = 1;
@@ -434,6 +439,36 @@ fn bindgen_test_layout_vring_avail() {
         2usize,
         concat!("Alignment of ", stringify!(vring_avail))
     );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_avail>())).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_avail),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_avail>())).idx as *const _ as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_avail),
+            "::",
+            stringify!(idx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_avail>())).ring as *const _ as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_avail),
+            "::",
+            stringify!(ring)
+        )
+    );
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
@@ -475,12 +510,12 @@ fn bindgen_test_layout_vring_used_elem() {
     );
 }
 #[repr(C)]
+#[repr(align(4))]
 #[derive(Debug, Default)]
 pub struct vring_used {
     pub flags: __virtio16,
     pub idx: __virtio16,
     pub ring: __IncompleteArrayField<vring_used_elem>,
-    pub __bindgen_align: [u32; 0usize],
 }
 #[test]
 fn bindgen_test_layout_vring_used() {
@@ -493,6 +528,36 @@ fn bindgen_test_layout_vring_used() {
         ::std::mem::align_of::<vring_used>(),
         4usize,
         concat!("Alignment of ", stringify!(vring_used))
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_used>())).flags as *const _ as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_used),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_used>())).idx as *const _ as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_used),
+            "::",
+            stringify!(idx)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<vring_used>())).ring as *const _ as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(vring_used),
+            "::",
+            stringify!(ring)
+        )
     );
 }
 #[repr(C)]
