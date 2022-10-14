@@ -11,7 +11,19 @@ use std::sync::atomic::Ordering;
 use log::warn;
 
 use crate::{status, VirtioDevice, WithDriverSelect};
+use virtio_bindings::virtio_mmio::{
+    VIRTIO_MMIO_CONFIG_GENERATION, VIRTIO_MMIO_DEVICE_FEATURES, VIRTIO_MMIO_DEVICE_FEATURES_SEL,
+    VIRTIO_MMIO_DEVICE_ID, VIRTIO_MMIO_DRIVER_FEATURES, VIRTIO_MMIO_DRIVER_FEATURES_SEL,
+    VIRTIO_MMIO_INTERRUPT_ACK, VIRTIO_MMIO_INTERRUPT_STATUS, VIRTIO_MMIO_MAGIC_VALUE,
+    VIRTIO_MMIO_QUEUE_AVAIL_HIGH, VIRTIO_MMIO_QUEUE_AVAIL_LOW, VIRTIO_MMIO_QUEUE_DESC_HIGH,
+    VIRTIO_MMIO_QUEUE_DESC_LOW, VIRTIO_MMIO_QUEUE_NOTIFY, VIRTIO_MMIO_QUEUE_NUM,
+    VIRTIO_MMIO_QUEUE_NUM_MAX, VIRTIO_MMIO_QUEUE_READY, VIRTIO_MMIO_QUEUE_SEL,
+    VIRTIO_MMIO_QUEUE_USED_HIGH, VIRTIO_MMIO_QUEUE_USED_LOW, VIRTIO_MMIO_STATUS,
+    VIRTIO_MMIO_VENDOR_ID, VIRTIO_MMIO_VERSION,
+};
 use virtio_queue::QueueT;
+
+pub const VIRTIO_MMIO_CONFIG: u64 = virtio_bindings::virtio_mmio::VIRTIO_MMIO_CONFIG as u64;
 
 // Required by the Virtio MMIO device register layout at offset 0 from base. Turns out this
 // is actually the ASCII sequence for "virt" (in little endian ordering).
@@ -69,30 +81,33 @@ pub trait VirtioMmioDevice: WithDriverSelect {
         match offset {
             // The standard specifies that accesses to configuration registers are 32-bit wide.
             0x00..=0xff if data.len() == 4 => {
-                let v = match offset {
-                    0x0 => MMIO_MAGIC_VALUE,
-                    0x04 => MMIO_VERSION,
-                    0x08 => self.device_type(),
-                    0x0c => VENDOR_ID,
-                    0x10 => match self.device_features_select() {
+                // This is safe since offset ranges from 0x00..=0xff, i.e. < u32::max.
+                let v = match offset as u32 {
+                    VIRTIO_MMIO_MAGIC_VALUE => MMIO_MAGIC_VALUE,
+                    VIRTIO_MMIO_VERSION => MMIO_VERSION,
+                    VIRTIO_MMIO_DEVICE_ID => self.device_type(),
+                    VIRTIO_MMIO_VENDOR_ID => VENDOR_ID,
+                    VIRTIO_MMIO_DEVICE_FEATURES => match self.device_features_select() {
                         0 => self.device_features() as u32,
                         1 => (self.device_features() >> 32) as u32,
                         // No device features defined beyond the first two pages.
                         _ => 0,
                     },
-                    0x34 => self
+                    VIRTIO_MMIO_QUEUE_NUM_MAX => self
                         .selected_queue()
                         .map(QueueT::max_size)
                         .unwrap_or(0)
                         .into(),
-                    0x44 => self
+                    VIRTIO_MMIO_QUEUE_READY => self
                         .selected_queue()
                         .map(|q| q.ready())
                         .unwrap_or(false)
                         .into(),
-                    0x60 => self.interrupt_status().load(Ordering::SeqCst).into(),
-                    0x70 => self.device_status().into(),
-                    0xfc => self.config_generation().into(),
+                    VIRTIO_MMIO_INTERRUPT_STATUS => {
+                        self.interrupt_status().load(Ordering::SeqCst).into()
+                    }
+                    VIRTIO_MMIO_STATUS => self.device_status().into(),
+                    VIRTIO_MMIO_CONFIG_GENERATION => self.config_generation().into(),
                     _ => {
                         warn!("unknown virtio mmio register read: 0x{:x}", offset);
                         return;
@@ -106,7 +121,7 @@ pub trait VirtioMmioDevice: WithDriverSelect {
             // we might want to express that via the trait instead of hard coding the current
             // arbitrary ceiling.
             // It's ok to use `as` here because `offset` always fits into an `usize` in this case.
-            0x100..=0xfff => self.read_config(offset as usize - 0x100, data),
+            VIRTIO_MMIO_CONFIG..=0xfff => self.read_config(offset as usize - 0x100, data),
             _ => {
                 warn!(
                     "invalid virtio mmio read: 0x{:x}:0x{:x}",
@@ -125,9 +140,11 @@ pub trait VirtioMmioDevice: WithDriverSelect {
                 // The `try_into` below attempts to convert `data` to a `[u8; 4]`, which
                 // always succeeds because we previously checked that `data.len() == 4`.
                 let v = u32::from_le_bytes(data.try_into().unwrap());
-                match offset {
-                    0x14 => self.set_device_features_select(v),
-                    0x20 => {
+
+                // This is safe since offset ranges from 0x00..=0xff, i.e. < u32::max.
+                match offset as u32 {
+                    VIRTIO_MMIO_DEVICE_FEATURES_SEL => self.set_device_features_select(v),
+                    VIRTIO_MMIO_DRIVER_FEATURES => {
                         if self.check_device_status(
                             status::DRIVER,
                             status::FEATURES_OK | status::FAILED,
@@ -140,29 +157,41 @@ pub trait VirtioMmioDevice: WithDriverSelect {
                             );
                         }
                     }
-                    0x24 => self.set_driver_features_select(v),
+                    VIRTIO_MMIO_DRIVER_FEATURES_SEL => self.set_driver_features_select(v),
 
                     // TODO: add warnings or signal some sort of event (depending on how we end up
                     // implementing logging and metrics) for values that do not actually fit the
                     // data type specified by the virtio standard (we simply use `as` conversion
                     // for now).
-                    0x30 => self.set_queue_select(v as u16),
-                    0x38 => update_queue_field(self, |q| q.set_size(v as u16)),
-                    0x44 => update_queue_field(self, |q| q.set_ready(v == 1)),
-                    0x50 => self.queue_notify(v),
-                    0x64 => {
+                    VIRTIO_MMIO_QUEUE_SEL => self.set_queue_select(v as u16),
+                    VIRTIO_MMIO_QUEUE_NUM => update_queue_field(self, |q| q.set_size(v as u16)),
+                    VIRTIO_MMIO_QUEUE_READY => update_queue_field(self, |q| q.set_ready(v == 1)),
+                    VIRTIO_MMIO_QUEUE_NOTIFY => self.queue_notify(v),
+                    VIRTIO_MMIO_INTERRUPT_ACK => {
                         if self.check_device_status(status::DRIVER_OK, 0) {
                             self.interrupt_status()
                                 .fetch_and(!(v as u8), Ordering::SeqCst);
                         }
                     }
-                    0x70 => self.ack_device_status(v as u8),
-                    0x80 => update_queue_field(self, |q| q.set_desc_table_address(Some(v), None)),
-                    0x84 => update_queue_field(self, |q| q.set_desc_table_address(None, Some(v))),
-                    0x90 => update_queue_field(self, |q| q.set_avail_ring_address(Some(v), None)),
-                    0x94 => update_queue_field(self, |q| q.set_avail_ring_address(None, Some(v))),
-                    0xa0 => update_queue_field(self, |q| q.set_used_ring_address(Some(v), None)),
-                    0xa4 => update_queue_field(self, |q| q.set_used_ring_address(None, Some(v))),
+                    VIRTIO_MMIO_STATUS => self.ack_device_status(v as u8),
+                    VIRTIO_MMIO_QUEUE_DESC_LOW => {
+                        update_queue_field(self, |q| q.set_desc_table_address(Some(v), None))
+                    }
+                    VIRTIO_MMIO_QUEUE_DESC_HIGH => {
+                        update_queue_field(self, |q| q.set_desc_table_address(None, Some(v)))
+                    }
+                    VIRTIO_MMIO_QUEUE_AVAIL_LOW => {
+                        update_queue_field(self, |q| q.set_avail_ring_address(Some(v), None))
+                    }
+                    VIRTIO_MMIO_QUEUE_AVAIL_HIGH => {
+                        update_queue_field(self, |q| q.set_avail_ring_address(None, Some(v)))
+                    }
+                    VIRTIO_MMIO_QUEUE_USED_LOW => {
+                        update_queue_field(self, |q| q.set_used_ring_address(Some(v), None))
+                    }
+                    VIRTIO_MMIO_QUEUE_USED_HIGH => {
+                        update_queue_field(self, |q| q.set_used_ring_address(None, Some(v)))
+                    }
                     _ => {
                         warn!("unknown virtio mmio register write: 0x{:x}", offset);
                     }
@@ -171,7 +200,7 @@ pub trait VirtioMmioDevice: WithDriverSelect {
             // TODO: The standard specifies that configuration space size is device specific, so
             // we might want to express that via the trait instead of hard coding the current
             // arbitrary ceiling (same as for `read`).
-            0x100..=0xfff => {
+            VIRTIO_MMIO_CONFIG..=0xfff => {
                 if self.check_device_status(status::DRIVER, status::FAILED) {
                     // It's ok to use `as` here because `offset` always fits into an `usize`.
                     self.write_config(offset as usize - 0x100, data)
