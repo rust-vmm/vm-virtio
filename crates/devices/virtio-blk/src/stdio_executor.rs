@@ -65,7 +65,7 @@ impl DiscardWriteZeroes {
     const LEN: u64 = mem::size_of::<DiscardWriteZeroes>() as u64;
 }
 
-// Safe because DiscardWriteZeroes contains only plain data.
+// SAFETY: Safe because DiscardWriteZeroes contains only plain data.
 unsafe impl ByteValued for DiscardWriteZeroes {}
 
 /// Errors encountered during request execution.
