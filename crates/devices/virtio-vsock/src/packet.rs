@@ -118,8 +118,9 @@ pub struct PacketHeader {
     fwd_cnt: Le32,
 }
 
-// This is safe because `PacketHeader` contains only wrappers over POD types and all accesses
-// through safe `vm-memory` API will validate any garbage that could be included in there.
+// SAFETY: This is safe because `PacketHeader` contains only wrappers over POD types
+// and all accesses through safe `vm-memory` API will validate any garbage that could
+// be included in there.
 unsafe impl ByteValued for PacketHeader {}
 //
 // This structure will occupy the buffer pointed to by the head of the descriptor chain. Below are
@@ -1233,6 +1234,7 @@ mod tests {
             fwd_cnt: FWD_CNT.into(),
         };
 
+        // SAFETY: created from an existing packet header.
         let slice = unsafe {
             std::slice::from_raw_parts(
                 (&header as *const PacketHeader) as *const u8,
@@ -1256,7 +1258,8 @@ mod tests {
     fn test_packet_new() {
         let mut pkt_raw = [0u8; PKT_HEADER_SIZE + LEN as usize];
         let (hdr_raw, data_raw) = pkt_raw.split_at_mut(PKT_HEADER_SIZE);
-        // Safe because ``hdr_raw` and `data_raw` live for as long as the scope of the current test.
+        // SAFETY: safe because ``hdr_raw` and `data_raw` live for as long as
+        // the scope of the current test.
         let packet = unsafe { VsockPacket::new(hdr_raw, Some(data_raw)).unwrap() };
         assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
         assert_eq!(packet.header_slice.len(), PKT_HEADER_SIZE);
@@ -1264,15 +1267,16 @@ mod tests {
         assert_eq!(packet.data_slice.unwrap().as_ptr(), data_raw.as_mut_ptr());
         assert_eq!(packet.data_slice.unwrap().len(), LEN as usize);
 
-        // Safe because ``hdr_raw` and `data_raw` live as long as the scope of the current test.
+        // SAFETY: Safe because ``hdr_raw` and `data_raw` live as long as the
+        // scope of the current test.
         let packet = unsafe { VsockPacket::new(hdr_raw, None).unwrap() };
         assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
         assert_eq!(packet.header, PacketHeader::default());
         assert!(packet.data_slice.is_none());
 
         let mut hdr_raw = [0u8; PKT_HEADER_SIZE - 1];
-        // Safe because ``hdr_raw` lives for as long as the scope of the current test.
         assert_eq!(
+            // SAFETY: Safe because ``hdr_raw` lives for as long as the scope of the current test.
             unsafe { VsockPacket::new(&mut hdr_raw, None).unwrap_err() },
             Error::InvalidHeaderInputSize(PKT_HEADER_SIZE - 1)
         );

@@ -154,8 +154,9 @@ impl Descriptor {
     }
 }
 
-// This is safe because `Descriptor` contains only wrappers over POD types and all accesses through
-// safe `vm-memory` API will validate any garbage that could be included in there.
+// SAFETY: This is safe because `Descriptor` contains only wrappers over POD types and
+// all accesses through safe `vm-memory` API will validate any garbage that could be
+// included in there.
 unsafe impl ByteValued for Descriptor {}
 
 /// Represents the contents of an element from the used virtqueue ring.
@@ -196,8 +197,9 @@ impl VirtqUsedElem {
     }
 }
 
-// This is safe because `VirtqUsedElem` contains only wrappers over POD types and all accesses
-// through safe `vm-memory` API will validate any garbage that could be included in there.
+// SAFETY: This is safe because `VirtqUsedElem` contains only wrappers over POD types
+// and all accesses through safe `vm-memory` API will validate any garbage that could be
+// included in there.
 unsafe impl ByteValued for VirtqUsedElem {}
 
 #[cfg(test)]

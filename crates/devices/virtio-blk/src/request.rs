@@ -126,7 +126,7 @@ pub struct Request {
     status_addr: GuestAddress,
 }
 
-// Safe because RequestHeader contains only plain data.
+// SAFETY: Safe because RequestHeader contains only plain data.
 unsafe impl ByteValued for RequestHeader {}
 
 impl Request {
