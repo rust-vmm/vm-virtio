@@ -12,4 +12,4 @@ virtio-bindings = "0.1.0"
 virtio-queue = { path = "../../crates/virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../../crates/devices/virtio-vsock" }
 virtio-queue-ser = { path = "../../crates/virtio-queue-ser" }
-vm-memory = { version = "0.9.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.10.0", features = ["backend-mmap", "backend-atomic"] }
