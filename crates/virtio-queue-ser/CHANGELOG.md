@@ -1,3 +1,15 @@
+# v0.4.0
+
+## Added 
+
+- Derived `Eq` for `state::QueueStateSer`.
+
+## Changed
+- Updated vm-memory from 0.9.0 to 0.10.0.
+- Updated virtio-queue from 0.6.1 to 0.7.0 and fix version to exactly 0.7.0 to ensure the crates 
+  are always updated in lock-step.
+- Upgrade rust edition to 2021
+
 # v0.3.0
 
 ## Changed
