@@ -1,3 +1,10 @@
+# v0.7.0
+
+## Changed
+
+- Updated vmm-sys-util from 0.10.0 to 0.11.0.
+- Updated vm-memory from 0.9.0 to 0.10.0.
+
 # v0.6.1
 
 ## Fixed
