@@ -12,8 +12,9 @@
 //! RX descriptor chain via
 //! [`VsockPacket::from_rx_virtq_chain`](struct.VsockPacket.html#method.from_rx_virtq_chain).
 //! The virtio vsock packet is defined in the standard as having a header of type `virtio_vsock_hdr`
-//! and an optional `data` array of bytes. The methods mentioned above assume that each of the
-//! packet elements occupies exactly one descriptor. For the usual drivers, this assumption stands,
+//! and an optional `data` array of bytes. The methods mentioned above assume that both packet
+//! elements are on the same descriptor, or each of the packet elements occupies exactly one
+//! descriptor. For the usual drivers, this assumption stands,
 //! but in the future we might make the implementation more generic by removing any constraint
 //! regarding the number of descriptors that correspond to the header/data. The buffers associated
 //! to the TX virtio queue are device-readable, and the ones associated to the RX virtio queue are
@@ -37,7 +38,7 @@ use std::ops::Deref;
 use virtio_queue::DescriptorChain;
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
 use vm_memory::{
-    ByteValued, Bytes, GuestMemory, GuestMemoryError, GuestMemoryRegion, Le16, Le32, Le64,
+    Address, ByteValued, Bytes, GuestMemory, GuestMemoryError, GuestMemoryRegion, Le16, Le32, Le64,
     VolatileMemoryError, VolatileSlice,
 };
 
@@ -460,22 +461,38 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::InvalidHeaderLen(pkt.len()));
         }
 
-        let data_desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
-
-        if data_desc.is_write_only() {
-            return Err(Error::UnexpectedWriteOnlyDescriptor);
-        }
-
-        // The data buffer should be large enough to fit the size of the data, as described by
-        // the header descriptor.
-        if data_desc.len() < pkt.len() {
-            return Err(Error::DescriptorLengthTooSmall);
-        }
-
-        let data_slice = {
-            mem.get_slice(data_desc.addr(), pkt.len() as usize)
+        // Starting from Linux 6.2 the virtio-vsock driver can use a single descriptor for both
+        // header and data.
+        let data_slice =
+            if !chain_head.has_next() && chain_head.len() - PKT_HEADER_SIZE as u32 >= pkt.len() {
+                mem.get_slice(
+                    chain_head
+                        .addr()
+                        .checked_add(PKT_HEADER_SIZE as u64)
+                        .ok_or(Error::DescriptorLengthTooSmall)?,
+                    pkt.len() as usize,
+                )
                 .map_err(Error::InvalidMemoryAccess)?
-        };
+            } else {
+                if !chain_head.has_next() {
+                    return Err(Error::DescriptorChainTooShort);
+                }
+
+                let data_desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
+
+                if data_desc.is_write_only() {
+                    return Err(Error::UnexpectedWriteOnlyDescriptor);
+                }
+
+                // The data buffer should be large enough to fit the size of the data, as described by
+                // the header descriptor.
+                if data_desc.len() < pkt.len() {
+                    return Err(Error::DescriptorLengthTooSmall);
+                }
+
+                mem.get_slice(data_desc.addr(), pkt.len() as usize)
+                    .map_err(Error::InvalidMemoryAccess)?
+            };
 
         pkt.data_slice = Some(data_slice);
         Ok(pkt)
@@ -583,27 +600,39 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        // All RX descriptor chains should have a header and a data descriptor.
-        if !chain_head.has_next() {
-            return Err(Error::DescriptorChainTooShort);
-        }
-
         let header_slice = mem
             .get_slice(chain_head.addr(), PKT_HEADER_SIZE)
             .map_err(Error::InvalidMemoryAccess)?;
-        let data_desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
-        if !data_desc.is_write_only() {
-            return Err(Error::UnexpectedReadOnlyDescriptor);
-        }
+        // Starting from Linux 6.2 the virtio-vsock driver can use a single descriptor for both
+        // header and data.
+        let data_slice = if !chain_head.has_next() && chain_head.len() as usize > PKT_HEADER_SIZE {
+            mem.get_slice(
+                chain_head
+                    .addr()
+                    .checked_add(PKT_HEADER_SIZE as u64)
+                    .ok_or(Error::DescriptorLengthTooSmall)?,
+                chain_head.len() as usize - PKT_HEADER_SIZE,
+            )
+            .map_err(Error::InvalidMemoryAccess)?
+        } else {
+            if !chain_head.has_next() {
+                return Err(Error::DescriptorChainTooShort);
+            }
 
-        if data_desc.len() > max_data_size {
-            return Err(Error::DescriptorLengthTooLong);
-        }
+            let data_desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
-        let data_slice = mem
-            .get_slice(data_desc.addr(), data_desc.len() as usize)
-            .map_err(Error::InvalidMemoryAccess)?;
+            if !data_desc.is_write_only() {
+                return Err(Error::UnexpectedReadOnlyDescriptor);
+            }
+
+            if data_desc.len() > max_data_size {
+                return Err(Error::DescriptorLengthTooLong);
+            }
+
+            mem.get_slice(data_desc.addr(), data_desc.len() as usize)
+                .map_err(Error::InvalidMemoryAccess)?
+        };
 
         Ok(Self {
             header_slice,
@@ -867,6 +896,33 @@ mod tests {
             VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::DescriptorChainTooShort
         );
+
+        // Let's also test a valid descriptor chain, with both header and data on a single
+        // descriptor.
+        let v = vec![Descriptor::new(
+            0x5_0000,
+            PKT_HEADER_SIZE as u32 + 0x100,
+            VRING_DESC_F_WRITE as u16,
+            0,
+        )];
+        let mut chain = queue.build_desc_chain(&v).unwrap();
+
+        let packet = VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
+        assert_eq!(packet.header, PacketHeader::default());
+        let header = packet.header_slice();
+        assert_eq!(
+            header.as_ptr(),
+            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+        );
+        assert_eq!(header.len(), PKT_HEADER_SIZE);
+
+        let data = packet.data_slice().unwrap();
+        assert_eq!(
+            data.as_ptr(),
+            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
+                .unwrap()
+        );
+        assert_eq!(data.len(), 0x100);
     }
 
     #[test]
@@ -995,7 +1051,7 @@ mod tests {
         mem.write_obj(header, GuestAddress(0x5_0000)).unwrap();
         let v = vec![
             // The data descriptor is missing.
-            Descriptor::new(0x5_0000, 0x100, 0, 0),
+            Descriptor::new(0x5_0000, PKT_HEADER_SIZE as u32, 0, 0),
         ];
         let mut chain = queue.build_desc_chain(&v[..1]).unwrap();
         assert_eq!(
@@ -1080,6 +1136,35 @@ mod tests {
             VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
             Error::DescriptorChainTooShort
         );
+
+        // Let's also test a valid descriptor chain, with both header and data on a single
+        // descriptor.
+        let v = vec![Descriptor::new(
+            0x5_0000,
+            PKT_HEADER_SIZE as u32 + 0x100,
+            0,
+            0,
+        )];
+        let mut chain = queue.build_desc_chain(&v).unwrap();
+
+        let packet = VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
+        assert_eq!(packet.header, header);
+        let header_slice = packet.header_slice();
+        assert_eq!(
+            header_slice.as_ptr(),
+            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+        );
+        assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
+        // The `len` field of the header was set to 16.
+        assert_eq!(packet.len(), LEN);
+
+        let data = packet.data_slice().unwrap();
+        assert_eq!(
+            data.as_ptr(),
+            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
+                .unwrap()
+        );
+        assert_eq!(data.len(), LEN as usize);
     }
 
     #[test]

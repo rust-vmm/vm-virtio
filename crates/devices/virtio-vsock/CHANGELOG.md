@@ -1,3 +1,10 @@
+# next
+
+## Changes
+
+- `VsockPacket::from_tx_virtq_chain` supports header and data on the same descriptor
+- `VsockPacket::from_rx_virtq_chain` supports header and data on the same descriptor
+
 # v0.2.0
 
 ## Added
