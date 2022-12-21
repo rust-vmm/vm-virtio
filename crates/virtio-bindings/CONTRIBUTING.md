@@ -4,9 +4,9 @@
 
 ### Bindgen
 The bindings are currently generated using
-[bindgen](https://crates.io/crates/bindgen) version 0.49.0:
+[bindgen](https://crates.io/crates/bindgen) version 0.61.0:
 ```bash
-cargo install bindgen --vers 0.49.0
+cargo install bindgen --vers 0.61.0
 ```
 
 ### Linux Kernel
@@ -45,4 +45,5 @@ cd ~
 
 # Step 6: Copy the generated files to the new version module.
 cp linux/v5_0_headers/*.rs vm-virtio/crates/virtio-bindings/src
+mv vm-virtio/crates/virtio-bindings/src/virtio_net.rs vm-virtio/crates/virtio-bindings/src/virtio_net/generated.rs
 ```
