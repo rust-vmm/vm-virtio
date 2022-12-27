@@ -89,6 +89,24 @@ such as `backend-stdio`.
 For details about the testing in the `virtio-queue` crate, check
 [its separate documentation](crates/virtio-queue/docs/TESTING.md).
 
+## Fuzzing
+
+We run 15 minutes long fuzzing sessions for each PR and on merges to the main
+branch. For more details about the fuzz targets and implementation, check the
+[Fuzzing Readme](fuzz/README.md).
+
+For changes that could introduce security vulnerabilities, we recommend running
+the "fuzzing-vm-virtio" Buildkite pipeline that runs fuzzing for 1 day instead
+of 15 minutes. This pipeline is optional which means that PRs can be merged
+without waiting for the fuzzing sessions to finish. As running fuzzing for 1
+day keeps the Builkite agents busy and could cause delays in merging other PRs,
+this longer fuzzing sessions are not run by default on all PRs. To enable the
+run, one of the
+[Buildkite administrators](https://github.com/rust-vmm/community/blob/main/docs/maintainers/setup_new_repo.md#set-up-ci)
+need to unblock the pipeline by following the Buildkite run link in the PR and
+click on the corresponding
+[unblock pipeline button](https://buildkite.com/docs/pipelines/block-step).
+
 ## License
 
 This project is licensed under either of
