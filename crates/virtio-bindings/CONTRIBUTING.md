@@ -37,6 +37,7 @@ make headers_install INSTALL_HDR_PATH=v5_0_headers
 cd v5_0_headers
 for i in virtio_blk virtio_config virtio_gpu virtio_mmio virtio_net virtio_ring ; do \
     bindgen include/linux/$i.h -o $i.rs \
+    --allowlist-file include/linux/$i.h \
     --with-derive-default \
     --with-derive-partialeq \
     -- -Iinclude

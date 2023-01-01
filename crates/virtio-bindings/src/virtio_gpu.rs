@@ -30,8 +30,6 @@ impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
         fmt.write_str("__IncompleteArrayField")
     }
 }
-pub const __BITS_PER_LONG: u32 = 64;
-pub const __FD_SETSIZE: u32 = 1024;
 pub const VIRTIO_GPU_F_VIRGL: u32 = 0;
 pub const VIRTIO_GPU_F_EDID: u32 = 1;
 pub const VIRTIO_GPU_F_RESOURCE_UUID: u32 = 2;
@@ -56,116 +54,11 @@ pub const VIRTIO_GPU_MAP_CACHE_NONE: u32 = 0;
 pub const VIRTIO_GPU_MAP_CACHE_CACHED: u32 = 1;
 pub const VIRTIO_GPU_MAP_CACHE_UNCACHED: u32 = 2;
 pub const VIRTIO_GPU_MAP_CACHE_WC: u32 = 3;
-pub type __s8 = ::std::os::raw::c_schar;
 pub type __u8 = ::std::os::raw::c_uchar;
-pub type __s16 = ::std::os::raw::c_short;
-pub type __u16 = ::std::os::raw::c_ushort;
-pub type __s32 = ::std::os::raw::c_int;
 pub type __u32 = ::std::os::raw::c_uint;
-pub type __s64 = ::std::os::raw::c_longlong;
 pub type __u64 = ::std::os::raw::c_ulonglong;
-#[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct __kernel_fd_set {
-    pub fds_bits: [::std::os::raw::c_ulong; 16usize],
-}
-#[test]
-fn bindgen_test_layout___kernel_fd_set() {
-    const UNINIT: ::std::mem::MaybeUninit<__kernel_fd_set> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::std::mem::size_of::<__kernel_fd_set>(),
-        128usize,
-        concat!("Size of: ", stringify!(__kernel_fd_set))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<__kernel_fd_set>(),
-        8usize,
-        concat!("Alignment of ", stringify!(__kernel_fd_set))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).fds_bits) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(__kernel_fd_set),
-            "::",
-            stringify!(fds_bits)
-        )
-    );
-}
-pub type __kernel_sighandler_t =
-    ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
-pub type __kernel_key_t = ::std::os::raw::c_int;
-pub type __kernel_mqd_t = ::std::os::raw::c_int;
-pub type __kernel_old_uid_t = ::std::os::raw::c_ushort;
-pub type __kernel_old_gid_t = ::std::os::raw::c_ushort;
-pub type __kernel_old_dev_t = ::std::os::raw::c_ulong;
-pub type __kernel_long_t = ::std::os::raw::c_long;
-pub type __kernel_ulong_t = ::std::os::raw::c_ulong;
-pub type __kernel_ino_t = __kernel_ulong_t;
-pub type __kernel_mode_t = ::std::os::raw::c_uint;
-pub type __kernel_pid_t = ::std::os::raw::c_int;
-pub type __kernel_ipc_pid_t = ::std::os::raw::c_int;
-pub type __kernel_uid_t = ::std::os::raw::c_uint;
-pub type __kernel_gid_t = ::std::os::raw::c_uint;
-pub type __kernel_suseconds_t = __kernel_long_t;
-pub type __kernel_daddr_t = ::std::os::raw::c_int;
-pub type __kernel_uid32_t = ::std::os::raw::c_uint;
-pub type __kernel_gid32_t = ::std::os::raw::c_uint;
-pub type __kernel_size_t = __kernel_ulong_t;
-pub type __kernel_ssize_t = __kernel_long_t;
-pub type __kernel_ptrdiff_t = __kernel_long_t;
-#[repr(C)]
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct __kernel_fsid_t {
-    pub val: [::std::os::raw::c_int; 2usize],
-}
-#[test]
-fn bindgen_test_layout___kernel_fsid_t() {
-    const UNINIT: ::std::mem::MaybeUninit<__kernel_fsid_t> = ::std::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::std::mem::size_of::<__kernel_fsid_t>(),
-        8usize,
-        concat!("Size of: ", stringify!(__kernel_fsid_t))
-    );
-    assert_eq!(
-        ::std::mem::align_of::<__kernel_fsid_t>(),
-        4usize,
-        concat!("Alignment of ", stringify!(__kernel_fsid_t))
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).val) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(__kernel_fsid_t),
-            "::",
-            stringify!(val)
-        )
-    );
-}
-pub type __kernel_off_t = __kernel_long_t;
-pub type __kernel_loff_t = ::std::os::raw::c_longlong;
-pub type __kernel_old_time_t = __kernel_long_t;
-pub type __kernel_time_t = __kernel_long_t;
-pub type __kernel_time64_t = ::std::os::raw::c_longlong;
-pub type __kernel_clock_t = __kernel_long_t;
-pub type __kernel_timer_t = ::std::os::raw::c_int;
-pub type __kernel_clockid_t = ::std::os::raw::c_int;
-pub type __kernel_caddr_t = *mut ::std::os::raw::c_char;
-pub type __kernel_uid16_t = ::std::os::raw::c_ushort;
-pub type __kernel_gid16_t = ::std::os::raw::c_ushort;
-pub type __le16 = __u16;
-pub type __be16 = __u16;
 pub type __le32 = __u32;
-pub type __be32 = __u32;
 pub type __le64 = __u64;
-pub type __be64 = __u64;
-pub type __sum16 = __u16;
-pub type __wsum = __u32;
-pub type __poll_t = ::std::os::raw::c_uint;
 pub const virtio_gpu_ctrl_type_VIRTIO_GPU_UNDEFINED: virtio_gpu_ctrl_type = 0;
 pub const virtio_gpu_ctrl_type_VIRTIO_GPU_CMD_GET_DISPLAY_INFO: virtio_gpu_ctrl_type = 256;
 pub const virtio_gpu_ctrl_type_VIRTIO_GPU_CMD_RESOURCE_CREATE_2D: virtio_gpu_ctrl_type = 257;
