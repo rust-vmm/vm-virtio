@@ -6,7 +6,7 @@
 
 ## Changed
 
-- Regenerate bindings with Glibc 2.36, Linux 6.1, and bindgen 0.61.0
+- Regenerate bindings with Glibc 2.36, Linux 6.1, and bindgen 0.63.0
 - The `virtio-v4_14_0` and `virtio-v5_0_0` crate features are now no-ops
   — the latest version of the bindings is now always used.
 - The bindings modules no longer accidentally re-export constants from

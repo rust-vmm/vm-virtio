@@ -4,9 +4,9 @@
 
 ### Bindgen
 The bindings are currently generated using
-[bindgen](https://rust-lang.github.io/rust-bindgen/) version 0.61.0:
+[bindgen](https://rust-lang.github.io/rust-bindgen/) version 0.63.0:
 ```bash
-cargo install bindgen-cli --vers 0.61.0
+cargo install bindgen-cli --vers 0.63.0
 ```
 
 ### Linux Kernel
