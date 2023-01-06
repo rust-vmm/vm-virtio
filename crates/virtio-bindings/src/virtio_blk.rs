@@ -9,6 +9,7 @@ pub const VIRTIO_BLK_F_TOPOLOGY: u32 = 10;
 pub const VIRTIO_BLK_F_MQ: u32 = 12;
 pub const VIRTIO_BLK_F_DISCARD: u32 = 13;
 pub const VIRTIO_BLK_F_WRITE_ZEROES: u32 = 14;
+pub const VIRTIO_BLK_F_SECURE_ERASE: u32 = 16;
 pub const VIRTIO_BLK_F_BARRIER: u32 = 0;
 pub const VIRTIO_BLK_F_SCSI: u32 = 7;
 pub const VIRTIO_BLK_F_FLUSH: u32 = 9;
@@ -22,6 +23,7 @@ pub const VIRTIO_BLK_T_FLUSH: u32 = 4;
 pub const VIRTIO_BLK_T_GET_ID: u32 = 8;
 pub const VIRTIO_BLK_T_DISCARD: u32 = 11;
 pub const VIRTIO_BLK_T_WRITE_ZEROES: u32 = 13;
+pub const VIRTIO_BLK_T_SECURE_ERASE: u32 = 14;
 pub const VIRTIO_BLK_T_BARRIER: u32 = 2147483648;
 pub const VIRTIO_BLK_WRITE_ZEROES_FLAG_UNMAP: u32 = 1;
 pub const VIRTIO_BLK_S_OK: u32 = 0;
@@ -58,6 +60,9 @@ pub struct virtio_blk_config {
     pub max_write_zeroes_seg: __virtio32,
     pub write_zeroes_may_unmap: __u8,
     pub unused1: [__u8; 3usize],
+    pub max_secure_erase_sectors: __virtio32,
+    pub max_secure_erase_seg: __virtio32,
+    pub secure_erase_sector_alignment: __virtio32,
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
@@ -124,7 +129,7 @@ fn bindgen_test_layout_virtio_blk_config() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<virtio_blk_config>(),
-        60usize,
+        72usize,
         concat!("Size of: ", stringify!(virtio_blk_config))
     );
     assert_eq!(
@@ -320,6 +325,38 @@ fn bindgen_test_layout_virtio_blk_config() {
             stringify!(virtio_blk_config),
             "::",
             stringify!(unused1)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).max_secure_erase_sectors) as usize - ptr as usize },
+        60usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_blk_config),
+            "::",
+            stringify!(max_secure_erase_sectors)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).max_secure_erase_seg) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_blk_config),
+            "::",
+            stringify!(max_secure_erase_seg)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).secure_erase_sector_alignment) as usize - ptr as usize
+        },
+        68usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_blk_config),
+            "::",
+            stringify!(secure_erase_sector_alignment)
         )
     );
 }
