@@ -1,4 +1,4 @@
-use ::virtio_queue::{Descriptor, Queue, QueueT};
+use ::virtio_queue::{Descriptor, Queue, QueueOwnedT, QueueT};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -65,6 +65,7 @@ pub enum VirtioQueueFunction {
     UsedRing,
     EventIdxEnabled,
     PopDescriptorChain,
+    Iter,
 }
 
 impl VirtioQueueFunction {
@@ -145,6 +146,14 @@ impl VirtioQueueFunction {
             }
             PopDescriptorChain => {
                 q.pop_descriptor_chain(m);
+            }
+            Iter => {
+                let _ = q.iter(m).and_then(|mut i| {
+                    // this empty loop is here to check that there are no side effects
+                    // in terms of memory & execution time.
+                    while i.next().is_some() {}
+                    Ok(())
+                });
             }
         }
     }
