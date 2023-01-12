@@ -19,3 +19,6 @@ versionize_derive = "0.1.3"
 # to the serializer output in a patch release of virtio-queue. 
 virtio-queue = { path = "../../crates/virtio-queue", version = "=0.7.0" }
 vm-memory = "0.10.0"
+
+[dev-dependencies]
+virtio-queue = { path = "../../crates/virtio-queue", version = "=0.7.0", features = ["test-utils"] }
