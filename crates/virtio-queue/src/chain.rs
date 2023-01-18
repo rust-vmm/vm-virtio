@@ -427,7 +427,7 @@ mod tests {
             // u16::MAX.
             let desc = Descriptor::new(
                 0x1000,
-                (u16::MAX as u32 + 1) * VRING_DESC_ALIGN_SIZE as u32,
+                (u16::MAX as u32 + 1) * VRING_DESC_ALIGN_SIZE,
                 VRING_DESC_F_INDIRECT as u16,
                 0,
             );
