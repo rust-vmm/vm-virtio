@@ -1060,7 +1060,7 @@ mod tests {
 
         let get_id_req = Request::new(
             RequestType::GetDeviceID,
-            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32)],
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES)],
             1,
             GuestAddress(0x200),
         );
@@ -1076,7 +1076,7 @@ mod tests {
         // Invalid get device ID request, data length should be VIRTIO_BLK_ID_BYTES.
         let get_id_req = Request::new(
             RequestType::GetDeviceID,
-            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32 - 1)],
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES - 1)],
             1,
             GuestAddress(0x200),
         );
@@ -1088,7 +1088,7 @@ mod tests {
 
         let get_id_req = Request::new(
             RequestType::GetDeviceID,
-            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES as u32)],
+            vec![(GuestAddress(0x100), VIRTIO_BLK_ID_BYTES)],
             1,
             GuestAddress(0x200),
         );
@@ -1096,7 +1096,7 @@ mod tests {
         // VIRTIO_BLK_ID_BYTES bytes should've been written in memory.
         assert_eq!(
             req_exec.execute(&mem, &get_id_req).unwrap(),
-            VIRTIO_BLK_ID_BYTES as u32
+            VIRTIO_BLK_ID_BYTES
         );
         let mut buf = [0x00; VIRTIO_BLK_ID_BYTES as usize];
         mem.read_slice(&mut buf, GuestAddress(0x100)).unwrap();
@@ -1114,7 +1114,7 @@ mod tests {
         // VIRTIO_BLK_ID_BYTES bytes should've been written in memory.
         assert_eq!(
             req_exec.execute(&mem, &get_id_req).unwrap(),
-            VIRTIO_BLK_ID_BYTES as u32
+            VIRTIO_BLK_ID_BYTES
         );
         let mut buf = [0x00; 8];
         mem.read_slice(&mut buf, GuestAddress(0x100)).unwrap();
@@ -1241,7 +1241,7 @@ mod tests {
         // Invalid memory address for get device id operation.
         let get_id_req = Request::new(
             RequestType::GetDeviceID,
-            vec![(GuestAddress(0xFFF_FFFA), VIRTIO_BLK_ID_BYTES as u32)],
+            vec![(GuestAddress(0xFFF_FFFA), VIRTIO_BLK_ID_BYTES)],
             7,
             GuestAddress(0x200),
         );
