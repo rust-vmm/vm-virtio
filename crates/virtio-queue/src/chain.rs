@@ -104,10 +104,9 @@ where
             return Err(Error::InvalidIndirectDescriptor);
         }
 
-        // Check the target indirect descriptor table is correctly aligned.
-        if desc.addr().raw_value() & (VRING_DESC_ALIGN_SIZE as u64 - 1) != 0
-            || desc.len() & (VRING_DESC_ALIGN_SIZE - 1) != 0
-        {
+        // Alignment requirements for vring elements start from virtio 1.0,
+        // but this is not necessary for address of indirect descriptor.
+        if desc.len() & (VRING_DESC_ALIGN_SIZE - 1) != 0 {
             return Err(Error::InvalidIndirectDescriptorTable);
         }
 
@@ -386,24 +385,50 @@ mod tests {
     }
 
     #[test]
+    fn test_indirect_descriptor_address_noaligned() {
+        // Alignment requirements for vring elements start from virtio 1.0,
+        // but this is not necessary for address of indirect descriptor.
+        let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = MockSplitQueue::new(m, 16);
+        let dtable = vq.desc_table();
+
+        // Create a chain with a descriptor pointing to an indirect table with unaligned address.
+        let desc = Descriptor::new(
+            0x7001,
+            0x1000,
+            (VRING_DESC_F_INDIRECT | VRING_DESC_F_NEXT) as u16,
+            2,
+        );
+        dtable.store(0, desc).unwrap();
+
+        let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
+
+        // Create an indirect table with 4 chained descriptors.
+        let idtable = DescriptorTable::new(m, GuestAddress(0x7001), 4);
+        for i in 0..4u16 {
+            let desc: Descriptor = if i < 3 {
+                Descriptor::new(0x1000 * i as u64, 0x1000, VRING_DESC_F_NEXT as u16, i + 1)
+            } else {
+                Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0)
+            };
+            idtable.store(i, desc).unwrap();
+        }
+
+        // Try to iterate through the indirect descriptor chain.
+        for i in 0..4 {
+            let desc = c.next().unwrap();
+            assert!(c.is_indirect);
+            if i < 3 {
+                assert_eq!(desc.flags(), VRING_DESC_F_NEXT as u16);
+                assert_eq!(desc.next(), i + 1);
+            }
+        }
+    }
+
+    #[test]
     fn test_indirect_descriptor_err() {
         // We are testing here different misconfigurations of the indirect table. For these error
         // case scenarios, the iterator over the descriptor chain won't return a new descriptor.
-        {
-            let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-            let vq = MockSplitQueue::new(m, 16);
-
-            // Create a chain with a descriptor pointing to an invalid indirect table: addr not a
-            // multiple of descriptor size.
-            let desc = Descriptor::new(0x1001, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
-            vq.desc_table().store(0, desc).unwrap();
-
-            let mut c: DescriptorChain<&GuestMemoryMmap> =
-                DescriptorChain::new(m, vq.start(), 16, 0);
-
-            assert!(c.next().is_none());
-        }
-
         {
             let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let vq = MockSplitQueue::new(m, 16);

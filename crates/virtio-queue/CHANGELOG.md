@@ -1,3 +1,8 @@
+## Fixed
+- Skip indirect descriptor address alignment check, the virtio spec has
+  no alignment requirement on this, see `2.6.5.3 Indirect Descriptors`
+  and `2.7.7 Indirect Flag: Scatter-Gather Support` in virtio 1.0.
+
 # v0.7.0
 
 ## Changed
