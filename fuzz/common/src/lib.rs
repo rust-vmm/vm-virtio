@@ -65,6 +65,7 @@ pub enum VirtioQueueFunction {
     UsedRing,
     EventIdxEnabled,
     PopDescriptorChain,
+    _PopDescriptorChainLoop,
     Iter,
 }
 
@@ -146,6 +147,16 @@ impl VirtioQueueFunction {
             }
             PopDescriptorChain => {
                 q.pop_descriptor_chain(m);
+            }
+            // This is not actually a function of the Queue interface. We are calling
+            // the Queue function `pop_descriptor_chain` in a loop as this is the way
+            // descriptors are typically processed.
+            _PopDescriptorChainLoop => {
+                while let Some(mut desc_chain) = q.pop_descriptor_chain(m) {
+                    // this empty loop is here to check that there are no side effects
+                    // in terms of memory & execution time.
+                    while desc_chain.next().is_some() {}
+                }
             }
             Iter => {
                 let _ = q.iter(m).and_then(|mut i| {
