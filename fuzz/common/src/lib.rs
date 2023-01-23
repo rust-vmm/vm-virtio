@@ -59,6 +59,7 @@ pub enum VirtioQueueFunction {
     NeedsNotification,
     NextAvail,
     SetNextAvail { next_avail: u16 },
+    DescTable,
     NextUsed,
     SetNextUsed { next_used: u16 },
     AvailRing,
@@ -135,6 +136,9 @@ impl VirtioQueueFunction {
             }
             SetNextUsed { next_used } => {
                 q.set_next_used(*next_used);
+            }
+            DescTable => {
+                q.desc_table();
             }
             AvailRing => {
                 q.avail_ring();
