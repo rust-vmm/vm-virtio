@@ -1284,16 +1284,16 @@ mod tests {
         // When the number of chains exposed by the driver is equal to or less than the queue
         // size, the available ring index is valid and constructs an iterator successfully.
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size);
-        vq.avail().idx().store(avail_idx.0);
+        vq.avail().idx().store(u16::to_le(avail_idx.0));
         assert!(q.iter(mem).is_ok());
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size - 1);
-        vq.avail().idx().store(avail_idx.0);
+        vq.avail().idx().store(u16::to_le(avail_idx.0));
         assert!(q.iter(mem).is_ok());
 
         // When the number of chains exposed by the driver is larger than the queue size, the
         // available ring index is invalid and produces an error from constructing an iterator.
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size + 1);
-        vq.avail().idx().store(avail_idx.0);
+        vq.avail().idx().store(u16::to_le(avail_idx.0));
         assert!(q.iter(mem).is_err());
     }
 

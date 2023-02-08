@@ -464,7 +464,8 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         let mut new_entries = 0;
         let avail_idx: u16 = self
             .mem
-            .read_obj(self.avail_addr().unchecked_add(2))
+            .read_obj::<u16>(self.avail_addr().unchecked_add(2))
+            .map(u16::from_le)
             .unwrap();
 
         for (idx, desc) in descs.iter().enumerate() {
@@ -475,7 +476,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
                 // Update the available ring position.
                 self.mem
                     .write_obj(
-                        i,
+                        u16::to_le(i),
                         self.avail_addr().unchecked_add(
                             VIRTQ_AVAIL_RING_HEADER_SIZE
                                 + (avail_idx + new_entries) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
@@ -488,7 +489,10 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
 
         // Increment `avail_idx`.
         self.mem
-            .write_obj(avail_idx + new_entries, self.avail_addr().unchecked_add(2))
+            .write_obj(
+                u16::to_le(avail_idx + new_entries),
+                self.avail_addr().unchecked_add(2),
+            )
             .unwrap();
 
         Ok(())
