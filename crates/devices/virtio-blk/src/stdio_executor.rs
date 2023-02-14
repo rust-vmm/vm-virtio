@@ -590,7 +590,7 @@ mod tests {
         // address and 0x200 bytes from 0x800 address. 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &out_req).unwrap(), 0x00);
 
-        req_exec.inner.seek(SeekFrom::Start(0x00)).unwrap();
+        req_exec.inner.rewind().unwrap();
         let mut v = vec![0x00; 0x300];
         assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x300);
         assert_eq!(v, vec![0x00; 0x300]);
@@ -813,7 +813,7 @@ mod tests {
         // 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &wr_zeroes_req).unwrap(), 0x00);
 
-        req_exec.inner.seek(SeekFrom::Start(0x00)).unwrap();
+        req_exec.inner.rewind().unwrap();
         let mut v = vec![0x00; 0x300];
         assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x300);
         assert_eq!(v, vec![0x00; 0x300]);
