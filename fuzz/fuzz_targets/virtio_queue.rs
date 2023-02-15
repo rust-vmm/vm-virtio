@@ -15,8 +15,8 @@ fuzz_target!(|data: &[u8]| {
     // same descriptors multiple times when pop_descriptor is called in a loop after a reset.
     // In the normal operation of a device we would not start from address 0 anyway.
     let start_addr = GuestAddress(0x1000);
-    let m = &GuestMemoryMmap::<()>::from_ranges(&[(start_addr, 0x11000)]).unwrap();
-    let vq = MockSplitQueue::create(m, start_addr, DEFAULT_QUEUE_SIZE);
+    let m = GuestMemoryMmap::<()>::from_ranges(&[(start_addr, 0x11000)]).unwrap();
+    let vq = MockSplitQueue::create(&m, start_addr, DEFAULT_QUEUE_SIZE);
     let descriptors: Vec<Descriptor> = fuzz_input
         .descriptors
         .iter()
@@ -30,6 +30,6 @@ fuzz_target!(|data: &[u8]| {
     }
 
     if let Ok(mut q) = vq.create_queue() {
-        fuzz_input.functions.iter().for_each(|f| f.call(&mut q, m));
+        fuzz_input.functions.iter().for_each(|f| f.call(&mut q, &m));
     }
 });
