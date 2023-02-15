@@ -65,6 +65,8 @@ pub enum Error {
     InvalidUsedRingAlign,
     /// Invalid available ring index.
     InvalidAvailRingIndex,
+    /// The queue is not ready for operation.
+    QueueNotReady,
 }
 
 impl Display for Error {
@@ -95,6 +97,7 @@ impl Display for Error {
                 f,
                 "invalid available ring index (more descriptors to process than queue size)"
             ),
+            QueueNotReady => write!(f, "trying to process requests on a queue that's not ready"),
         }
     }
 }
