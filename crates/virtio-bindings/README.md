@@ -4,7 +4,7 @@ Rust FFI bindings to virtio generated using [bindgen](https://crates.io/crates/b
 ## Usage
 Add this to your `Cargo.toml`:
 ```toml
-virtio-bindings = "0.1"
+virtio-bindings = "0.2"
 ```
 You can then import the bindings where you need them. As an example, to grab the
 bindings for virtio-blk, you can do:
