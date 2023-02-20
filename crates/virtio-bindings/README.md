@@ -1,7 +1,7 @@
 # virtio-bindings
 Rust FFI bindings to virtio generated using [bindgen](https://crates.io/crates/bindgen).
 
-# Usage
+## Usage
 Add this to your `Cargo.toml`:
 ```toml
 virtio-bindings = "0.1"
@@ -11,3 +11,7 @@ bindings for virtio-blk, you can do:
 ```rust
 use virtio_bindings::bindings::virtio_blk::*;
 ```
+
+## Development
+
+To update the bindings, follow the steps in the [Contributing Document](CONTRIBUTING.md).
