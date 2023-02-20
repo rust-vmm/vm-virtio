@@ -1,3 +1,5 @@
+# v0.7.1
+
 ## Fixed
 - Skip indirect descriptor address alignment check, the virtio spec has
   no alignment requirement on this, see `2.6.5.3 Indirect Descriptors`
