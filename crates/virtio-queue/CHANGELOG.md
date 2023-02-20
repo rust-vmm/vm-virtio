@@ -2,6 +2,13 @@
 - Skip indirect descriptor address alignment check, the virtio spec has
   no alignment requirement on this, see `2.6.5.3 Indirect Descriptors`
   and `2.7.7 Indirect Flag: Scatter-Gather Support` in virtio 1.0.
+- Update the `add_desc_chains` mock function such that it works on big endian
+  hosts as well.
+- Check that the queue is ready for processing requests when calling the
+  iterator functions. For now the checks are limited to the avail address and
+  the ready fields, but should be extended in the future to account for other
+  fields that could signal an invalid queue. This behavior can be triggered
+  by doing a `reset` followed by a `pop_descriptor_chain`.
 
 # v0.7.0
 
