@@ -1,3 +1,7 @@
+# v0.4.1
+- Update the virtio-queue dependency to v0.7.1. This release contains no
+  breaking changes.
+
 # v0.4.0
 
 ## Added 
