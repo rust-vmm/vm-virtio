@@ -1,3 +1,7 @@
+# Upcoming Release
+
+- Regenerate bindings with Linux 6.2.
+
 # v0.2.0
 
 ## Added
