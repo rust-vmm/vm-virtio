@@ -38,7 +38,7 @@ pub enum LoadOrdering {
 }
 
 /// The QueueState functions
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub enum VirtioQueueFunction {
     IsValid,
     Reset,
@@ -188,6 +188,36 @@ impl Into<Descriptor> for FuzzingDescriptor {
     fn into(self) -> Descriptor {
         Descriptor::new(self.addr, self.len, self.flags, self.next)
     }
+}
+
+/// For now this function makes sure that we don't introduce more than one loop to iterate over the
+/// descriptors. This cannot happen as part of the normal operation of a device because we
+/// consider the device implementation to be trusted. Bugs in the device implementations that
+/// allow processing the same descriptor chain multiple times should be caught at the device level
+/// as it is impossible here to differentiate between implementation problems and malicious
+/// drivers.
+pub fn sanitize_virtio_queue_functions(
+    functions: &Vec<VirtioQueueFunction>,
+) -> Vec<VirtioQueueFunction> {
+    let mut has_desc_iter = false;
+    functions
+        .iter()
+        .cloned()
+        .filter(|func| {
+            if *func == VirtioQueueFunction::_PopDescriptorChainLoop
+                || *func == VirtioQueueFunction::Iter
+            {
+                if !has_desc_iter {
+                    has_desc_iter = true;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                true
+            }
+        })
+        .collect::<Vec<VirtioQueueFunction>>()
 }
 
 /// Create a file in the dedicated corpus directory for the Fuzz Target specified in `target_name`.
