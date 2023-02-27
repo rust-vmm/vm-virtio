@@ -1,5 +1,8 @@
 #![no_main]
-use common::{virtio_queue::DEFAULT_QUEUE_SIZE, virtio_queue_ser::QueueStateInput};
+use common::{
+    sanitize_virtio_queue_functions, virtio_queue::DEFAULT_QUEUE_SIZE,
+    virtio_queue_ser::QueueStateInput,
+};
 use libfuzzer_sys::fuzz_target;
 use std::convert::{Into, TryFrom};
 use virtio_queue::{mock::MockSplitQueue, Descriptor, Queue, QueueState};
@@ -32,6 +35,7 @@ fuzz_target!(|data: &[u8]| {
     let q_state: QueueState = fuzz_input.queue_state.into();
 
     if let Ok(mut q) = Queue::try_from(q_state) {
-        fuzz_input.functions.iter().for_each(|f| f.call(&mut q, &m));
+        let fuzz_funcs = sanitize_virtio_queue_functions(&fuzz_input.functions);
+        fuzz_funcs.iter().for_each(|f| f.call(&mut q, &m));
     }
 });

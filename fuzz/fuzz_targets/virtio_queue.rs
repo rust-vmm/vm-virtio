@@ -1,5 +1,8 @@
 #![no_main]
-use common::virtio_queue::{VirtioQueueInput, DEFAULT_QUEUE_SIZE};
+use common::{
+    sanitize_virtio_queue_functions,
+    virtio_queue::{VirtioQueueInput, DEFAULT_QUEUE_SIZE},
+};
 use libfuzzer_sys::fuzz_target;
 use virtio_queue::{mock::MockSplitQueue, Descriptor};
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -30,6 +33,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     if let Ok(mut q) = vq.create_queue() {
-        fuzz_input.functions.iter().for_each(|f| f.call(&mut q, &m));
+        let fuzz_funcs = sanitize_virtio_queue_functions(&fuzz_input.functions);
+        fuzz_funcs.iter().for_each(|f| f.call(&mut q, &m));
     }
 });
