@@ -13,7 +13,8 @@ pub mod virtio_gpu;
 pub mod virtio_mmio;
 pub mod virtio_net;
 pub mod virtio_ring;
+pub mod virtio_scsi;
 
 pub mod bindings {
-    pub use super::{virtio_blk, virtio_config, virtio_mmio, virtio_net, virtio_ring};
+    pub use super::{virtio_blk, virtio_config, virtio_mmio, virtio_net, virtio_ring, virtio_scsi};
 }
