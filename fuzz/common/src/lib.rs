@@ -156,18 +156,16 @@ impl VirtioQueueFunction {
             // the Queue function `pop_descriptor_chain` in a loop as this is the way
             // descriptors are typically processed.
             _PopDescriptorChainLoop => {
-                while let Some(mut desc_chain) = q.pop_descriptor_chain(m) {
+                while let Some(_desc_chain) = q.pop_descriptor_chain(m) {
                     // this empty loop is here to check that there are no side effects
                     // in terms of memory & execution time.
-                    while desc_chain.next().is_some() {}
                 }
             }
             Iter => {
-                let _ = q.iter(m).and_then(|mut i| {
+                let _ = q.iter(m).map(|_| {
                     // this empty loop is here to check that there are no side effects
                     // in terms of memory & execution time.
-                    while i.next().is_some() {}
-                    Ok(())
+                    ()
                 });
             }
         }
