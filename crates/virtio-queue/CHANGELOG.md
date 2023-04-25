@@ -1,3 +1,8 @@
+# Upcoming Release
+
+## Changed
+- Terminate iterating descriptor chains that are longer than 2^32 bytes.
+
 # v0.7.1
 
 ## Fixed

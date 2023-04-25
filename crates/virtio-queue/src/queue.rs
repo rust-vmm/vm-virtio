@@ -1443,6 +1443,41 @@ mod tests {
                 assert!(c.next().is_none());
             }
         }
+
+        // Test that iterating some broken descriptor chain does not exceed
+        // 2^32 bytes in total (VIRTIO spec version 1.2, 2.7.5.2:
+        // Drivers MUST NOT add a descriptor chain longer than 2^32 bytes in
+        // total)
+        {
+            let descs = vec![
+                Descriptor::new(0x1000, 0xffff_ffff, VRING_DESC_F_NEXT as u16, 1),
+                Descriptor::new(0x1000, 0x1234_5678, 0, 2),
+            ];
+            vq.add_desc_chains(&descs, 0).unwrap();
+            let mut yielded_bytes_by_iteration = 0_u32;
+            for d in q.iter(m).unwrap().next().unwrap() {
+                yielded_bytes_by_iteration = yielded_bytes_by_iteration
+                    .checked_add(d.len())
+                    .expect("iterator should not yield more than 2^32 bytes");
+            }
+        }
+
+        // Same as above, but test with a descriptor which is self-referential
+        {
+            let descs = vec![Descriptor::new(
+                0x1000,
+                0xffff_ffff,
+                VRING_DESC_F_NEXT as u16,
+                0,
+            )];
+            vq.add_desc_chains(&descs, 0).unwrap();
+            let mut yielded_bytes_by_iteration = 0_u32;
+            for d in q.iter(m).unwrap().next().unwrap() {
+                yielded_bytes_by_iteration = yielded_bytes_by_iteration
+                    .checked_add(d.len())
+                    .expect("iterator should not yield more than 2^32 bytes");
+            }
+        }
     }
 
     #[test]
