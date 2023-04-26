@@ -1,6 +1,6 @@
 # Upcoming Release
 
-- Regenerate bindings with Linux 6.2.
+- Regenerate bindings with Linux 6.3.
 - Added bindings for virtio_scsi.h
 
 # v0.2.0
