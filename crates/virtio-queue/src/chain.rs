@@ -28,6 +28,7 @@ pub struct DescriptorChain<M> {
     head_index: u16,
     next_index: u16,
     ttl: u16,
+    yielded_bytes: u32,
     is_indirect: bool,
 }
 
@@ -51,6 +52,7 @@ where
             next_index: head_index,
             ttl,
             is_indirect: false,
+            yielded_bytes: 0,
         }
     }
 
@@ -159,6 +161,15 @@ where
             self.switch_to_indirect_table(desc).ok()?;
             return self.next();
         }
+
+        // constructing a chain that is longer than 2^32 bytes is illegal,
+        // let's terminate the iteration if something violated this.
+        // (VIRTIO v1.2, 2.7.5.2: "Drivers MUST NOT add a descriptor chain
+        // longer than 2^32 bytes in total;")
+        match self.yielded_bytes.checked_add(desc.len()) {
+            Some(yielded_bytes) => self.yielded_bytes = yielded_bytes,
+            None => return None,
+        };
 
         if desc.has_next() {
             self.next_index = desc.next();
