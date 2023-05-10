@@ -1,3 +1,9 @@
+# Upcoming release
+
+## Changed
+
+- Updated vm-memory from 0.10.0 to 0.11.0.
+
 # v0.4.1
 - Update the virtio-queue dependency to v0.7.1. This release contains no
   breaking changes.
