@@ -2,6 +2,8 @@
 
 ## Changed
 - Terminate iterating descriptor chains that are longer than 2^32 bytes.
+- Updated vm-memory from 0.10.0 to 0.11.0.
+- Updated virtio-bindings from 0.1.0 to 0.2.0.
 
 # v0.7.1
 
