@@ -3,6 +3,7 @@
 ## Changes
 
 - Updated vm-memory from 0.10.0 to 0.11.0.
+- Updated virtio-queue from 0.7.0 to 0.8.0.
 
 # v0.2.1
 
