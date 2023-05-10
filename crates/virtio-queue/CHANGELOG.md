@@ -1,5 +1,7 @@
 # Upcoming Release
 
+# v0.8.0
+
 ## Changed
 - Terminate iterating descriptor chains that are longer than 2^32 bytes.
 - Updated vm-memory from 0.10.0 to 0.11.0.
