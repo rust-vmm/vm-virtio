@@ -102,7 +102,7 @@ without waiting for the fuzzing sessions to finish. As running fuzzing for 1
 day keeps the Builkite agents busy and could cause delays in merging other PRs,
 this longer fuzzing sessions are not run by default on all PRs. To enable the
 run, one of the
-[Buildkite administrators](https://github.com/rust-vmm/community/blob/main/docs/maintainers/setup_new_repo.md#set-up-ci)
+[Buildkite administrators](https://github.com/rust-vmm/community/blob/main/docs/setup_new_repo.md#set-up-ci)
 need to unblock the pipeline by following the Buildkite run link in the PR and
 click on the corresponding
 [unblock pipeline button](https://buildkite.com/docs/pipelines/block-step).
