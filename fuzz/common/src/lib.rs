@@ -6,6 +6,7 @@ use vm_memory::GuestMemoryMmap;
 
 use serde::{Deserialize, Serialize};
 
+pub mod blk;
 pub mod virtio_queue;
 pub mod virtio_queue_ser;
 pub mod vsock;
