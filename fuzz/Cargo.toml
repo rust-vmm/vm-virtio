@@ -16,11 +16,13 @@ cargo-fuzz = true
 bincode = "1.3.3"
 libfuzzer-sys = "0.4"
 serde = "1.0.63"
+memfd = "0.6.3"
 virtio-queue = { path = "../crates/virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../crates/devices/virtio-vsock" }
 virtio-queue-ser = { path = "../crates/virtio-queue-ser" }
 vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-atomic"] }
 common = { path = "common" }
+virtio-blk = { path = "../crates/devices/virtio-blk", features = ["backend-stdio"] }
 
 [[bin]]
 name = "virtio_queue"
@@ -33,3 +35,7 @@ path = "fuzz_targets/vsock.rs"
 [[bin]]
 name = "virtio_queue_ser"
 path = "fuzz_targets/virtio_queue_ser.rs"
+
+[[bin]]
+name = "blk"
+path = "fuzz_targets/blk.rs"
