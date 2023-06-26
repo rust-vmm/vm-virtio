@@ -1,3 +1,7 @@
+# Upcoming Release
+
+- Regenerate bindings with Linux 6.4.
+
 # v0.2.1
 
 - Regenerate bindings with Linux 6.3.
