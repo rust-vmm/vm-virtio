@@ -1,8 +1,8 @@
-# Upcoming Release
+# v0.2.1
 
 - Regenerate bindings with Linux 6.3.
 - Added bindings for virtio_scsi.h
-- Updated vm-memory from 0.10.0 to 0.11.0.
+- Updated vm-memory from 0.10.0 to 0.12.0.
 
 # v0.2.0
 

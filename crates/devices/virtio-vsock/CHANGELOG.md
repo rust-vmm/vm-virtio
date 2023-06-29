@@ -1,3 +1,9 @@
+# v0.3.1
+
+## Changes
+
+- Updated vm-memory from 0.11.0 to 0.12.0.
+
 # v0.3.0
 
 ## Changes
