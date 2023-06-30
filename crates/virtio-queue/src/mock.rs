@@ -7,7 +7,9 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
 
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestUsize};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestUsize,
+};
 
 use crate::defs::{VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE};
 use crate::{Descriptor, DescriptorChain, Error, Queue, QueueOwnedT, QueueT, VirtqUsedElem};
@@ -23,6 +25,8 @@ pub enum MockError {
     InvalidIndex,
     /// Invalid next avail
     InvalidNextAvail,
+    /// Guest memory errors
+    GuestMem(GuestMemoryError),
 }
 
 impl Display for MockError {
@@ -39,6 +43,7 @@ impl Display for MockError {
                 f,
                 "invalid next available descriptor chain head in the queue"
             ),
+            GuestMem(e) => write!(f, "guest memory error: {}", e),
         }
     }
 }
@@ -425,7 +430,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         self.create_queue::<Queue>()
             .map_err(MockError::InvalidQueueParams)?
             .iter(self.mem)
-            .unwrap()
+            .map_err(MockError::InvalidQueueParams)?
             .next()
             .ok_or(MockError::InvalidNextAvail)
     }
@@ -466,7 +471,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             .mem
             .read_obj::<u16>(self.avail_addr().unchecked_add(2))
             .map(u16::from_le)
-            .unwrap();
+            .map_err(MockError::GuestMem)?;
 
         for (idx, desc) in descs.iter().enumerate() {
             let i = idx as u16 + offset;
@@ -482,7 +487,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
                                 + (avail_idx + new_entries) as u64 * VIRTQ_AVAIL_ELEMENT_SIZE,
                         ),
                     )
-                    .unwrap();
+                    .map_err(MockError::GuestMem)?;
                 new_entries += 1;
             }
         }
@@ -493,7 +498,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
                 u16::to_le(avail_idx + new_entries),
                 self.avail_addr().unchecked_add(2),
             )
-            .unwrap();
+            .map_err(MockError::GuestMem)?;
 
         Ok(())
     }
