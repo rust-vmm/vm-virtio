@@ -38,6 +38,7 @@ for i in \
         virtio_blk \
         virtio_config \
         virtio_gpu \
+        virtio_ids \
         virtio_mmio \
         virtio_net \
         virtio_ring \
