@@ -34,7 +34,15 @@ git checkout v5.0
 # you need them for your project.
 make headers_install INSTALL_HDR_PATH=v5_0_headers
 cd v5_0_headers
-for i in virtio_blk virtio_config virtio_gpu virtio_mmio virtio_net virtio_ring virtio_scsi ; do \
+for i in \
+        virtio_blk \
+        virtio_config \
+        virtio_gpu \
+        virtio_mmio \
+        virtio_net \
+        virtio_ring \
+        virtio_scsi \
+        ; do \
     bindgen include/linux/$i.h -o $i.rs \
     --allowlist-file include/linux/$i.h \
     --with-derive-default \
