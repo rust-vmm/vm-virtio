@@ -1,3 +1,8 @@
+# Upcoming Release
+
+- Regenerate bindings with Linux 6.4.
+- Added bindings for virtio_ids.h
+
 # v0.2.1
 
 - Regenerate bindings with Linux 6.3.

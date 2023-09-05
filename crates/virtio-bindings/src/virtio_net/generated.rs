@@ -57,6 +57,7 @@ pub const VIRTIO_NET_F_GUEST_USO4: u32 = 54;
 pub const VIRTIO_NET_F_GUEST_USO6: u32 = 55;
 pub const VIRTIO_NET_F_HOST_USO: u32 = 56;
 pub const VIRTIO_NET_F_HASH_REPORT: u32 = 57;
+pub const VIRTIO_NET_F_GUEST_HDRLEN: u32 = 59;
 pub const VIRTIO_NET_F_RSS: u32 = 60;
 pub const VIRTIO_NET_F_RSC_EXT: u32 = 61;
 pub const VIRTIO_NET_F_STANDBY: u32 = 62;
