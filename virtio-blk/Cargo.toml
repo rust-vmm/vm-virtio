@@ -16,10 +16,10 @@ backend-stdio = []
 vm-memory = "0.13.1"
 vmm-sys-util = "0.11.0"
 log = "0.4.17"
-virtio-queue = { path = "../../virtio-queue" }
-virtio-device = { path = "../../virtio-device" }
-virtio-bindings = { path = "../../virtio-bindings", version = "0.2.2" }
+virtio-queue = { path = "../virtio-queue" }
+virtio-device = { path = "../virtio-device" }
+virtio-bindings = { path = "../virtio-bindings", version = "0.2.2" }
 
 [dev-dependencies]
 vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-atomic"] }
-virtio-queue = { path = "../../virtio-queue", features = ["test-utils"] }
+virtio-queue = { path = "../virtio-queue", features = ["test-utils"] }

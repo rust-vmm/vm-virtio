@@ -35,7 +35,7 @@ the VMM has to also define the device backend and the event handling mechanism.
 ## The `Queue` abstraction
 
 For details about the abstractions provided in `virtio-queue`, check
-[its separate README](crates/virtio-queue/README.md).
+[its separate README](./virtio-queue/README.md).
 
 ## The `VirtioDevice` trait
 
@@ -87,7 +87,7 @@ cargo test --all-features
 such as `backend-stdio`.
 
 For details about the testing in the `virtio-queue` crate, check
-[its separate documentation](crates/virtio-queue/docs/TESTING.md).
+[its separate documentation](./virtio-queue/docs/TESTING.md).
 
 ## Fuzzing
 

@@ -1,10 +1,12 @@
 [workspace]
 members = [
-    "crates/devices/*",
-    "crates/virtio-bindings",
-    "crates/virtio-device",
-    "crates/virtio-queue",
-    "crates/virtio-queue-ser",
+    "virtio-bindings",
+    "virtio-blk",
+    "virtio-console",
+    "virtio-device",
+    "virtio-queue",
+    "virtio-queue-ser",
+    "virtio-vsock",
 ]
 
 [profile.bench]
