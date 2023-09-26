@@ -54,6 +54,6 @@ done
 cd ~
 
 # Step 6: Copy the generated files to the new version module.
-cp linux/v5_0_headers/*.rs vm-virtio/crates/virtio-bindings/src
-mv vm-virtio/crates/virtio-bindings/src/virtio_net.rs vm-virtio/crates/virtio-bindings/src/virtio_net/generated.rs
+cp linux/v5_0_headers/*.rs vm-virtio/virtio-bindings/src
+mv vm-virtio/virtio-bindings/src/virtio_net.rs vm-virtio/virtio-bindings/src/virtio_net/generated.rs
 ```
