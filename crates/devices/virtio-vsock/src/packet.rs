@@ -878,14 +878,14 @@ mod tests {
         assert_eq!(packet.header, PacketHeader::default());
         let header = packet.header_slice();
         assert_eq!(
-            header.as_ptr(),
+            header.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
-            data.as_ptr(),
+            data.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
         );
         assert_eq!(data.len(), 0x100);
@@ -911,14 +911,14 @@ mod tests {
         assert_eq!(packet.header, PacketHeader::default());
         let header = packet.header_slice();
         assert_eq!(
-            header.as_ptr(),
+            header.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
-            data.as_ptr(),
+            data.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
                 .unwrap()
         );
@@ -976,7 +976,7 @@ mod tests {
         assert_eq!(packet.header, header);
         let header_slice = packet.header_slice();
         assert_eq!(
-            header_slice.as_ptr(),
+            header_slice.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x10_0000)).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
@@ -1116,7 +1116,7 @@ mod tests {
         assert_eq!(packet.header, header);
         let header_slice = packet.header_slice();
         assert_eq!(
-            header_slice.as_ptr(),
+            header_slice.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
@@ -1125,7 +1125,7 @@ mod tests {
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
-            data.as_ptr(),
+            data.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
         );
         assert_eq!(data.len(), LEN as usize);
@@ -1151,7 +1151,7 @@ mod tests {
         assert_eq!(packet.header, header);
         let header_slice = packet.header_slice();
         assert_eq!(
-            header_slice.as_ptr(),
+            header_slice.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
@@ -1160,7 +1160,7 @@ mod tests {
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
-            data.as_ptr(),
+            data.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
                 .unwrap()
         );
@@ -1346,16 +1346,25 @@ mod tests {
         // SAFETY: safe because ``hdr_raw` and `data_raw` live for as long as
         // the scope of the current test.
         let packet = unsafe { VsockPacket::new(hdr_raw, Some(data_raw)).unwrap() };
-        assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
+        assert_eq!(
+            packet.header_slice.ptr_guard().as_ptr(),
+            hdr_raw.as_mut_ptr(),
+        );
         assert_eq!(packet.header_slice.len(), PKT_HEADER_SIZE);
         assert_eq!(packet.header, PacketHeader::default());
-        assert_eq!(packet.data_slice.unwrap().as_ptr(), data_raw.as_mut_ptr());
+        assert_eq!(
+            packet.data_slice.unwrap().ptr_guard().as_ptr(),
+            data_raw.as_mut_ptr(),
+        );
         assert_eq!(packet.data_slice.unwrap().len(), LEN as usize);
 
         // SAFETY: Safe because ``hdr_raw` and `data_raw` live as long as the
         // scope of the current test.
         let packet = unsafe { VsockPacket::new(hdr_raw, None).unwrap() };
-        assert_eq!(packet.header_slice.as_ptr(), hdr_raw.as_mut_ptr());
+        assert_eq!(
+            packet.header_slice.ptr_guard().as_ptr(),
+            hdr_raw.as_mut_ptr(),
+        );
         assert_eq!(packet.header, PacketHeader::default());
         assert!(packet.data_slice.is_none());
 
