@@ -1,5 +1,16 @@
 version: 2
 updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: weekly
+  allow:
+  - dependency-type: direct
+  - dependency-type: indirect
+  groups:
+      vm-virtio:
+        patterns:
+          - "*"
 - package-ecosystem: gitsubmodule
   directory: "/"
   schedule:
