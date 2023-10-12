@@ -295,7 +295,7 @@ mod tests {
         let mem: GuestMemoryMmap =
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
-        let v = vec![
+        let v = [
             // A device-writable request header descriptor.
             Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
@@ -318,7 +318,7 @@ mod tests {
             Error::UnexpectedWriteOnlyDescriptor
         );
 
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // A device-readable request status descriptor.
@@ -332,7 +332,7 @@ mod tests {
             Error::UnexpectedReadOnlyDescriptor
         );
 
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             // Status descriptor with len = 0.
@@ -344,7 +344,7 @@ mod tests {
             Error::DescriptorLengthTooSmall
         );
 
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, 0, 0),
             Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
@@ -376,7 +376,7 @@ mod tests {
         );
 
         // Invalid status address.
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
@@ -401,7 +401,7 @@ mod tests {
         );
 
         // Valid descriptor chain for OUT.
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(request.request_type(), RequestType::Unsupported(2));
 
         // Valid descriptor chain for FLUSH.
-        let v = vec![
+        let v = [
             Descriptor::new(0x10_0000, 0x100, 0, 0),
             Descriptor::new(0x40_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
         ];
