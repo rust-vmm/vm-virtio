@@ -351,7 +351,7 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x0001_0000)]).unwrap();
 
         // One descriptor is write only
-        let v = vec![
+        let v = [
             Descriptor::new(0x1000, INPUT_SIZE, 0, 0),
             Descriptor::new(0x2000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
         ];
@@ -365,7 +365,7 @@ mod tests {
         );
 
         // Descriptor is outside of the memory bounds
-        let v = vec![
+        let v = [
             Descriptor::new(0x0001_0000, INPUT_SIZE, 0, 0),
             Descriptor::new(0x0002_0000, INPUT_SIZE, 0, 0),
         ];
@@ -378,7 +378,7 @@ mod tests {
         );
 
         // Test normal functionality.
-        let v = vec![
+        let v = [
             Descriptor::new(0x3000, INPUT_SIZE, 0, 0),
             Descriptor::new(0x4000, INPUT_SIZE, 0, 0),
         ];
@@ -418,7 +418,7 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x0001_0000)]).unwrap();
 
         // One descriptor is read only
-        let v = vec![
+        let v = [
             Descriptor::new(0x1000, 0x10, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x2000, INPUT_SIZE, 0, 0),
         ];
@@ -432,7 +432,7 @@ mod tests {
         );
 
         // Descriptor is out of memory bounds
-        let v = vec![
+        let v = [
             Descriptor::new(0x0001_0000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x0002_0000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
         ];
@@ -454,7 +454,7 @@ mod tests {
         console
             .enqueue_data(&mut vec![INPUT_VALUE * 2; INPUT_SIZE as usize])
             .unwrap();
-        let v = vec![
+        let v = [
             Descriptor::new(0x3000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
             Descriptor::new(0x4000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
         ];
@@ -477,7 +477,7 @@ mod tests {
         console
             .enqueue_data(&mut vec![INPUT_VALUE; 2 * INPUT_SIZE as usize])
             .unwrap();
-        let v = vec![Descriptor::new(
+        let v = [Descriptor::new(
             0x5000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
@@ -497,7 +497,7 @@ mod tests {
 
         assert!(!console.is_input_buffer_empty());
 
-        let v = vec![Descriptor::new(
+        let v = [Descriptor::new(
             0x6000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
@@ -516,7 +516,7 @@ mod tests {
         assert!(console.is_input_buffer_empty());
 
         // Input buffer is empty.
-        let v = vec![Descriptor::new(
+        let v = [Descriptor::new(
             0x7000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
