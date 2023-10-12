@@ -13,14 +13,14 @@ edition = "2021"
 test-utils = []
 
 [dependencies]
-vm-memory = "0.12.0"
+vm-memory = "0.13.1"
 vmm-sys-util = "0.11.0"
 log = "0.4.17"
 virtio-bindings = { path="../virtio-bindings", version = "0.2.1" }
 
 [dev-dependencies]
 criterion = "0.3.0"
-vm-memory = { version = "0.12.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-atomic"] }
 memoffset = "0.7.1"
 
 [[bench]]

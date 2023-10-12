@@ -17,19 +17,21 @@
 //! request via [`StdIoBackend::execute`](struct.StdIoBackend.html#method.execute) method.
 //! The `StdIoBackend` is wrapping the block device backend and keeps the number of sectors of the
 //! backing file and its negotiated features too. This backend has to be, at least for now,
-//! `io::Read` and `io::Write`. In the future, we might add some abstraction for the file access
-//! operations.
+//! `vm_memory::ReadVolatile` and `vm_memory::WriteVolatile`.
+//! In the future, we might add some abstraction for the file access operations.
 //!
 //! For more complex executors, that need asynchronous dispatch of requests for example, we can
 //! add separate modules for those abstractions as well.
 
 use std::fmt::{self, Display};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom};
 use std::{io, mem, result};
 
 use log::{error, warn};
 
-use vm_memory::{Address, ByteValued, Bytes, GuestMemory, GuestMemoryError};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestMemory, GuestMemoryError, ReadVolatile, WriteVolatile,
+};
 use vmm_sys_util::file_traits::FileSync;
 use vmm_sys_util::write_zeroes::{PunchHole, WriteZeroesAt};
 
@@ -43,9 +45,12 @@ use virtio_bindings::bindings::virtio_blk::{
 
 /// Trait that keeps as supertraits the ones that are necessary for the `StdIoBackend` abstraction
 /// used for the virtio block request execution.
-pub trait Backend: Read + Write + Seek + FileSync + PunchHole + WriteZeroesAt {}
+pub trait Backend:
+    ReadVolatile + WriteVolatile + Seek + FileSync + PunchHole + WriteZeroesAt
+{
+}
 
-impl<B: Read + Write + Seek + FileSync + PunchHole + WriteZeroesAt> Backend for B {}
+impl<B: ReadVolatile + WriteVolatile + Seek + FileSync + PunchHole + WriteZeroesAt> Backend for B {}
 
 /// One or more `DiscardWriteZeroes` structs are used to describe the data for
 /// discard or write zeroes command.
@@ -326,7 +331,7 @@ impl<B: Backend> StdIoBackend<B> {
                     return Err(Error::InvalidDataLength);
                 }
                 for (data_addr, data_len) in request.data() {
-                    mem.read_exact_from(*data_addr, &mut self.inner, *data_len as usize)
+                    mem.read_exact_volatile_from(*data_addr, &mut self.inner, *data_len as usize)
                         .map_err(|e| {
                             if let GuestMemoryError::PartialBuffer {
                                 completed,
@@ -347,7 +352,7 @@ impl<B: Backend> StdIoBackend<B> {
             RequestType::Out => {
                 self.check_access(total_len / SECTOR_SIZE, request.sector())?;
                 for (data_addr, data_len) in request.data() {
-                    mem.write_all_to(*data_addr, &mut self.inner, *data_len as usize)
+                    mem.write_all_volatile_to(*data_addr, &mut self.inner, *data_len as usize)
                         .map_err(Error::Write)?;
                 }
             }
@@ -364,7 +369,7 @@ impl<B: Backend> StdIoBackend<B> {
                 for (data_addr, data_len) in request.data() {
                     // The device_id accesses are safe because we checked that the total data length
                     // is VIRTIO_BLK_ID_BYTES, which is the size of the id as well.
-                    mem.read_exact_from(
+                    mem.read_exact_volatile_from(
                         *data_addr,
                         &mut &device_id[bytes_to_mem as usize..(*data_len + bytes_to_mem) as usize],
                         *data_len as usize,
@@ -474,6 +479,8 @@ impl<B: Backend> StdIoBackend<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::io::{Read, Write};
 
     use vm_memory::guest_memory::Error::{InvalidGuestAddress, PartialBuffer};
     use vm_memory::{GuestAddress, GuestMemoryMmap};

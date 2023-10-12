@@ -17,7 +17,7 @@ use std::io::{stdout, Stdout, Write};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use virtio_queue::DescriptorChain;
-use vm_memory::{Bytes, GuestMemory, GuestMemoryError};
+use vm_memory::{Bytes, GuestMemory, GuestMemoryError, WriteVolatile};
 
 /// Console device errors.
 #[derive(Debug)]
@@ -81,7 +81,7 @@ impl Display for Error {
 
 /// Console struct that implements the abstraction of virtio console descriptor chain handling.
 #[derive(Clone, Debug)]
-pub struct Console<T: Write> {
+pub struct Console<T: Write + WriteVolatile> {
     /// Buffer that stores data to be sent to the driver.
     input_buffer: Arc<Mutex<Vec<u8>>>,
     /// Capacity of the input buffer.
@@ -110,7 +110,7 @@ impl Default for Console<Stdout> {
 
 impl<T> Console<T>
 where
-    T: Write,
+    T: Write + WriteVolatile,
 {
     /// Create new console object with the default `capacity`.
     ///
@@ -206,7 +206,7 @@ where
             }
             desc_chain
                 .memory()
-                .write_to(desc.addr(), &mut self.output, desc.len() as usize)
+                .write_volatile_to(desc.addr(), &mut self.output, desc.len() as usize)
                 .map_err(Error::WriteToOutputFailed)?;
 
             self.output.flush().map_err(Error::OutputSinkFlushFailed)?;
