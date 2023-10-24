@@ -21,7 +21,7 @@ virtio-bindings = { path="../virtio-bindings", version = "0.2.1" }
 [dev-dependencies]
 criterion = "0.5.1"
 vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-atomic"] }
-memoffset = "0.9.0"
+memoffset = { version = "0.9.0", features = ["unstable_offset_of"] }
 
 [[bench]]
 name = "main"
