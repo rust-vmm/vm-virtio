@@ -1,3 +1,13 @@
+# Upcoming
+
+# v0.9.1
+
+## Changed
+- Updated vm-memory from 0.12.0 to 0.13.1.
+- Updated dev-dependencies:
+  - criterion (0.3.0 -> 0.5.1)
+  - memoffset (0.7.1 -> 0.9.0)
+
 # v0.9.0
 
 ## Changed
