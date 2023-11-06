@@ -602,7 +602,7 @@ mod tests {
             GuestAddress(0x200),
         );
         // Clear the file.
-        req_exec.inner.write_zeroes_at(0x00, 0x1000).unwrap();
+        req_exec.inner_mut().write_zeroes_at(0x00, 0x1000).unwrap();
 
         mem.write_slice(&[NON_ZERO_VALUE; 0x200], GuestAddress(0x200))
             .unwrap();
@@ -612,34 +612,34 @@ mod tests {
         // address and 0x200 bytes from 0x800 address. 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &out_req).unwrap(), 0x00);
 
-        req_exec.inner.rewind().unwrap();
+        req_exec.inner().rewind().unwrap();
         let mut v = vec![0x00; 0x300];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x300);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x300);
         assert_eq!(v, vec![0x00; 0x300]);
 
         // We are at offset 0x300.
         v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![NON_ZERO_VALUE; 0x200]);
 
         // We are at offset 0x500.
         v = vec![0x00; 0x100];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x100);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x100);
         assert_eq!(v, vec![0x00; 0x100]);
 
         // We are at offset 0x600.
         v = vec![0x00; 0x80];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x80);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x80);
         assert_eq!(v, vec![0x00; 0x80]);
 
         // We are at offset 0x680.
         v = vec![0x00; 0x100];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x100);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x100);
         assert_eq!(v, vec![NON_ZERO_VALUE; 0x100]);
 
         // We are at offset 0x780.
         v = vec![0x00; 0x80];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x80);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x80);
         assert_eq!(v, vec![0x00; 0x80]);
 
         // Writing 512 bytes to the last sector should be successful.
@@ -835,44 +835,44 @@ mod tests {
         // 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &wr_zeroes_req).unwrap(), 0x00);
 
-        req_exec.inner.rewind().unwrap();
+        req_exec.inner().rewind().unwrap();
         let mut v = vec![0x00; 0x300];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x300);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x300);
         assert_eq!(v, vec![0x00; 0x300]);
 
         // We are at offset 0x300.
         v = vec![0x00; 0x100];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x100);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x100);
         assert_eq!(v, vec![NON_ZERO_VALUE; 0x100]);
 
         // We are at offset 0x400 -> 0x400 bytes should've been zeroed out.
         v = vec![0x00; 0x400];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x400);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x400);
         assert_eq!(v, vec![0x00; 0x400]);
 
         // We are at offset 0x800.
         v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![NON_ZERO_VALUE + 1; 0x200]);
 
         // We are at offset 0xA00 -> 0x200 bytes should've been zeroed out.
         v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![0; 0x200]);
 
         // We are at offset 0xC00.
         v = vec![0x00; 0x100];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x100);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x100);
         assert_eq!(v, vec![NON_ZERO_VALUE + 1; 0x100]);
 
         // We are at offset 0xD00.
         v = vec![0x00; 0x100];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x100);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x100);
         assert_eq!(v, vec![0; 0x100]);
 
         // We are at offset 0xE00.
         v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![NON_ZERO_VALUE; 0x200]);
 
         // Test discard request.
@@ -894,14 +894,14 @@ mod tests {
         // 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &discard_req).unwrap(), 0x00);
 
-        req_exec.inner.seek(SeekFrom::Start(0xE00)).unwrap();
+        req_exec.inner().seek(SeekFrom::Start(0xE00)).unwrap();
         let mut v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![0x00; 0x200]);
 
         // Even though we punched a hole at the end of the file, the file size should remain the
         // same since FALLOC_FL_PUNCH_HOLE is used with FALLOC_FL_KEEP_SIZE.
-        assert_eq!(req_exec.inner.metadata().unwrap().len(), 0x1000);
+        assert_eq!(req_exec.inner().metadata().unwrap().len(), 0x1000);
 
         // Test that write zeroes request with unmap bit set is okay.
         let wr_zeroes_req = DiscardWriteZeroes {
@@ -919,30 +919,30 @@ mod tests {
             GuestAddress(0x2000),
         );
 
-        req_exec.inner.seek(SeekFrom::Start(0x800)).unwrap();
+        req_exec.inner().seek(SeekFrom::Start(0x800)).unwrap();
         let mut v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         // Data is != 0 before the write zeroes request.
         assert_eq!(v, vec![NON_ZERO_VALUE + 1; 0x200]);
         // Let's write some data in the file right before and after the fourth sector to confirm
         // that those regions won't be zeroed out.
         // After the fourth sector:
         let v = vec![NON_ZERO_VALUE + 2; 0x200];
-        assert_eq!(req_exec.inner.write(&v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().write(&v).unwrap(), 0x200);
         // Before the fourth sector:
-        req_exec.inner.seek(SeekFrom::Start(0x600)).unwrap();
-        assert_eq!(req_exec.inner.write(&v).unwrap(), 0x200);
+        req_exec.inner().seek(SeekFrom::Start(0x600)).unwrap();
+        assert_eq!(req_exec.inner().write(&v).unwrap(), 0x200);
 
         // 0 bytes should've been written in memory.
         assert_eq!(req_exec.execute(&mem, &wr_zeroes_req).unwrap(), 0x00);
 
-        req_exec.inner.seek(SeekFrom::Start(0x600)).unwrap();
+        req_exec.inner().seek(SeekFrom::Start(0x600)).unwrap();
         let mut v = vec![0x00; 0x200];
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![NON_ZERO_VALUE + 2; 0x200]);
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![0; 0x200]);
-        assert_eq!(req_exec.inner.read(&mut v).unwrap(), 0x200);
+        assert_eq!(req_exec.inner().read(&mut v).unwrap(), 0x200);
         assert_eq!(v, vec![NON_ZERO_VALUE + 2; 0x200]);
 
         // VIRTIO_BLK_F_DISCARD not negotiated.
