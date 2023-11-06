@@ -474,6 +474,21 @@ impl<B: Backend> StdIoBackend<B> {
         }
         Ok(0)
     }
+
+    /// Obtains an immutable reference to the backing object.
+    pub fn inner(&self) -> &B {
+        &self.inner
+    }
+
+    /// Obtains a mutable reference to the backing object.
+    pub fn inner_mut(&mut self) -> &mut B {
+        &mut self.inner
+    }
+
+    /// Consumes the [`StdIoBackend`], returning its backing object.
+    pub fn into_inner(self) -> B {
+        self.inner
+    }
 }
 
 #[cfg(test)]
