@@ -1,6 +1,13 @@
 # Upcoming
 
-# v0.9.1
+# v0.10.0
+
+Identical to v0.9.1, which was incorrectly published as minor release.
+
+# v0.9.1 - yanked
+
+This version got yanked. It should have been a major release. The vm-memory
+dependency - which received a major bump - is part of the public interface.
 
 ## Changed
 - Updated vm-memory from 0.12.0 to 0.13.1.
