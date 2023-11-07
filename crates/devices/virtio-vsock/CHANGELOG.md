@@ -1,6 +1,17 @@
 # Upcoming
 
-# v0.3.2
+# v0.4.0
+
+Mostly identical to v0.3.2, which was incorrectly published as minor release.
+
+## Changes
+
+- Update virtio-queue from 0.9.1 to 0.10.0 (same minor/major problems)
+
+# v0.3.2 - yanked
+
+This version got yanked. It should have been a major release. The vm-memory
+dependency - which received a major bump - is part of the public interface.
 
 ## Changes
 

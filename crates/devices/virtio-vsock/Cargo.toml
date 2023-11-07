@@ -1,6 +1,6 @@
 [package]
 name = "virtio-vsock"
-version = "0.3.2"
+version = "0.4.0"
 authors = ["rust-vmm community", "rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 description = "virtio vsock device implementation"
 repository = "https://github.com/rust-vmm/vm-virtio"
