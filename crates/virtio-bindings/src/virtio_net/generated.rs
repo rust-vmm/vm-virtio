@@ -52,6 +52,7 @@ pub const VIRTIO_NET_F_CTRL_RX_EXTRA: u32 = 20;
 pub const VIRTIO_NET_F_GUEST_ANNOUNCE: u32 = 21;
 pub const VIRTIO_NET_F_MQ: u32 = 22;
 pub const VIRTIO_NET_F_CTRL_MAC_ADDR: u32 = 23;
+pub const VIRTIO_NET_F_VQ_NOTF_COAL: u32 = 52;
 pub const VIRTIO_NET_F_NOTF_COAL: u32 = 53;
 pub const VIRTIO_NET_F_GUEST_USO4: u32 = 54;
 pub const VIRTIO_NET_F_GUEST_USO6: u32 = 55;
@@ -121,6 +122,8 @@ pub const VIRTIO_NET_CTRL_GUEST_OFFLOADS_SET: u32 = 0;
 pub const VIRTIO_NET_CTRL_NOTF_COAL: u32 = 6;
 pub const VIRTIO_NET_CTRL_NOTF_COAL_TX_SET: u32 = 0;
 pub const VIRTIO_NET_CTRL_NOTF_COAL_RX_SET: u32 = 1;
+pub const VIRTIO_NET_CTRL_NOTF_COAL_VQ_SET: u32 = 2;
+pub const VIRTIO_NET_CTRL_NOTF_COAL_VQ_GET: u32 = 3;
 pub type __u8 = ::std::os::raw::c_uchar;
 pub type __u16 = ::std::os::raw::c_ushort;
 pub type __u32 = ::std::os::raw::c_uint;
@@ -1091,6 +1094,100 @@ fn bindgen_test_layout_virtio_net_ctrl_coal_rx() {
             stringify!(virtio_net_ctrl_coal_rx),
             "::",
             stringify!(rx_usecs)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_ctrl_coal {
+    pub max_packets: __le32,
+    pub max_usecs: __le32,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_ctrl_coal() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_ctrl_coal> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_ctrl_coal>(),
+        8usize,
+        concat!("Size of: ", stringify!(virtio_net_ctrl_coal))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_ctrl_coal>(),
+        4usize,
+        concat!("Alignment of ", stringify!(virtio_net_ctrl_coal))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).max_packets) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_coal),
+            "::",
+            stringify!(max_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).max_usecs) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_coal),
+            "::",
+            stringify!(max_usecs)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_ctrl_coal_vq {
+    pub vqn: __le16,
+    pub reserved: __le16,
+    pub coal: virtio_net_ctrl_coal,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_ctrl_coal_vq() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_ctrl_coal_vq> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_ctrl_coal_vq>(),
+        12usize,
+        concat!("Size of: ", stringify!(virtio_net_ctrl_coal_vq))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_ctrl_coal_vq>(),
+        4usize,
+        concat!("Alignment of ", stringify!(virtio_net_ctrl_coal_vq))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).vqn) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_coal_vq),
+            "::",
+            stringify!(vqn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).reserved) as usize - ptr as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_coal_vq),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).coal) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_coal_vq),
+            "::",
+            stringify!(coal)
         )
     );
 }
