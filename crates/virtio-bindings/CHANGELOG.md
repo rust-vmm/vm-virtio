@@ -4,6 +4,7 @@
 
 - Exposed virtio_ids.h bindings as a public module.
 - Regnerate bindings with Linux 6.6.
+- Added virtio_input.h bindings.
 
 # v0.2.2
 
