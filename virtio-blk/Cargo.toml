@@ -14,7 +14,7 @@ backend-stdio = []
 
 [dependencies]
 vm-memory = "0.13.1"
-vmm-sys-util = "0.11.0"
+vmm-sys-util = "0.12.1"
 log = "0.4.17"
 virtio-queue = { path = "../virtio-queue" }
 virtio-device = { path = "../virtio-device" }
