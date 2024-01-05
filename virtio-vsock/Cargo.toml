@@ -13,8 +13,8 @@ edition = "2021"
 # The `path` part gets stripped when publishing the crate.
 virtio-queue = { path = "../virtio-queue", version = "0.10.0" }
 virtio-bindings = { path = "../virtio-bindings", version = "0.2.2" }
-vm-memory = "0.13.1"
+vm-memory = "0.14.0"
 
 [dev-dependencies]
 virtio-queue = { path = "../virtio-queue", version = "0.10.0", features = ["test-utils"] }
-vm-memory = { version = "0.13.1", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-atomic"] }
