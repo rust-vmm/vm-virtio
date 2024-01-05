@@ -1,5 +1,11 @@
 # Upcoming
 
+# v0.11.0
+
+## Changed
+- Updated vm-memory from 0.13.1 to 0.14.0
+- Updated vmm-sys-util from 0.11.0 to 0.12.1
+
 # v0.10.0
 
 Identical to v0.9.1, which was incorrectly published as minor release.

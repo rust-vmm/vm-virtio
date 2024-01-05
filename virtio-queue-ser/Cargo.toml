@@ -18,8 +18,8 @@ versionize_derive = "0.1.3"
 # 1:1-relationship between virtio-queue and virtio-queue-ser releases. This is
 # to prevent accidental changes to the serializer output in a patch release of
 # virtio-queue.
-virtio-queue = { path = "../virtio-queue", version = "=0.10.0" }
+virtio-queue = { path = "../virtio-queue", version = "=0.11.0" }
 vm-memory = "0.14.0"
 
 [dev-dependencies]
-virtio-queue = { path = "../virtio-queue", version = "=0.10.0", features = ["test-utils"] }
+virtio-queue = { path = "../virtio-queue", version = "=0.11.0", features = ["test-utils"] }
