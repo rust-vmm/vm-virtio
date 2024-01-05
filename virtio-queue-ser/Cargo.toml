@@ -1,6 +1,6 @@
 [package]
 name = "virtio-queue-ser"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 description = "Serialization for virtio queue state"
 repository = "https://github.com/rust-vmm/vm-virtio"

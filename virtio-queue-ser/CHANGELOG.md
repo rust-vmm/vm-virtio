@@ -1,5 +1,13 @@
 # Upcoming release
 
+# v0.8.0
+
+## Changed
+
+- Updated vm-memory from 0.13.1 to 0.14.0.
+- Updated virtio-queue from 0.10.0 to 0.11.0.
+- Updated versionize from 0.1.6 to 0.2.0.
+
 # v0.7.0
 
 - Updated virtio-queue from 0.9.1 to 0.10.0.
