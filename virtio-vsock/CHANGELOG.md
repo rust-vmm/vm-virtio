@@ -1,5 +1,12 @@
 # Upcoming
 
+# v0.5.0
+
+## Changes
+
+- Update vm-memory from 0.13.1 to 0.14.0.
+- Update virtio-queue from 0.10.0 to 0.11.0.
+
 # v0.4.0
 
 Mostly identical to v0.3.2, which was incorrectly published as minor release.
