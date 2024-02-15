@@ -6,7 +6,7 @@ description = "virtio queue implementation"
 repository = "https://github.com/rust-vmm/vm-virtio"
 keywords = ["virtio"]
 readme = "README.md"
-license = "Apache-2.0 OR BSD-3-Clause"
+license = "Apache-2.0 AND BSD-3-Clause"
 edition = "2021"
 
 [features]
