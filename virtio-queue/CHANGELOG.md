@@ -1,5 +1,10 @@
 # Upcoming
 
+# v0.12.0
+
+## Added
+- `Reader`/`Writer` classes to iterate over descriptors
+
 # v0.11.0
 
 ## Changed
