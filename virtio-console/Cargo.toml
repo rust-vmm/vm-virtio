@@ -13,9 +13,9 @@ edition = "2021"
 
 [dependencies]
 virtio-bindings = { path = "../virtio-bindings", version = "0.2.2" }
-virtio-queue = { path = "../virtio-queue", version = "0.12.0" }
+virtio-queue = "0.12.0"
 vm-memory = "0.14.0"
 
 [dev-dependencies]
-virtio-queue = { path = "../virtio-queue", version = "0.12.0", features = ["test-utils"] }
+virtio-queue = { version = "0.12.0", features = ["test-utils"] }
 vm-memory = { version = "0.14.0", features = ["backend-mmap"] }
