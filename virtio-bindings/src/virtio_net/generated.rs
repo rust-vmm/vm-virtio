@@ -52,6 +52,7 @@ pub const VIRTIO_NET_F_CTRL_RX_EXTRA: u32 = 20;
 pub const VIRTIO_NET_F_GUEST_ANNOUNCE: u32 = 21;
 pub const VIRTIO_NET_F_MQ: u32 = 22;
 pub const VIRTIO_NET_F_CTRL_MAC_ADDR: u32 = 23;
+pub const VIRTIO_NET_F_DEVICE_STATS: u32 = 50;
 pub const VIRTIO_NET_F_VQ_NOTF_COAL: u32 = 52;
 pub const VIRTIO_NET_F_NOTF_COAL: u32 = 53;
 pub const VIRTIO_NET_F_GUEST_USO4: u32 = 54;
@@ -124,11 +125,34 @@ pub const VIRTIO_NET_CTRL_NOTF_COAL_TX_SET: u32 = 0;
 pub const VIRTIO_NET_CTRL_NOTF_COAL_RX_SET: u32 = 1;
 pub const VIRTIO_NET_CTRL_NOTF_COAL_VQ_SET: u32 = 2;
 pub const VIRTIO_NET_CTRL_NOTF_COAL_VQ_GET: u32 = 3;
+pub const VIRTIO_NET_CTRL_STATS: u32 = 8;
+pub const VIRTIO_NET_CTRL_STATS_QUERY: u32 = 0;
+pub const VIRTIO_NET_CTRL_STATS_GET: u32 = 1;
+pub const VIRTIO_NET_STATS_TYPE_CVQ: u64 = 4294967296;
+pub const VIRTIO_NET_STATS_TYPE_RX_BASIC: u32 = 1;
+pub const VIRTIO_NET_STATS_TYPE_RX_CSUM: u32 = 2;
+pub const VIRTIO_NET_STATS_TYPE_RX_GSO: u32 = 4;
+pub const VIRTIO_NET_STATS_TYPE_RX_SPEED: u32 = 8;
+pub const VIRTIO_NET_STATS_TYPE_TX_BASIC: u32 = 65536;
+pub const VIRTIO_NET_STATS_TYPE_TX_CSUM: u32 = 131072;
+pub const VIRTIO_NET_STATS_TYPE_TX_GSO: u32 = 262144;
+pub const VIRTIO_NET_STATS_TYPE_TX_SPEED: u32 = 524288;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_CVQ: u32 = 32;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_RX_BASIC: u32 = 0;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_RX_CSUM: u32 = 1;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_RX_GSO: u32 = 2;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_RX_SPEED: u32 = 3;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_TX_BASIC: u32 = 16;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_TX_CSUM: u32 = 17;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_TX_GSO: u32 = 18;
+pub const VIRTIO_NET_STATS_TYPE_REPLY_TX_SPEED: u32 = 19;
 pub type __u8 = ::std::os::raw::c_uchar;
 pub type __u16 = ::std::os::raw::c_ushort;
 pub type __u32 = ::std::os::raw::c_uint;
+pub type __u64 = ::std::os::raw::c_ulonglong;
 pub type __le16 = __u16;
 pub type __le32 = __u32;
+pub type __le64 = __u64;
 pub type __virtio16 = __u16;
 pub type __virtio32 = __u32;
 #[repr(C, packed)]
@@ -1188,6 +1212,854 @@ fn bindgen_test_layout_virtio_net_ctrl_coal_vq() {
             stringify!(virtio_net_ctrl_coal_vq),
             "::",
             stringify!(coal)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_capabilities {
+    pub supported_stats_types: [__le64; 1usize],
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_capabilities() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_capabilities> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_capabilities>(),
+        8usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_capabilities))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_capabilities>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_capabilities))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).supported_stats_types) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_capabilities),
+            "::",
+            stringify!(supported_stats_types)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_ctrl_queue_stats {
+    pub stats: [virtio_net_ctrl_queue_stats__bindgen_ty_1; 1usize],
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_ctrl_queue_stats__bindgen_ty_1 {
+    pub vq_index: __le16,
+    pub reserved: [__le16; 3usize],
+    pub types_bitmap: [__le64; 1usize],
+}
+#[test]
+fn bindgen_test_layout_virtio_net_ctrl_queue_stats__bindgen_ty_1() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_ctrl_queue_stats__bindgen_ty_1> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_ctrl_queue_stats__bindgen_ty_1>(),
+        16usize,
+        concat!(
+            "Size of: ",
+            stringify!(virtio_net_ctrl_queue_stats__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_ctrl_queue_stats__bindgen_ty_1>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(virtio_net_ctrl_queue_stats__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).vq_index) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_queue_stats__bindgen_ty_1),
+            "::",
+            stringify!(vq_index)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).reserved) as usize - ptr as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_queue_stats__bindgen_ty_1),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).types_bitmap) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_queue_stats__bindgen_ty_1),
+            "::",
+            stringify!(types_bitmap)
+        )
+    );
+}
+#[test]
+fn bindgen_test_layout_virtio_net_ctrl_queue_stats() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_ctrl_queue_stats> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_ctrl_queue_stats>(),
+        16usize,
+        concat!("Size of: ", stringify!(virtio_net_ctrl_queue_stats))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_ctrl_queue_stats>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_ctrl_queue_stats))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).stats) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_ctrl_queue_stats),
+            "::",
+            stringify!(stats)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_reply_hdr {
+    pub type_: __u8,
+    pub reserved: __u8,
+    pub vq_index: __le16,
+    pub reserved1: __le16,
+    pub size: __le16,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_reply_hdr() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_reply_hdr> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_reply_hdr>(),
+        8usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_reply_hdr))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_reply_hdr>(),
+        2usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_reply_hdr))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).type_) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_reply_hdr),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).reserved) as usize - ptr as usize },
+        1usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_reply_hdr),
+            "::",
+            stringify!(reserved)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).vq_index) as usize - ptr as usize },
+        2usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_reply_hdr),
+            "::",
+            stringify!(vq_index)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).reserved1) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_reply_hdr),
+            "::",
+            stringify!(reserved1)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).size) as usize - ptr as usize },
+        6usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_reply_hdr),
+            "::",
+            stringify!(size)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_cvq {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub command_num: __le64,
+    pub ok_num: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_cvq() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_cvq> = ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_cvq>(),
+        24usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_cvq))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_cvq>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_cvq))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_cvq),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).command_num) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_cvq),
+            "::",
+            stringify!(command_num)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ok_num) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_cvq),
+            "::",
+            stringify!(ok_num)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_rx_basic {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub rx_notifications: __le64,
+    pub rx_packets: __le64,
+    pub rx_bytes: __le64,
+    pub rx_interrupts: __le64,
+    pub rx_drops: __le64,
+    pub rx_drop_overruns: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_rx_basic() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_rx_basic> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_rx_basic>(),
+        56usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_rx_basic))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_rx_basic>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_rx_basic))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_notifications) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_notifications)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_packets) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_bytes) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_interrupts) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_interrupts)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_drops) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_drops)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_drop_overruns) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_basic),
+            "::",
+            stringify!(rx_drop_overruns)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_tx_basic {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub tx_notifications: __le64,
+    pub tx_packets: __le64,
+    pub tx_bytes: __le64,
+    pub tx_interrupts: __le64,
+    pub tx_drops: __le64,
+    pub tx_drop_malformed: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_tx_basic() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_tx_basic> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_tx_basic>(),
+        56usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_tx_basic))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_tx_basic>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_tx_basic))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_notifications) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_notifications)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_packets) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_bytes) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_interrupts) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_interrupts)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_drops) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_drops)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_drop_malformed) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_basic),
+            "::",
+            stringify!(tx_drop_malformed)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_rx_csum {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub rx_csum_valid: __le64,
+    pub rx_needs_csum: __le64,
+    pub rx_csum_none: __le64,
+    pub rx_csum_bad: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_rx_csum() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_rx_csum> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_rx_csum>(),
+        40usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_rx_csum))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_rx_csum>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_rx_csum))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_csum),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_csum_valid) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_csum),
+            "::",
+            stringify!(rx_csum_valid)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_needs_csum) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_csum),
+            "::",
+            stringify!(rx_needs_csum)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_csum_none) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_csum),
+            "::",
+            stringify!(rx_csum_none)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_csum_bad) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_csum),
+            "::",
+            stringify!(rx_csum_bad)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_tx_csum {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub tx_csum_none: __le64,
+    pub tx_needs_csum: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_tx_csum() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_tx_csum> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_tx_csum>(),
+        24usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_tx_csum))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_tx_csum>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_tx_csum))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_csum),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_csum_none) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_csum),
+            "::",
+            stringify!(tx_csum_none)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_needs_csum) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_csum),
+            "::",
+            stringify!(tx_needs_csum)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_rx_gso {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub rx_gso_packets: __le64,
+    pub rx_gso_bytes: __le64,
+    pub rx_gso_packets_coalesced: __le64,
+    pub rx_gso_bytes_coalesced: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_rx_gso() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_rx_gso> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_rx_gso>(),
+        40usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_rx_gso))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_rx_gso>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_rx_gso))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_gso),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_gso_packets) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_gso),
+            "::",
+            stringify!(rx_gso_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_gso_bytes) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_gso),
+            "::",
+            stringify!(rx_gso_bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_gso_packets_coalesced) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_gso),
+            "::",
+            stringify!(rx_gso_packets_coalesced)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_gso_bytes_coalesced) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_gso),
+            "::",
+            stringify!(rx_gso_bytes_coalesced)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_tx_gso {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub tx_gso_packets: __le64,
+    pub tx_gso_bytes: __le64,
+    pub tx_gso_segments: __le64,
+    pub tx_gso_segments_bytes: __le64,
+    pub tx_gso_packets_noseg: __le64,
+    pub tx_gso_bytes_noseg: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_tx_gso() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_tx_gso> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_tx_gso>(),
+        56usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_tx_gso))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_tx_gso>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_tx_gso))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_packets) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_bytes) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_segments) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_segments)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_segments_bytes) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_segments_bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_packets_noseg) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_packets_noseg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_gso_bytes_noseg) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_gso),
+            "::",
+            stringify!(tx_gso_bytes_noseg)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_rx_speed {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub rx_ratelimit_packets: __le64,
+    pub rx_ratelimit_bytes: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_rx_speed() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_rx_speed> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_rx_speed>(),
+        24usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_rx_speed))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_rx_speed>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_rx_speed))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_speed),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_ratelimit_packets) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_speed),
+            "::",
+            stringify!(rx_ratelimit_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).rx_ratelimit_bytes) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_rx_speed),
+            "::",
+            stringify!(rx_ratelimit_bytes)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct virtio_net_stats_tx_speed {
+    pub hdr: virtio_net_stats_reply_hdr,
+    pub tx_ratelimit_packets: __le64,
+    pub tx_ratelimit_bytes: __le64,
+}
+#[test]
+fn bindgen_test_layout_virtio_net_stats_tx_speed() {
+    const UNINIT: ::std::mem::MaybeUninit<virtio_net_stats_tx_speed> =
+        ::std::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::std::mem::size_of::<virtio_net_stats_tx_speed>(),
+        24usize,
+        concat!("Size of: ", stringify!(virtio_net_stats_tx_speed))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<virtio_net_stats_tx_speed>(),
+        8usize,
+        concat!("Alignment of ", stringify!(virtio_net_stats_tx_speed))
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).hdr) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_speed),
+            "::",
+            stringify!(hdr)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_ratelimit_packets) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_speed),
+            "::",
+            stringify!(tx_ratelimit_packets)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tx_ratelimit_bytes) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(virtio_net_stats_tx_speed),
+            "::",
+            stringify!(tx_ratelimit_bytes)
         )
     );
 }
