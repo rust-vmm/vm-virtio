@@ -191,7 +191,7 @@ impl Queue {
 
     // Helper method that writes `val` to the `avail_event` field of the used ring, using
     // the provided ordering.
-    fn set_avail_event<M: GuestMemory>(
+    fn set_avail_event<M: GuestMemory + ?Sized>(
         &self,
         mem: &M,
         val: u16,
@@ -211,7 +211,7 @@ impl Queue {
     }
 
     // Set the value of the `flags` field of the used ring, applying the specified ordering.
-    fn set_used_flags<M: GuestMemory>(
+    fn set_used_flags<M: GuestMemory + ?Sized>(
         &mut self,
         mem: &M,
         val: u16,
@@ -225,7 +225,11 @@ impl Queue {
     //
     // Every access in this method uses `Relaxed` ordering because a fence is added by the caller
     // when appropriate.
-    fn set_notification<M: GuestMemory>(&mut self, mem: &M, enable: bool) -> Result<(), Error> {
+    fn set_notification<M: GuestMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+        enable: bool,
+    ) -> Result<(), Error> {
         if enable {
             if self.event_idx_enabled {
                 // We call `set_avail_event` using the `next_avail` value, instead of reading
@@ -254,7 +258,11 @@ impl Queue {
     // Neither of these interrupt suppression methods are reliable, as they are not synchronized
     // with the device, but they serve as useful optimizations. So we only ensure access to the
     // virtq_avail.used_event is atomic, but do not need to synchronize with other memory accesses.
-    fn used_event<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn used_event<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error> {
         // This can not overflow an u64 since it is working with relatively small numbers compared
         // to u64::MAX.
         let used_event_offset =
@@ -296,7 +304,7 @@ impl QueueT for Queue {
         })
     }
 
-    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
+    fn is_valid<M: GuestMemory + ?Sized>(&self, mem: &M) -> bool {
         let queue_size = self.size as u64;
         let desc_table = self.desc_table;
         // The multiplication can not overflow an u64 since we are multiplying an u16 with a
@@ -419,10 +427,11 @@ impl QueueT for Queue {
         self.event_idx_enabled = enabled;
     }
 
-    fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
-    where
-        M: GuestMemory + ?Sized,
-    {
+    fn avail_idx<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error> {
         let addr = self
             .avail_ring
             .checked_add(2)
@@ -434,7 +443,11 @@ impl QueueT for Queue {
             .map_err(Error::GuestMemory)
     }
 
-    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn used_idx<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error> {
         let addr = self
             .used_ring
             .checked_add(2)
@@ -446,7 +459,7 @@ impl QueueT for Queue {
             .map_err(Error::GuestMemory)
     }
 
-    fn add_used<M: GuestMemory>(
+    fn add_used<M: GuestMemory + ?Sized>(
         &mut self,
         mem: &M,
         head_index: u16,
@@ -504,7 +517,7 @@ impl QueueT for Queue {
     //         break;
     //     }
     // }
-    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
+    fn enable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error> {
         self.set_notification(mem, true)?;
         // Ensures the following read is not reordered before any previous write operation.
         fence(Ordering::SeqCst);
@@ -519,11 +532,11 @@ impl QueueT for Queue {
             .map(|idx| idx != self.next_avail)
     }
 
-    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error> {
+    fn disable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<(), Error> {
         self.set_notification(mem, false)
     }
 
-    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
+    fn needs_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error> {
         let used_idx = self.next_used;
 
         // Complete all the writes in add_used() before reading the event.

@@ -162,7 +162,7 @@ impl<'a, B: BitmapSlice> Reader<'a, B> {
         M: GuestMemory,
         <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
         T: Deref,
-        T::Target: GuestMemory + Sized,
+        T::Target: GuestMemory,
     {
         let mut total_len: usize = 0;
         let buffers = desc_chain
@@ -274,7 +274,7 @@ impl<'a, B: BitmapSlice> Writer<'a, B> {
         M: GuestMemory,
         <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
         T: Deref,
-        T::Target: GuestMemory + Sized,
+        T::Target: GuestMemory,
     {
         let mut total_len: usize = 0;
         let buffers = desc_chain

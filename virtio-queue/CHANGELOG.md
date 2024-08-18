@@ -5,6 +5,9 @@
 ## Added
 - `Reader`/`Writer` classes to iterate over descriptors
 
+### Changed
+- `Queue` accepts memory representation without `Sized`.
+
 # v0.11.0
 
 ## Changed

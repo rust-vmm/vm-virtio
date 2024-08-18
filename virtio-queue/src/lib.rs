@@ -146,7 +146,7 @@ pub trait QueueT: for<'a> QueueGuard<'a> {
         Self: Sized;
 
     /// Check whether the queue configuration is valid.
-    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool;
+    fn is_valid<M: GuestMemory + ?Sized>(&self, mem: &M) -> bool;
 
     /// Reset the queue to the initial state.
     fn reset(&mut self);
@@ -198,30 +198,40 @@ pub trait QueueT: for<'a> QueueGuard<'a> {
     /// # Panics
     ///
     /// Panics if order is Release or AcqRel.
-    fn avail_idx<M>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>
-    where
-        M: GuestMemory + ?Sized;
+    fn avail_idx<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error>;
 
     /// Read the `idx` field from the used ring.
     ///
     /// # Panics
     ///
     /// Panics if order is Release or AcqRel.
-    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error>;
+    fn used_idx<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error>;
 
     /// Put a used descriptor head into the used ring.
-    fn add_used<M: GuestMemory>(&mut self, mem: &M, head_index: u16, len: u32)
-        -> Result<(), Error>;
+    fn add_used<M: GuestMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+        head_index: u16,
+        len: u32,
+    ) -> Result<(), Error>;
 
     /// Enable notification events from the guest driver.
     ///
     /// Return true if one or more descriptors can be consumed from the available ring after
     /// notifications were enabled (and thus it's possible there will be no corresponding
     /// notification).
-    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
+    fn enable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error>;
 
     /// Disable notification events from the guest driver.
-    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error>;
+    fn disable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<(), Error>;
 
     /// Check whether a notification to the guest is needed.
     ///
@@ -229,7 +239,7 @@ pub trait QueueT: for<'a> QueueGuard<'a> {
     /// driver will actually be notified, remember the associated index in the used ring, and
     /// won't return `true` again until the driver updates `used_event` and/or the notification
     /// conditions hold once more.
-    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error>;
+    fn needs_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error>;
 
     /// Return the index of the next entry in the available ring.
     fn next_avail(&self) -> u16;
