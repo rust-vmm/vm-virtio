@@ -20,7 +20,7 @@ memfd = "0.6.3"
 virtio-queue = { path = "../virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../virtio-vsock" }
 virtio-queue-ser = { path = "../virtio-queue-ser" }
-vm-memory = { version = "0.14.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-atomic"] }
 common = { path = "common" }
 virtio-blk = { path = "../virtio-blk", features = ["backend-stdio"] }
 
