@@ -1,5 +1,7 @@
 # Upcoming
 
+# v0.7.0
+
 ## Changed
 
 - Updated virtio-bindings from 0.2.2 to 0.2.3.
