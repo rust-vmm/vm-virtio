@@ -1,5 +1,7 @@
 # Upcoming Release
 
+# v0.2.3
+
 ## Added
 
 - Exposed virtio_ids.h bindings as a public module.
