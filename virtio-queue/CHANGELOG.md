@@ -1,7 +1,10 @@
 # Upcoming
 
+# v0.13.0
+
 ## Changed
 
+- Updated vm-memory from 0.14.0 to 0.15.0
 - Updated virtio-bindings from 0.2.2 to 0.2.3.
 
 # v0.12.0

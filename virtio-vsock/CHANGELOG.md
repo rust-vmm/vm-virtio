@@ -3,6 +3,8 @@
 ## Changed
 
 - Updated virtio-bindings from 0.2.2 to 0.2.3.
+- Updated virtio-queue from 0.12.0 to 0.13.0.
+- Updated vm-memory from 0.14.0 to 0.15.0.
 
 # v0.6.0
 
