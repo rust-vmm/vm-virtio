@@ -1,5 +1,7 @@
 # Upcoming release
 
+# v0.10.0
+
 ## Changed
 
 - Updated virtio-queue from 0.12.0 to 0.13.0.
