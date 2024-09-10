@@ -18,7 +18,7 @@ vmm-sys-util = "0.12.1"
 log = "0.4.17"
 virtio-queue = { path = "../virtio-queue" }
 virtio-device = { path = "../virtio-device" }
-virtio-bindings = { path = "../virtio-bindings", version = "0.2.2" }
+virtio-bindings = { path = "../virtio-bindings", version = "0.2.3" }
 
 [dev-dependencies]
 vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-atomic"] }
