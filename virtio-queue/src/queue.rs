@@ -484,26 +484,6 @@ impl QueueT for Queue {
         .map_err(Error::GuestMemory)
     }
 
-    // TODO: Turn this into a doc comment/example.
-    // With the current implementation, a common way of consuming entries from the available ring
-    // while also leveraging notification suppression is to use a loop, for example:
-    //
-    // loop {
-    //     // We have to explicitly disable notifications if `VIRTIO_F_EVENT_IDX` has not been
-    //     // negotiated.
-    //     self.disable_notification()?;
-    //
-    //     for chain in self.iter()? {
-    //         // Do something with each chain ...
-    //         // Let's assume we process all available chains here.
-    //     }
-    //
-    //     // If `enable_notification` returns `true`, the driver has added more entries to the
-    //     // available ring.
-    //     if !self.enable_notification()? {
-    //         break;
-    //     }
-    // }
     fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
         self.set_notification(mem, true)?;
         // Ensures the following read is not reordered before any previous write operation.
