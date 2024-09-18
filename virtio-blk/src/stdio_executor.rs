@@ -246,7 +246,7 @@ impl<B: Backend> StdIoBackend<B> {
     /// # Arguments
     /// * `mem` - A reference to the guest memory.
     /// * `request` - The request to execute.
-    pub fn process_request<M: GuestMemory>(
+    pub fn process_request<M: GuestMemory + ?Sized>(
         &mut self,
         mem: &M,
         request: &Request,
@@ -301,7 +301,7 @@ impl<B: Backend> StdIoBackend<B> {
     /// # Arguments
     /// * `mem` - A reference to the guest memory.
     /// * `request` - The request to execute.
-    pub fn execute<M: GuestMemory>(&mut self, mem: &M, request: &Request) -> Result<u32> {
+    pub fn execute<M: GuestMemory + ?Sized>(&mut self, mem: &M, request: &Request) -> Result<u32> {
         let offset = request
             .sector()
             .checked_shl(u32::from(SECTOR_SHIFT))

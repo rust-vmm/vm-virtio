@@ -60,7 +60,7 @@ impl QueueT for QueueSync {
         })
     }
 
-    fn is_valid<M: GuestMemory>(&self, mem: &M) -> bool {
+    fn is_valid<M: GuestMemory + ?Sized>(&self, mem: &M) -> bool {
         self.lock_state().is_valid(mem)
     }
 
@@ -115,11 +115,15 @@ impl QueueT for QueueSync {
         self.lock_state().avail_idx(mem, order)
     }
 
-    fn used_idx<M: GuestMemory>(&self, mem: &M, order: Ordering) -> Result<Wrapping<u16>, Error> {
+    fn used_idx<M: GuestMemory + ?Sized>(
+        &self,
+        mem: &M,
+        order: Ordering,
+    ) -> Result<Wrapping<u16>, Error> {
         self.lock_state().used_idx(mem, order)
     }
 
-    fn add_used<M: GuestMemory>(
+    fn add_used<M: GuestMemory + ?Sized>(
         &mut self,
         mem: &M,
         head_index: u16,
@@ -128,15 +132,15 @@ impl QueueT for QueueSync {
         self.lock_state().add_used(mem, head_index, len)
     }
 
-    fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
+    fn enable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error> {
         self.lock_state().enable_notification(mem)
     }
 
-    fn disable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<(), Error> {
+    fn disable_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<(), Error> {
         self.lock_state().disable_notification(mem)
     }
 
-    fn needs_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
+    fn needs_notification<M: GuestMemory + ?Sized>(&mut self, mem: &M) -> Result<bool, Error> {
         self.lock_state().needs_notification(mem)
     }
 
