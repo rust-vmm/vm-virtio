@@ -13,4 +13,4 @@ virtio-queue = { path = "../../virtio-queue", features = ["test-utils"] }
 virtio-vsock = { path = "../../virtio-vsock" }
 virtio-queue-ser = { path = "../../virtio-queue-ser" }
 virtio-blk = { path = "../../virtio-blk" }
-vm-memory = { version = "0.15.0", features = ["backend-mmap", "backend-atomic"] }
+vm-memory = { version = "0.16.0", features = ["backend-mmap", "backend-atomic"] }
