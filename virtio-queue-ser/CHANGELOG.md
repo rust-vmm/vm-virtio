@@ -1,5 +1,10 @@
 # Upcoming release
 
+## Changed
+
+- Updated vm-memory from 0.15.0 to 0.16.0.
+- Updated virtio-queue from 0.13.0 to 0.14.0.
+
 # v0.10.0
 
 ## Changed
