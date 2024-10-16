@@ -1,5 +1,7 @@
 # Upcoming release
 
+# v0.11.0
+
 ## Changed
 
 - Updated vm-memory from 0.15.0 to 0.16.0.
