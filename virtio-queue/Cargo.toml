@@ -16,7 +16,7 @@ test-utils = []
 vm-memory = { workspace = true }
 vmm-sys-util = { workspace = true }
 log = "0.4.17"
-virtio-bindings = { path="../virtio-bindings", version = "0.2.3" }
+virtio-bindings = { path="../virtio-bindings", version = "0.2.4" }
 
 [dev-dependencies]
 criterion = "0.5.1"

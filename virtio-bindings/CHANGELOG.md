@@ -1,5 +1,7 @@
 # Upcoming Release
 
+# v0.2.4
+
 ## Changed
 
 - Regenerate bindings with bindgen 0.70.1.
