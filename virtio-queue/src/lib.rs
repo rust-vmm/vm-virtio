@@ -30,6 +30,7 @@ pub use self::queue_sync::QueueSync;
 pub use self::state::QueueState;
 
 pub mod defs;
+pub mod desc;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
 
