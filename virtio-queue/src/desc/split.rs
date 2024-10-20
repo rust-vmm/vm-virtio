@@ -17,6 +17,46 @@ use virtio_bindings::bindings::virtio_ring::{
     VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT, VRING_DESC_F_WRITE,
 };
 
+/// A virtio descriptor constraints with C representation.
+///
+/// # Example
+///
+/// ```rust
+/// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
+/// # use virtio_queue::mock::MockSplitQueue;
+/// use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueOwnedT};
+/// use vm_memory::{GuestAddress, GuestMemoryMmap};
+///
+/// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
+/// #    let vq = MockSplitQueue::new(m, 16);
+/// #    let mut q = vq.create_queue().unwrap();
+/// #
+/// #    // We have only one chain: (0, 1).
+/// #    let desc = RawDescriptor::from(SplitDescriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1));
+/// #    vq.desc_table().store(0, desc);
+/// #    let desc = RawDescriptor::from(SplitDescriptor::new(0x2000, 0x1000, VRING_DESC_F_WRITE as u16, 0));
+/// #    vq.desc_table().store(1, desc);
+/// #
+/// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
+/// #    vq.avail().idx().store(u16::to_le(1));
+/// #    q
+/// # }
+/// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+/// // Populate the queue with descriptor chains and update the available ring accordingly.
+/// let mut queue = populate_queue(m);
+/// let mut i = queue.iter(m).unwrap();
+/// let mut c = i.next().unwrap();
+///
+/// // Get the first descriptor and access its fields.
+/// let desc = c.next().unwrap();
+/// let _addr = desc.addr();
+/// let _len = desc.len();
+/// let _flags = desc.flags();
+/// let _next = desc.next();
+/// let _is_write_only = desc.is_write_only();
+/// let _has_next = desc.has_next();
+/// let _refers_to_ind_table = desc.refers_to_indirect_table();
+/// ```
 /// A virtio split descriptor constraints with C representation.
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
