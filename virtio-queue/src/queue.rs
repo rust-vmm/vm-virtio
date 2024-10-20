@@ -19,10 +19,8 @@ use crate::defs::{
     VIRTQ_AVAIL_ELEMENT_SIZE, VIRTQ_AVAIL_RING_HEADER_SIZE, VIRTQ_AVAIL_RING_META_SIZE,
     VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_RING_HEADER_SIZE, VIRTQ_USED_RING_META_SIZE,
 };
-use crate::{
-    error, Descriptor, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueState, QueueT,
-    VirtqUsedElem,
-};
+use crate::desc::{split::VirtqUsedElem, RawDescriptor};
+use crate::{error, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueState, QueueT};
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 
 /// The maximum queue size as defined in the Virtio Spec.
@@ -301,7 +299,7 @@ impl QueueT for Queue {
         let desc_table = self.desc_table;
         // The multiplication can not overflow an u64 since we are multiplying an u16 with a
         // small number.
-        let desc_table_size = size_of::<Descriptor>() as u64 * queue_size;
+        let desc_table_size = size_of::<RawDescriptor>() as u64 * queue_size;
         let avail_ring = self.avail_ring;
         // The operations below can not overflow an u64 since they're working with relatively small
         // numbers compared to u64::MAX.
@@ -614,7 +612,7 @@ impl QueueOwnedT for Queue {
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, Queue, QueueOwnedT};
+/// use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
 /// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
@@ -631,7 +629,7 @@ impl QueueOwnedT for Queue {
 /// #            _ => VRING_DESC_F_NEXT,
 /// #        };
 /// #
-/// #        descs.push(Descriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1));
+/// #        descs.push(RawDescriptor::from(SplitDescriptor::new((0x1000 * (i + 1)) as u64, 0x1000, flags as u16, i + 1)));
 /// #    }
 /// #
 /// #    vq.add_desc_chains(&descs, 0).unwrap();
@@ -780,8 +778,8 @@ impl PartialEq for Error {
 mod tests {
     use super::*;
     use crate::defs::{DEFAULT_AVAIL_RING_ADDR, DEFAULT_DESC_TABLE_ADDR, DEFAULT_USED_RING_ADDR};
+    use crate::desc::{split::Descriptor as SplitDescriptor, RawDescriptor};
     use crate::mock::MockSplitQueue;
-    use crate::Descriptor;
     use virtio_bindings::bindings::virtio_ring::{
         VRING_DESC_F_NEXT, VRING_DESC_F_WRITE, VRING_USED_F_NO_NOTIFY,
     };
@@ -1065,12 +1063,12 @@ mod tests {
                 _ => VRING_DESC_F_NEXT,
             };
 
-            descs.push(Descriptor::new(
+            descs.push(RawDescriptor::from(SplitDescriptor::new(
                 (0x1000 * (i + 1)) as u64,
                 0x1000,
                 flags as u16,
                 i + 1,
-            ));
+            )));
         }
 
         vq.add_desc_chains(&descs, 0).unwrap();
@@ -1191,12 +1189,12 @@ mod tests {
                 _ => VRING_DESC_F_NEXT,
             };
 
-            descs.push(Descriptor::new(
+            descs.push(RawDescriptor::from(SplitDescriptor::new(
                 (0x1000 * (i + 1)) as u64,
                 0x1000,
                 flags as u16,
                 i + 1,
-            ));
+            )));
         }
 
         vq.add_desc_chains(&descs, 0).unwrap();
@@ -1256,12 +1254,12 @@ mod tests {
         // Create descriptors to fill up the queue
         let mut descs = Vec::new();
         for i in 0..queue_size {
-            descs.push(Descriptor::new(
+            descs.push(RawDescriptor::from(SplitDescriptor::new(
                 (0x1000 * (i + 1)) as u64,
                 0x1000,
                 0_u16,
                 i + 1,
-            ));
+            )));
         }
         vq.add_desc_chains(&descs, 0).unwrap();
 
@@ -1304,12 +1302,12 @@ mod tests {
                 _ => VRING_DESC_F_NEXT,
             };
 
-            descs.push(Descriptor::new(
+            descs.push(RawDescriptor::from(SplitDescriptor::new(
                 (0x1000 * (j + 1)) as u64,
                 0x1000,
                 flags as u16,
                 j + 1,
-            ));
+            )));
         }
 
         vq.add_desc_chains(&descs, 0).unwrap();
@@ -1380,12 +1378,12 @@ mod tests {
                     _ => VRING_DESC_F_NEXT,
                 };
 
-                descs.push(Descriptor::new(
+                descs.push(RawDescriptor::from(SplitDescriptor::new(
                     (0x1000 * (j + 1)) as u64,
                     0x1000,
                     flags as u16,
                     j + 1,
-                ));
+                )));
             }
             vq.add_desc_chains(&descs, 0).unwrap();
 
@@ -1430,8 +1428,13 @@ mod tests {
         // total)
         {
             let descs = vec![
-                Descriptor::new(0x1000, 0xffff_ffff, VRING_DESC_F_NEXT as u16, 1),
-                Descriptor::new(0x1000, 0x1234_5678, 0, 2),
+                RawDescriptor::from(SplitDescriptor::new(
+                    0x1000,
+                    0xffff_ffff,
+                    VRING_DESC_F_NEXT as u16,
+                    1,
+                )),
+                RawDescriptor::from(SplitDescriptor::new(0x1000, 0x1234_5678, 0, 2)),
             ];
             vq.add_desc_chains(&descs, 0).unwrap();
             let mut yielded_bytes_by_iteration = 0_u32;
@@ -1444,12 +1447,12 @@ mod tests {
 
         // Same as above, but test with a descriptor which is self-referential
         {
-            let descs = vec![Descriptor::new(
+            let descs = vec![RawDescriptor::from(SplitDescriptor::new(
                 0x1000,
                 0xffff_ffff,
                 VRING_DESC_F_NEXT as u16,
                 0,
-            )];
+            ))];
             vq.add_desc_chains(&descs, 0).unwrap();
             let mut yielded_bytes_by_iteration = 0_u32;
             for d in q.iter(m).unwrap().next().unwrap() {
@@ -1467,12 +1470,12 @@ mod tests {
         let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(m, 1);
         // This input was generated by the fuzzer, both for the QueueS and the Descriptor
-        let descriptors: Vec<Descriptor> = vec![Descriptor::new(
+        let descriptors: Vec<RawDescriptor> = vec![RawDescriptor::from(SplitDescriptor::new(
             14178673876262995140,
             3301229764,
             50372,
             50372,
-        )];
+        ))];
         vq.build_desc_chain(&descriptors).unwrap();
 
         let mut q = Queue {
@@ -1534,14 +1537,19 @@ mod tests {
         let vq = MockSplitQueue::new(m, 1024);
 
         // This input below was generated by the fuzzer.
-        let descriptors: Vec<Descriptor> = vec![
-            Descriptor::new(21508325467, 0, 1, 4),
-            Descriptor::new(2097152, 4096, 3, 0),
-            Descriptor::new(18374686479672737792, 4294967295, 65535, 29),
-            Descriptor::new(76842670169653248, 1114115, 0, 0),
-            Descriptor::new(16, 983040, 126, 3),
-            Descriptor::new(897648164864, 0, 0, 0),
-            Descriptor::new(111669149722, 0, 0, 0),
+        let descriptors: Vec<RawDescriptor> = vec![
+            RawDescriptor::from(SplitDescriptor::new(21508325467, 0, 1, 4)),
+            RawDescriptor::from(SplitDescriptor::new(2097152, 4096, 3, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                18374686479672737792,
+                4294967295,
+                65535,
+                29,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(76842670169653248, 1114115, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(16, 983040, 126, 3)),
+            RawDescriptor::from(SplitDescriptor::new(897648164864, 0, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(111669149722, 0, 0, 0)),
         ];
         vq.build_multiple_desc_chains(&descriptors).unwrap();
 

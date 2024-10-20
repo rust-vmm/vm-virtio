@@ -17,7 +17,7 @@ use std::ops::Deref;
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion};
 
-use crate::{Descriptor, Error, Reader, Writer};
+use crate::{desc::split::Descriptor, Error, Reader, Writer};
 use virtio_bindings::bindings::virtio_ring::VRING_DESC_ALIGN_SIZE;
 
 /// A virtio descriptor chain.
@@ -253,6 +253,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desc::{split::Descriptor as SplitDescriptor, RawDescriptor};
     use crate::mock::{DescriptorTable, MockSplitQueue};
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_INDIRECT, VRING_DESC_F_NEXT};
     use vm_memory::GuestMemoryMmap;
@@ -281,7 +282,12 @@ mod tests {
         {
             // the first desc has a normal len, and the next_descriptor flag is set
             // but the the index of the next descriptor is too large
-            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 16);
+            let desc = RawDescriptor::from(SplitDescriptor::new(
+                0x1000,
+                0x1000,
+                VRING_DESC_F_NEXT as u16,
+                16,
+            ));
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
@@ -291,10 +297,15 @@ mod tests {
 
         // finally, let's test an ok chain
         {
-            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
+            let desc = RawDescriptor::from(SplitDescriptor::new(
+                0x1000,
+                0x1000,
+                VRING_DESC_F_NEXT as u16,
+                1,
+            ));
             vq.desc_table().store(0, desc).unwrap();
 
-            let desc = Descriptor::new(0x2000, 0x1000, 0, 0);
+            let desc = RawDescriptor::from(SplitDescriptor::new(0x2000, 0x1000, 0, 0));
             vq.desc_table().store(1, desc).unwrap();
 
             let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), 16, 0);
@@ -333,15 +344,15 @@ mod tests {
         // Populate the entire descriptor table with entries. Only the last one should not have the
         // VIRTQ_DESC_F_NEXT set.
         for i in 0..QUEUE_SIZE - 1 {
-            let desc = Descriptor::new(
+            let desc = RawDescriptor::from(SplitDescriptor::new(
                 0x1000 * (i + 1) as u64,
                 0x1000,
                 VRING_DESC_F_NEXT as u16,
                 i + 1,
-            );
+            ));
             vq.desc_table().store(i, desc).unwrap();
         }
-        let desc = Descriptor::new((0x1000 * 16) as u64, 0x1000, 0, 0);
+        let desc = RawDescriptor::from(SplitDescriptor::new((0x1000 * 16) as u64, 0x1000, 0, 0));
         vq.desc_table().store(QUEUE_SIZE - 1, desc).unwrap();
 
         let mut c = DescriptorChain::<&GuestMemoryMmap>::new(m, vq.start(), QUEUE_SIZE, 0);
@@ -366,18 +377,23 @@ mod tests {
         let dtable = vq.desc_table();
 
         // Create a chain with one normal descriptor and one pointing to an indirect table.
-        let desc = Descriptor::new(0x6000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
+        let desc = RawDescriptor::from(SplitDescriptor::new(
+            0x6000,
+            0x1000,
+            VRING_DESC_F_NEXT as u16,
+            1,
+        ));
         dtable.store(0, desc).unwrap();
         // The spec forbids setting both VIRTQ_DESC_F_INDIRECT and VIRTQ_DESC_F_NEXT in flags. We do
         // not currently enforce this rule, we just ignore the VIRTQ_DESC_F_NEXT flag.
-        let desc = Descriptor::new(
+        let desc = RawDescriptor::from(SplitDescriptor::new(
             0x7000,
             0x1000,
             (VRING_DESC_F_INDIRECT | VRING_DESC_F_NEXT) as u16,
             2,
-        );
+        ));
         dtable.store(1, desc).unwrap();
-        let desc = Descriptor::new(0x8000, 0x1000, 0, 0);
+        let desc = RawDescriptor::from(SplitDescriptor::new(0x8000, 0x1000, 0, 0));
         dtable.store(2, desc).unwrap();
 
         let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
@@ -385,10 +401,15 @@ mod tests {
         // create an indirect table with 4 chained descriptors
         let idtable = DescriptorTable::new(m, GuestAddress(0x7000), 4);
         for i in 0..4u16 {
-            let desc: Descriptor = if i < 3 {
-                Descriptor::new(0x1000 * i as u64, 0x1000, VRING_DESC_F_NEXT as u16, i + 1)
+            let desc: RawDescriptor = if i < 3 {
+                RawDescriptor::from(SplitDescriptor::new(
+                    0x1000 * i as u64,
+                    0x1000,
+                    VRING_DESC_F_NEXT as u16,
+                    i + 1,
+                ))
             } else {
-                Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0)
+                RawDescriptor::from(SplitDescriptor::new(0x1000 * i as u64, 0x1000, 0, 0))
             };
             idtable.store(i, desc).unwrap();
         }
@@ -423,12 +444,12 @@ mod tests {
         let dtable = vq.desc_table();
 
         // Create a chain with a descriptor pointing to an indirect table with unaligned address.
-        let desc = Descriptor::new(
+        let desc = RawDescriptor::from(SplitDescriptor::new(
             0x7001,
             0x1000,
             (VRING_DESC_F_INDIRECT | VRING_DESC_F_NEXT) as u16,
             2,
-        );
+        ));
         dtable.store(0, desc).unwrap();
 
         let mut c: DescriptorChain<&GuestMemoryMmap> = DescriptorChain::new(m, vq.start(), 16, 0);
@@ -436,10 +457,15 @@ mod tests {
         // Create an indirect table with 4 chained descriptors.
         let idtable = DescriptorTable::new(m, GuestAddress(0x7001), 4);
         for i in 0..4u16 {
-            let desc: Descriptor = if i < 3 {
-                Descriptor::new(0x1000 * i as u64, 0x1000, VRING_DESC_F_NEXT as u16, i + 1)
+            let desc: RawDescriptor = if i < 3 {
+                RawDescriptor::from(SplitDescriptor::new(
+                    0x1000 * i as u64,
+                    0x1000,
+                    VRING_DESC_F_NEXT as u16,
+                    i + 1,
+                ))
             } else {
-                Descriptor::new(0x1000 * i as u64, 0x1000, 0, 0)
+                RawDescriptor::from(SplitDescriptor::new(0x1000 * i as u64, 0x1000, 0, 0))
             };
             idtable.store(i, desc).unwrap();
         }
@@ -465,7 +491,12 @@ mod tests {
 
             // Create a chain with a descriptor pointing to an invalid indirect table: len not a
             // multiple of descriptor size.
-            let desc = Descriptor::new(0x1000, 0x1001, VRING_DESC_F_INDIRECT as u16, 0);
+            let desc = RawDescriptor::from(SplitDescriptor::new(
+                0x1000,
+                0x1001,
+                VRING_DESC_F_INDIRECT as u16,
+                0,
+            ));
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
@@ -480,12 +511,12 @@ mod tests {
 
             // Create a chain with a descriptor pointing to an invalid indirect table: table len >
             // u16::MAX.
-            let desc = Descriptor::new(
+            let desc = RawDescriptor::from(SplitDescriptor::new(
                 0x1000,
                 (u16::MAX as u32 + 1) * VRING_DESC_ALIGN_SIZE,
                 VRING_DESC_F_INDIRECT as u16,
                 0,
-            );
+            ));
             vq.desc_table().store(0, desc).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
@@ -499,10 +530,15 @@ mod tests {
             let vq = MockSplitQueue::new(m, 16);
 
             // Create a chain with a descriptor pointing to an indirect table.
-            let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
+            let desc = RawDescriptor::from(SplitDescriptor::new(
+                0x1000,
+                0x1000,
+                VRING_DESC_F_INDIRECT as u16,
+                0,
+            ));
             vq.desc_table().store(0, desc).unwrap();
             // It's ok for an indirect descriptor to have flags = 0.
-            let desc = Descriptor::new(0x3000, 0x1000, 0, 0);
+            let desc = RawDescriptor::from(SplitDescriptor::new(0x3000, 0x1000, 0, 0));
             m.write_obj(desc, GuestAddress(0x1000)).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =
@@ -511,7 +547,12 @@ mod tests {
 
             // But it's not allowed to have an indirect descriptor that points to another indirect
             // table.
-            let desc = Descriptor::new(0x3000, 0x1000, VRING_DESC_F_INDIRECT as u16, 0);
+            let desc = RawDescriptor::from(SplitDescriptor::new(
+                0x3000,
+                0x1000,
+                VRING_DESC_F_INDIRECT as u16,
+                0,
+            ));
             m.write_obj(desc, GuestAddress(0x1000)).unwrap();
 
             let mut c: DescriptorChain<&GuestMemoryMmap> =

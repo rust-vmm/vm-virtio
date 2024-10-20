@@ -174,8 +174,8 @@ mod tests {
     use crate::virtio_queue::DEFAULT_QUEUE_SIZE;
     use std::io::Write;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
+    use virtio_queue::desc::RawDescriptor;
     use virtio_queue::mock::MockSplitQueue;
-    use virtio_queue::Descriptor;
     use virtio_vsock::packet::VsockPacket;
     use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
@@ -332,7 +332,7 @@ mod tests {
                 next: 0,
             },
         ];
-        let q_descriptors: Vec<Descriptor> =
+        let q_descriptors: Vec<RawDescriptor> =
             descriptors.iter().map(|desc| (*desc).into()).collect();
         let mut chain = vq.build_multiple_desc_chains(&q_descriptors).unwrap();
 
@@ -382,7 +382,7 @@ mod tests {
                 next: 0,
             },
         ];
-        let q_descriptors: Vec<Descriptor> =
+        let q_descriptors: Vec<RawDescriptor> =
             descriptors.iter().map(|desc| (*desc).into()).collect();
         let mut chain = vq.build_multiple_desc_chains(&q_descriptors).unwrap();
 
