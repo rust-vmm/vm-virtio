@@ -20,7 +20,7 @@ pub mod tests {
 
     use crate::create_corpus_file;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
-    use virtio_queue::{mock::MockSplitQueue, Descriptor, Queue, QueueT};
+    use virtio_queue::{desc::RawDescriptor, mock::MockSplitQueue, Queue, QueueT};
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     pub fn create_basic_virtio_queue_ops() -> VirtioQueueInput {
@@ -51,7 +51,7 @@ pub mod tests {
         // To be able to call the functions we actually need to create the environment for running.
         let mem = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = MockSplitQueue::new(&mem, DEFAULT_QUEUE_SIZE);
-        let q_descriptors: Vec<Descriptor> =
+        let q_descriptors: Vec<RawDescriptor> =
             descriptors.iter().map(|desc| (*desc).into()).collect();
         vq.build_multiple_desc_chains(&q_descriptors).unwrap();
         let mut q: Queue = vq.create_queue().unwrap();
