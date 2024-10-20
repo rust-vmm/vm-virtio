@@ -1,4 +1,7 @@
-use ::virtio_queue::{Descriptor, Queue, QueueOwnedT, QueueT};
+use ::virtio_queue::{
+    desc::{split::Descriptor as SplitDescriptor, RawDescriptor},
+    Queue, QueueOwnedT, QueueT,
+};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -183,9 +186,11 @@ impl Into<Ordering> for LoadOrdering {
     }
 }
 
-impl Into<Descriptor> for FuzzingDescriptor {
-    fn into(self) -> Descriptor {
-        Descriptor::new(self.addr, self.len, self.flags, self.next)
+impl Into<RawDescriptor> for FuzzingDescriptor {
+    fn into(self) -> RawDescriptor {
+        RawDescriptor::from(SplitDescriptor::new(
+            self.addr, self.len, self.flags, self.next,
+        ))
     }
 }
 
