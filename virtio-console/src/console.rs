@@ -282,8 +282,8 @@ where
 mod tests {
     use super::*;
     use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
+    use virtio_queue::desc::{split::Descriptor as SplitDescriptor, RawDescriptor};
     use virtio_queue::mock::MockSplitQueue;
-    use virtio_queue::Descriptor;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     impl PartialEq for Error {
@@ -352,8 +352,13 @@ mod tests {
 
         // One descriptor is write only
         let v = [
-            Descriptor::new(0x1000, INPUT_SIZE, 0, 0),
-            Descriptor::new(0x2000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x1000, INPUT_SIZE, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x2000,
+                INPUT_SIZE,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
 
         let queue = MockSplitQueue::new(&mem, 16);
@@ -366,8 +371,8 @@ mod tests {
 
         // Descriptor is outside of the memory bounds
         let v = [
-            Descriptor::new(0x0001_0000, INPUT_SIZE, 0, 0),
-            Descriptor::new(0x0002_0000, INPUT_SIZE, 0, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x0001_0000, INPUT_SIZE, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(0x0002_0000, INPUT_SIZE, 0, 0)),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         assert_eq!(
@@ -379,8 +384,8 @@ mod tests {
 
         // Test normal functionality.
         let v = [
-            Descriptor::new(0x3000, INPUT_SIZE, 0, 0),
-            Descriptor::new(0x4000, INPUT_SIZE, 0, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x3000, INPUT_SIZE, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(0x4000, INPUT_SIZE, 0, 0)),
         ];
         let mut chain = queue.build_desc_chain(&v[..2]).unwrap();
         mem.write_slice(
@@ -419,8 +424,13 @@ mod tests {
 
         // One descriptor is read only
         let v = [
-            Descriptor::new(0x1000, 0x10, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x2000, INPUT_SIZE, 0, 0),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x1000,
+                0x10,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(0x2000, INPUT_SIZE, 0, 0)),
         ];
 
         let queue = MockSplitQueue::new(&mem, 16);
@@ -433,8 +443,18 @@ mod tests {
 
         // Descriptor is out of memory bounds
         let v = [
-            Descriptor::new(0x0001_0000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x0002_0000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x0001_0000,
+                INPUT_SIZE,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x0002_0000,
+                INPUT_SIZE,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
 
         let queue = MockSplitQueue::new(&mem, 16);
@@ -455,8 +475,18 @@ mod tests {
             .enqueue_data(&mut vec![INPUT_VALUE * 2; INPUT_SIZE as usize])
             .unwrap();
         let v = [
-            Descriptor::new(0x3000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x4000, INPUT_SIZE, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x3000,
+                INPUT_SIZE,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x4000,
+                INPUT_SIZE,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
 
         let queue = MockSplitQueue::new(&mem, 16);
@@ -477,12 +507,12 @@ mod tests {
         console
             .enqueue_data(&mut vec![INPUT_VALUE; 2 * INPUT_SIZE as usize])
             .unwrap();
-        let v = [Descriptor::new(
+        let v = [RawDescriptor::from(SplitDescriptor::new(
             0x5000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
             0,
-        )];
+        ))];
 
         let queue = MockSplitQueue::new(&mem, 16);
         let mut chain = queue.build_desc_chain(&v[..1]).unwrap();
@@ -497,12 +527,12 @@ mod tests {
 
         assert!(!console.is_input_buffer_empty());
 
-        let v = [Descriptor::new(
+        let v = [RawDescriptor::from(SplitDescriptor::new(
             0x6000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
             0,
-        )];
+        ))];
         let mut chain = queue.build_desc_chain(&v[..1]).unwrap();
 
         assert_eq!(
@@ -516,12 +546,12 @@ mod tests {
         assert!(console.is_input_buffer_empty());
 
         // Input buffer is empty.
-        let v = [Descriptor::new(
+        let v = [RawDescriptor::from(SplitDescriptor::new(
             0x7000,
             INPUT_SIZE,
             VRING_DESC_F_WRITE as u16,
             0,
-        )];
+        ))];
         let mut chain = queue.build_desc_chain(&v[..1]).unwrap();
 
         assert_eq!(console.process_receiveq_chain(&mut chain).unwrap(), 0);
