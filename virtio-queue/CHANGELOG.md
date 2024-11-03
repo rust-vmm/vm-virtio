@@ -1,5 +1,14 @@
 # Upcoming
 
+## Changed
+
+- Use `RawDescriptor` to represent the memory layout of the split and packed descriptor in virtio-queue/desc.
+- Move the split descriptor to the virtio-queue/desc.
+
+## Added
+
+- Add packed descriptor in virtio-queue
+
 # v0.14.0
 
 ## Changed
