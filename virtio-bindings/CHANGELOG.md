@@ -4,6 +4,10 @@
 
 - Regenerate bindings with Linux 6.12.
 
+## Fixed
+
+- Add license files.
+
 # v0.2.4
 
 ## Changed
