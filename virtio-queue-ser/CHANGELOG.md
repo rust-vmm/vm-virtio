@@ -1,5 +1,9 @@
 # Upcoming release
 
+## Fixed
+
+- Add license files.
+
 # v0.11.0
 
 ## Changed
