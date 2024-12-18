@@ -275,6 +275,7 @@ mod tests {
     }
 
     impl Request {
+        /// Manually create mock `Request` instances.
         pub fn new(
             request_type: RequestType,
             data: Vec<(GuestAddress, u32)>,

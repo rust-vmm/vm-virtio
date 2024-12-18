@@ -1381,14 +1381,6 @@ mod tests {
     fn test_set_header_field_with_invalid_offset() {
         const INVALID_OFFSET: usize = 50;
 
-        impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
-            /// Set the `src_cid` of the header, but use an invalid offset for that.
-            pub fn set_src_cid_invalid(&mut self, cid: u64) -> &mut Self {
-                set_header_field!(self, src_cid, INVALID_OFFSET, cid);
-                self
-            }
-        }
-
         let mem: GuestMemoryMmap =
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x30_0000)]).unwrap();
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
@@ -1401,6 +1393,7 @@ mod tests {
 
         let mut packet =
             VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
-        packet.set_src_cid_invalid(SRC_CID);
+        // Set the `src_cid` of the header, but use an invalid offset for that.
+        set_header_field!(packet, src_cid, INVALID_OFFSET, SRC_CID);
     }
 }

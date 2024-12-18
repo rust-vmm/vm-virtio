@@ -730,7 +730,7 @@ where
     }
 }
 
-impl<'b, M> Iterator for AvailIter<'b, M>
+impl<M> Iterator for AvailIter<'_, M>
 where
     M: Clone + Deref,
     M::Target: GuestMemory,
