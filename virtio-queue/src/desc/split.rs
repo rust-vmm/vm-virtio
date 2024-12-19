@@ -9,6 +9,7 @@
 // Copyright (C) 2020-2021 Alibaba Cloud. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
+//! split descriptor
 
 use vm_memory::{ByteValued, GuestAddress, Le16, Le32, Le64};
 
@@ -23,7 +24,7 @@ use virtio_bindings::bindings::virtio_ring::{
 /// ```rust
 /// # use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
 /// # use virtio_queue::mock::MockSplitQueue;
-/// use virtio_queue::{Descriptor, Queue, QueueOwnedT};
+/// use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueOwnedT};
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
 ///
 /// # fn populate_queue(m: &GuestMemoryMmap) -> Queue {
@@ -31,9 +32,9 @@ use virtio_bindings::bindings::virtio_ring::{
 /// #    let mut q = vq.create_queue().unwrap();
 /// #
 /// #    // We have only one chain: (0, 1).
-/// #    let desc = Descriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1);
+/// #    let desc = RawDescriptor::from(SplitDescriptor::new(0x1000, 0x1000, VRING_DESC_F_NEXT as u16, 1));
 /// #    vq.desc_table().store(0, desc);
-/// #    let desc = Descriptor::new(0x2000, 0x1000, VRING_DESC_F_WRITE as u16, 0);
+/// #    let desc = RawDescriptor::from(SplitDescriptor::new(0x2000, 0x1000, VRING_DESC_F_WRITE as u16, 0));
 /// #    vq.desc_table().store(1, desc);
 /// #
 /// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
@@ -56,8 +57,7 @@ use virtio_bindings::bindings::virtio_ring::{
 /// let _has_next = desc.has_next();
 /// let _refers_to_ind_table = desc.refers_to_indirect_table();
 /// ```
-// Note that the `ByteValued` implementation of this structure expects the `Descriptor` to store
-// only plain old data types.
+/// A virtio split descriptor constraints with C representation.
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Descriptor {
@@ -76,6 +76,22 @@ pub struct Descriptor {
 
 #[allow(clippy::len_without_is_empty)]
 impl Descriptor {
+    /// Create a new descriptor.
+    ///
+    /// # Arguments
+    /// * `addr` - the guest physical address of the descriptor buffer.
+    /// * `len` - the length of the descriptor buffer.
+    /// * `flags` - the `flags` for the descriptor.
+    /// * `next` - the `next` field of the descriptor.
+    pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
+        Descriptor {
+            addr: addr.into(),
+            len: len.into(),
+            flags: flags.into(),
+            next: next.into(),
+        }
+    }
+
     /// Return the guest physical address of the descriptor buffer.
     pub fn addr(&self) -> GuestAddress {
         GuestAddress(self.addr.into())
@@ -117,22 +133,6 @@ impl Descriptor {
 
 #[cfg(any(test, feature = "test-utils"))]
 impl Descriptor {
-    /// Create a new descriptor.
-    ///
-    /// # Arguments
-    /// * `addr` - the guest physical address of the descriptor buffer.
-    /// * `len` - the length of the descriptor buffer.
-    /// * `flags` - the `flags` for the descriptor.
-    /// * `next` - the `next` field of the descriptor.
-    pub fn new(addr: u64, len: u32, flags: u16, next: u16) -> Self {
-        Descriptor {
-            addr: addr.into(),
-            len: len.into(),
-            flags: flags.into(),
-            next: next.into(),
-        }
-    }
-
     /// Set the guest physical address of the descriptor buffer.
     pub fn set_addr(&mut self, addr: u64) {
         self.addr = addr.into();
@@ -175,6 +175,7 @@ impl VirtqUsedElem {
     /// # Arguments
     /// * `id` - the index of the used descriptor chain.
     /// * `len` - the total length of the descriptor chain which was used (written to).
+    #[allow(unused)]
     pub(crate) fn new(id: u32, len: u32) -> Self {
         VirtqUsedElem {
             id: id.into(),
