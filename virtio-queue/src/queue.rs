@@ -273,9 +273,12 @@ impl Queue {
 #[allow(dead_code)]
 mod verification {
     use std::mem::ManuallyDrop;
-    use std::num::Wrapping;
+    use vm_memory::MmapRegion;
 
-    use vm_memory::{FileOffset, GuestMemoryRegion, MemoryRegionAddress, MmapRegion};
+    use std::num::Wrapping;
+    use vm_memory::FileOffset;
+
+    use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
 
     use super::*;
 
