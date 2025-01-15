@@ -52,8 +52,7 @@
     {
       "test_name": "prove-virtio-queue",
       "command": "cargo kani --package virtio-queue",
-      "platform": ["x86_64", "aarch64"],
-      "timeout_in_minutes": 20
+      "platform": ["x86_64", "aarch64"]
     }
   ]
 }
