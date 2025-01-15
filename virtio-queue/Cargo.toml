@@ -13,16 +13,20 @@ edition = "2021"
 test-utils = []
 
 [dependencies]
-vm-memory = { workspace = true }
+vm-memory = {  version = "0.15.0", features = ["backend-mmap", "backend-bitmap"] }
 vmm-sys-util = { workspace = true }
 log = "0.4.17"
 virtio-bindings = { path="../virtio-bindings", version = "0.2.5" }
+libc = "0.2.161"
 
 [dev-dependencies]
 criterion = "0.5.1"
-vm-memory = { workspace = true, features = ["backend-mmap", "backend-atomic"] }
+vm-memory = {  version = "0.15.0", features = ["backend-mmap", "backend-bitmap", "backend-atomic"] }
 memoffset = "0.9.0"
 
 [[bench]]
 name = "main"
 harness = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
