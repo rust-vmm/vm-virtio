@@ -23,6 +23,9 @@ use crate::desc::{split::VirtqUsedElem, RawDescriptor};
 use crate::{error, DescriptorChain, Error, QueueGuard, QueueOwnedT, QueueState, QueueT};
 use virtio_bindings::bindings::virtio_ring::VRING_USED_F_NO_NOTIFY;
 
+#[cfg(kani)]
+mod verification;
+
 /// The maximum queue size as defined in the Virtio Spec.
 pub const MAX_QUEUE_SIZE: u16 = 32768;
 
