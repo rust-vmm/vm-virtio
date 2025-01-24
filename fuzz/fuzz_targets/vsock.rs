@@ -28,10 +28,10 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(mut chain) = vq.build_desc_chain(&descriptors) {
         let packet = match fuzz_input.init_function {
             InitFunction::FromRX => {
-                VsockPacket::from_rx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
+                VsockPacket::<()>::from_rx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
             }
             InitFunction::FromTX => {
-                VsockPacket::from_tx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
+                VsockPacket::<()>::from_tx_virtq_chain(&m, &mut chain, fuzz_input.pkt_max_data)
             }
         };
         if let Ok(mut p) = packet {

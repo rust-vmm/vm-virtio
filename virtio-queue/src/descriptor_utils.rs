@@ -14,7 +14,7 @@ use std::ptr::copy_nonoverlapping;
 use std::{cmp, result};
 
 use crate::{DescriptorChain, Error};
-use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
+use vm_memory::bitmap::{BitmapSlice, MS};
 use vm_memory::{
     Address, ByteValued, GuestMemory, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice,
 };
@@ -157,10 +157,9 @@ pub struct Reader<'a, B = ()> {
 
 impl<'a, B: BitmapSlice> Reader<'a, B> {
     /// Construct a new Reader wrapper over `desc_chain`.
-    pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Reader<'a, B>>
+    pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Reader<'a, MS<'a, M>>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
@@ -186,7 +185,7 @@ impl<'a, B: BitmapSlice> Reader<'a, B> {
                     .get_slice(MemoryRegionAddress(offset.raw_value()), desc.len() as usize)
                     .map_err(Error::GuestMemoryError)
             })
-            .collect::<Result<VecDeque<VolatileSlice<'a, B>>>>()?;
+            .collect::<Result<VecDeque<_>>>()?;
         Ok(Reader {
             buffer: DescriptorChainConsumer {
                 buffers,
@@ -269,10 +268,9 @@ pub struct Writer<'a, B = ()> {
 
 impl<'a, B: BitmapSlice> Writer<'a, B> {
     /// Construct a new Writer wrapper over `desc_chain`.
-    pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Writer<'a, B>>
+    pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Writer<'a, MS<'a, M>>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
@@ -298,7 +296,7 @@ impl<'a, B: BitmapSlice> Writer<'a, B> {
                     .get_slice(MemoryRegionAddress(offset.raw_value()), desc.len() as usize)
                     .map_err(Error::GuestMemoryError)
             })
-            .collect::<Result<VecDeque<VolatileSlice<'a, B>>>>()?;
+            .collect::<Result<VecDeque<_>>>()?;
 
         Ok(Writer {
             buffer: DescriptorChainConsumer {
@@ -451,7 +449,7 @@ mod tests {
 
         let chain = queue.iter(&memory).unwrap().next().unwrap();
 
-        assert!(Reader::new(&memory, chain).is_err());
+        assert!(Reader::<()>::new(&memory, chain).is_err());
     }
 
     #[test]
@@ -473,7 +471,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
         assert_eq!(reader.available_bytes(), 106);
         assert_eq!(reader.bytes_read(), 0);
 
@@ -513,7 +511,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut writer = Writer::new(&memory, chain).expect("failed to create Writer");
+        let mut writer = Writer::<()>::new(&memory, chain).expect("failed to create Writer");
         assert_eq!(writer.available_bytes(), 106);
         assert_eq!(writer.bytes_written(), 0);
 
@@ -543,7 +541,7 @@ mod tests {
 
         let chain = create_descriptor_chain(&memory, GuestAddress(0x0), vec![(Writable, 8)], 0)
             .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
         assert_eq!(reader.available_bytes(), 0);
         assert_eq!(reader.bytes_read(), 0);
 
@@ -562,7 +560,7 @@ mod tests {
 
         let chain = create_descriptor_chain(&memory, GuestAddress(0x0), vec![(Readable, 8)], 0)
             .expect("create_descriptor_chain failed");
-        let mut writer = Writer::new(&memory, chain).expect("failed to create Writer");
+        let mut writer = Writer::<()>::new(&memory, chain).expect("failed to create Writer");
         assert_eq!(writer.available_bytes(), 0);
         assert_eq!(writer.bytes_written(), 0);
 
@@ -593,8 +591,9 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain.clone()).expect("failed to create Reader");
-        let mut writer = Writer::new(&memory, chain).expect("failed to create Writer");
+        let mut reader =
+            Reader::<()>::new(&memory, chain.clone()).expect("failed to create Reader");
+        let mut writer = Writer::<()>::new(&memory, chain).expect("failed to create Writer");
 
         assert_eq!(reader.bytes_read(), 0);
         assert_eq!(writer.bytes_written(), 0);
@@ -636,7 +635,7 @@ mod tests {
             123,
         )
         .expect("create_descriptor_chain failed");
-        let mut writer = Writer::new(&memory, chain_writer).expect("failed to create Writer");
+        let mut writer = Writer::<()>::new(&memory, chain_writer).expect("failed to create Writer");
         if let Err(e) = writer.write_obj(secret) {
             panic!("write_obj should not fail here: {:?}", e);
         }
@@ -649,7 +648,7 @@ mod tests {
             123,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain_reader).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain_reader).expect("failed to create Reader");
         match reader.read_obj::<Le32>() {
             Err(e) => panic!("read_obj should not fail here: {:?}", e),
             Ok(read_secret) => assert_eq!(read_secret, secret),
@@ -671,7 +670,7 @@ mod tests {
         )
         .expect("create_descriptor_chain failed");
 
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         let mut buf = vec![0; 1024];
 
@@ -705,13 +704,15 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain.clone()).expect("failed to create Reader");
+        let mut reader =
+            Reader::<()>::new(&memory, chain.clone()).expect("failed to create Reader");
 
         let other = reader.split_at(32).expect("failed to split Reader");
         assert_eq!(reader.available_bytes(), 32);
         assert_eq!(other.available_bytes(), 96);
 
-        let mut writer = Writer::new(&memory, chain.clone()).expect("failed to create Writer");
+        let mut writer =
+            Writer::<()>::new(&memory, chain.clone()).expect("failed to create Writer");
         let other = writer.split_at(64).expect("failed to split Writer");
         assert_eq!(writer.available_bytes(), 64);
         assert_eq!(other.available_bytes(), 4);
@@ -738,7 +739,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         let other = reader.split_at(24).expect("failed to split Reader");
         assert_eq!(reader.available_bytes(), 24);
@@ -766,7 +767,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         let other = reader.split_at(128).expect("failed to split Reader");
         assert_eq!(reader.available_bytes(), 128);
@@ -794,7 +795,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         let other = reader.split_at(0).expect("failed to split Reader");
         assert_eq!(reader.available_bytes(), 0);
@@ -822,7 +823,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         if reader.split_at(256).is_ok() {
             panic!("successfully split Reader with out of bounds offset");
@@ -843,7 +844,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut reader = Reader::new(&memory, chain).expect("failed to create Reader");
+        let mut reader = Reader::<()>::new(&memory, chain).expect("failed to create Reader");
 
         let mut buf = [0u8; 64];
         assert_eq!(
@@ -866,7 +867,7 @@ mod tests {
             0,
         )
         .expect("create_descriptor_chain failed");
-        let mut writer = Writer::new(&memory, chain).expect("failed to create Writer");
+        let mut writer = Writer::<()>::new(&memory, chain).expect("failed to create Writer");
 
         let buf = [0xdeu8; 64];
         assert_eq!(
