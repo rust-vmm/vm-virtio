@@ -1,8 +1,7 @@
 // Copyright 2022 Unikie
 // SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
 
-mod generated;
-pub use generated::*;
+include!(concat!(env!("OUT_DIR"), "/virtio_net.rs"));
 
 use std::fmt::{Debug, Formatter, Result};
 use std::mem::{size_of, transmute};
