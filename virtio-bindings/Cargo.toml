@@ -15,4 +15,7 @@ license = "BSD-3-Clause OR Apache-2.0"
 virtio-v4_14_0 = []
 virtio-v5_0_0 = []
 
+[build-dependencies]
+bindgen = "0.71.0"
+
 [dependencies]
