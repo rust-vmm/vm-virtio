@@ -4,6 +4,10 @@
 
 - Add license files.
 
+## Changed
+
+- Updated virtio-bindings from 0.2.4 to 0.2.5.
+
 # v0.14.0
 
 ## Changed
