@@ -363,7 +363,10 @@ impl<B: BitmapSlice> io::Write for Writer<'_, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Descriptor, Queue, QueueOwnedT, QueueT};
+    use crate::{
+        desc::{split::Descriptor as SplitDescriptor, RawDescriptor},
+        Queue, QueueOwnedT, QueueT,
+    };
     use vm_memory::{GuestAddress, GuestMemoryMmap, Le32};
 
     use crate::mock::MockSplitQueue;
@@ -400,12 +403,12 @@ mod tests {
                 flags |= VRING_DESC_F_NEXT;
             }
 
-            descs.push(Descriptor::new(
+            descs.push(RawDescriptor::from(SplitDescriptor::new(
                 buffers_start_addr.raw_value(),
                 size,
                 flags as u16,
                 (index + 1) as u16,
-            ));
+            )));
 
             let offset = size + spaces_between_regions;
             buffers_start_addr = buffers_start_addr
@@ -437,7 +440,7 @@ mod tests {
         let queue = MockSplitQueue::create(&memory, GuestAddress(0x0), MAX_QUEUE_SIZE);
 
         // set addr out of memory
-        let descriptor = Descriptor::new(0x1001, 1, 0, 1_u16);
+        let descriptor = RawDescriptor::from(SplitDescriptor::new(0x1001, 1, 0, 1_u16));
         queue.build_desc_chain(&[descriptor]).unwrap();
 
         let avail_ring = queue.avail_addr();

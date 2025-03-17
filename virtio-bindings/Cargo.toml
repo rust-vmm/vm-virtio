@@ -1,6 +1,6 @@
 [package]
 name = "virtio-bindings"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Sergio Lopez <slp@redhat.com>"]
 description = "Rust FFI bindings to virtio generated using bindgen."
 repository = "https://github.com/rust-vmm/vm-virtio"
@@ -14,5 +14,8 @@ license = "BSD-3-Clause OR Apache-2.0"
 # as the kernel headers are backwards compatible.
 virtio-v4_14_0 = []
 virtio-v5_0_0 = []
+
+[build-dependencies]
+bindgen = "0.71.0"
 
 [dependencies]

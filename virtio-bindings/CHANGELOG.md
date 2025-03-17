@@ -1,12 +1,18 @@
 # Upcoming Release
 
+# v0.2.5
+
 ## Changed
 
 - Regenerate bindings with Linux 6.12.
+- Introduced bindgen build dependency and its clang development package
+  dependency. See bindgen fix below for why this was necessary.
 
 ## Fixed
 
 - Add license files.
+- Use bindgen library from build.rs to fix i686 builds due to x86_64-specific
+  alignment checks.
 
 # v0.2.4
 

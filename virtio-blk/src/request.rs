@@ -32,7 +32,10 @@ use virtio_bindings::bindings::virtio_blk::{
     VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_WRITE_ZEROES,
 };
 
-use virtio_queue::{Descriptor, DescriptorChain};
+use virtio_queue::{
+    desc::{split::Descriptor as SplitDescriptor, RawDescriptor},
+    DescriptorChain,
+};
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 
 /// Block request parsing errors.
@@ -158,10 +161,11 @@ impl Request {
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid status descriptor.
-    fn check_status_desc<M>(mem: &M, desc: Descriptor) -> Result<()>
+    fn check_status_desc<M>(mem: &M, desc: RawDescriptor) -> Result<()>
     where
         M: GuestMemory + ?Sized,
     {
+        let desc = SplitDescriptor::from(desc);
         // The status MUST always be writable.
         if !desc.is_write_only() {
             return Err(Error::UnexpectedReadOnlyDescriptor);
@@ -182,7 +186,8 @@ impl Request {
     }
 
     // Checks that a descriptor meets the minimal requirements for a valid data descriptor.
-    fn check_data_desc(desc: Descriptor, request_type: RequestType) -> Result<()> {
+    fn check_data_desc(desc: RawDescriptor, request_type: RequestType) -> Result<()> {
+        let desc = SplitDescriptor::from(desc);
         // We do this check only for the device-readable buffers, as opposed to
         // also check that the device doesn't want to read a device-writable buffer
         // because this one is not a MUST (the device MAY do that for debugging or
@@ -234,14 +239,14 @@ impl Request {
         let mut desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
 
         while desc.has_next() {
-            Request::check_data_desc(desc, request.request_type)?;
+            Request::check_data_desc(RawDescriptor::from(desc), request.request_type)?;
 
             request.data.push((desc.addr(), desc.len()));
             desc = desc_chain.next().ok_or(Error::DescriptorChainTooShort)?;
         }
         let status_desc = desc;
 
-        Request::check_status_desc(desc_chain.memory(), status_desc)?;
+        Request::check_status_desc(desc_chain.memory(), RawDescriptor::from(status_desc))?;
 
         request.status_addr = status_desc.addr();
         Ok(request)
@@ -298,9 +303,24 @@ mod tests {
         // The `build_desc_chain` function will populate the `NEXT` related flags and field.
         let v = [
             // A device-writable request header descriptor.
-            Descriptor::new(0x10_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x10_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x20_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x30_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         // Create a queue of max 16 descriptors and a descriptor chain based on the array above.
         let queue = MockSplitQueue::new(&mem, 16);
@@ -320,10 +340,15 @@ mod tests {
         );
 
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x20_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
             // A device-readable request status descriptor.
-            Descriptor::new(0x30_0000, 0x100, 0, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x30_0000, 0x100, 0, 0)),
         ];
         let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
@@ -334,10 +359,20 @@ mod tests {
         );
 
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x20_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
             // Status descriptor with len = 0.
-            Descriptor::new(0x30_0000, 0x0, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x30_0000,
+                0x0,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
         assert_eq!(
@@ -346,9 +381,14 @@ mod tests {
         );
 
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, 0, 0),
-            Descriptor::new(0x30_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(0x20_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x30_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         let mut chain = queue.build_desc_chain(&v[..3]).unwrap();
 
@@ -378,10 +418,25 @@ mod tests {
 
         // Invalid status address.
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x1100_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x20_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x30_0000,
+                0x200,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x1100_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_OUT,
@@ -403,10 +458,25 @@ mod tests {
 
         // Valid descriptor chain for OUT.
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x20_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x30_0000, 0x200, VRING_DESC_F_WRITE as u16, 0),
-            Descriptor::new(0x40_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x20_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x30_0000,
+                0x200,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x40_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_OUT,
@@ -448,8 +518,13 @@ mod tests {
 
         // Valid descriptor chain for FLUSH.
         let v = [
-            Descriptor::new(0x10_0000, 0x100, 0, 0),
-            Descriptor::new(0x40_0000, 0x100, VRING_DESC_F_WRITE as u16, 0),
+            RawDescriptor::from(SplitDescriptor::new(0x10_0000, 0x100, 0, 0)),
+            RawDescriptor::from(SplitDescriptor::new(
+                0x40_0000,
+                0x100,
+                VRING_DESC_F_WRITE as u16,
+                0,
+            )),
         ];
         let req_header = RequestHeader {
             request_type: VIRTIO_BLK_T_FLUSH,

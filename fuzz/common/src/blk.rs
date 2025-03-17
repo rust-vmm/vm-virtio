@@ -19,7 +19,7 @@ pub mod tests {
     use virtio_bindings::bindings::virtio_blk::VIRTIO_BLK_T_IN;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
     use virtio_blk::request::{Request, RequestType};
-    use virtio_queue::{mock::MockSplitQueue, Descriptor};
+    use virtio_queue::{desc::RawDescriptor, mock::MockSplitQueue};
     use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
     // The same as the RequestHeader type in virtio_blk, with exposed fields
@@ -91,7 +91,7 @@ pub mod tests {
             },
         ];
 
-        let q_descriptors: Vec<Descriptor> =
+        let q_descriptors: Vec<RawDescriptor> =
             descriptors.into_iter().map(|desc| desc.into()).collect();
         let mut chain = vq.build_multiple_desc_chains(&q_descriptors).unwrap();
 

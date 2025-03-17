@@ -6,7 +6,7 @@ use libfuzzer_sys::fuzz_target;
 use std::hint::black_box;
 use virtio_blk::request::Request;
 use virtio_blk::stdio_executor::StdIoBackend;
-use virtio_queue::{mock::MockSplitQueue, Descriptor};
+use virtio_queue::{desc::RawDescriptor, mock::MockSplitQueue};
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
 fuzz_target!(|data: &[u8]| {
@@ -23,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
 
     let vq = MockSplitQueue::create(&m, start_addr, DEFAULT_QUEUE_SIZE);
 
-    let descriptors: Vec<Descriptor> = fuzz_input
+    let descriptors: Vec<RawDescriptor> = fuzz_input
         .descriptors
         .iter()
         .map(|desc| (*desc).into())
