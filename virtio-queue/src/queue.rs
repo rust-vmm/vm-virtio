@@ -269,8 +269,8 @@ impl Queue {
     }
 }
 
-#[cfg(kani)]
-#[allow(dead_code)]
+// cfg test to use dev-dependencies
+#[cfg(all(kani, test))]
 mod verification {
     use std::mem::ManuallyDrop;
     use vm_memory::MmapRegion;
