@@ -19,7 +19,7 @@ log = "0.4.17"
 virtio-bindings = { path="../virtio-bindings", version = "0.2.5" }
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = "0.6.0"
 vm-memory = { workspace = true, features = ["backend-mmap", "backend-atomic"] }
 memoffset = "0.9.0"
 
