@@ -16,6 +16,6 @@ virtio-v4_14_0 = []
 virtio-v5_0_0 = []
 
 [build-dependencies]
-bindgen = "0.71.0"
+bindgen = "0.72.0"
 
 [dependencies]
