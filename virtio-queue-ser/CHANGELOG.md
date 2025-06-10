@@ -1,5 +1,9 @@
 # Upcoming release
 
+## Changed
+
+- Updated virtio-queue form 0.14.0 to 0.15.0
+
 ## Fixed
 
 - Add license files.

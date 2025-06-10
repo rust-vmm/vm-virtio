@@ -7,6 +7,7 @@
 ## Changed
 
 - Updated virtio-bindings from 0.2.4 to 0.2.5.
+- Updated virtio-queue from 0.14.0 to 0.15.0
 
 # v0.8.0
 
