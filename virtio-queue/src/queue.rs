@@ -269,6 +269,28 @@ impl Queue {
     }
 }
 
+fn write_elem<M: GuestMemory>(
+    mem: &M,
+    addr: GuestAddress,
+    head_index: u16,
+    len: u32,
+) -> Result<(), Error> {
+    mem.write_obj(VirtqUsedElem::new(head_index.into(), len), addr)
+        .map_err(Error::GuestMemory)
+}
+
+fn store_elem<M: GuestMemory>(
+    mem: &M,
+    used_ring: GuestAddress,
+    next_used: u16,
+) -> Result<(), Error> {
+    let addr = used_ring
+        .checked_add(2)
+        .ok_or(Error::AddressOverflow)?;
+    mem.store(u16::to_le(next_used), addr, Ordering::Release)
+        .map_err(Error::GuestMemory)
+}
+
 #[cfg(kani)]
 #[allow(dead_code)]
 mod verification {
@@ -278,7 +300,7 @@ mod verification {
     use std::num::Wrapping;
     use vm_memory::FileOffset;
 
-    use vm_memory::{GuestMemoryRegion, MemoryRegionAddress};
+    use vm_memory::{GuestRegionMmap, GuestMemoryRegion, MemoryRegionAddress, AtomicAccess, GuestMemory, GuestMemoryError};
 
     use super::*;
 
@@ -514,8 +536,47 @@ mod verification {
             // So we do not care
         }
     }
-}
 
+    fn stub_write_elem<M: GuestMemory>(
+        _mem: &M,
+        _addr: GuestAddress,
+        _head_index: u16,
+        _len: u32,) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn stub_store_elem<M: GuestMemory>(
+        _mem: &M,
+        _used_ring: GuestAddress,
+        _next_used: u16,) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[kani::proof]
+    #[kani::unwind(0)]
+    #[kani::stub(write_elem, stub_write_elem)]
+    #[kani::stub(store_elem, stub_store_elem)]
+    fn verify_add_used() {
+        let ProofContext(mut queue, mem) = kani::any();
+        let used_idx = queue.next_used;
+
+        let used_desc_table_index = kani::any();
+        if queue.add_used(&mem, used_desc_table_index, kani::any()).is_ok() {
+            assert_eq!(queue.next_used, used_idx + Wrapping(1));
+        } else {
+            assert_eq!(queue.next_used, used_idx);
+
+            // Ideally, here we would want to actually read the relevant values from memory and
+            // assert they are unchanged. However, kani will run out of memory if we try to do so,
+            // so we instead verify the following "proxy property": If an error happened, then
+            // it happened at the very beginning of add_used, meaning no memory accesses were
+            // done. This is relying on implementation details of add_used, namely that
+            // the check for out-of-bounds descriptor index happens at the very beginning of the
+            // function.
+            assert!(used_desc_table_index >= queue.size());
+        }
+    }
+}
 impl<'a> QueueGuard<'a> for Queue {
     type G = &'a mut Self;
 }
@@ -713,20 +774,12 @@ impl QueueT for Queue {
             .used_ring
             .checked_add(offset)
             .ok_or(Error::AddressOverflow)?;
-        mem.write_obj(VirtqUsedElem::new(head_index.into(), len), addr)
-            .map_err(Error::GuestMemory)?;
+        write_elem(mem, addr, head_index, len)?;
 
         self.next_used += Wrapping(1);
         self.num_added += Wrapping(1);
 
-        mem.store(
-            u16::to_le(self.next_used.0),
-            self.used_ring
-                .checked_add(2)
-                .ok_or(Error::AddressOverflow)?,
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
+        store_elem(mem, self.used_ring, self.next_used.0)
     }
 
     fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
