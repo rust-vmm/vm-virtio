@@ -357,7 +357,7 @@ impl QueueT for Queue {
         self.event_idx_enabled = false;
     }
 
-    fn lock(&mut self) -> <Self as QueueGuard>::G {
+    fn lock(&mut self) -> <Self as QueueGuard<'_>>::G {
         self
     }
 

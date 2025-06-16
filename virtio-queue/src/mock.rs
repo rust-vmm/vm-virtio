@@ -330,12 +330,12 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
     }
 
     /// Available ring accessor.
-    pub fn avail(&self) -> &AvailRing<M> {
+    pub fn avail(&self) -> &AvailRing<'_, M> {
         &self.avail
     }
 
     /// Used ring accessor.
-    pub fn used(&self) -> &UsedRing<M> {
+    pub fn used(&self) -> &UsedRing<'_, M> {
         &self.used
     }
 

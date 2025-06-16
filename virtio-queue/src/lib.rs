@@ -154,7 +154,7 @@ pub trait QueueT: for<'a> QueueGuard<'a> {
     ///
     /// Logically this method will acquire the underlying lock protecting the `Queue` Object.
     /// The lock will be released when the returned object gets dropped.
-    fn lock(&mut self) -> <Self as QueueGuard>::G;
+    fn lock(&mut self) -> <Self as QueueGuard<'_>>::G;
 
     /// Get the maximum size of the virtio queue.
     fn max_size(&self) -> u16;
