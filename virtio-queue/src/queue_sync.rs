@@ -43,7 +43,7 @@ pub struct QueueSync {
 }
 
 impl QueueSync {
-    fn lock_state(&self) -> MutexGuard<Queue> {
+    fn lock_state(&self) -> MutexGuard<'_, Queue> {
         // Do not expect poisoned lock.
         self.state.lock().unwrap()
     }
@@ -68,7 +68,7 @@ impl QueueT for QueueSync {
         self.lock_state().reset();
     }
 
-    fn lock(&mut self) -> <Self as QueueGuard>::G {
+    fn lock(&mut self) -> <Self as QueueGuard<'_>>::G {
         self.lock_state()
     }
 
