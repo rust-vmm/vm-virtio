@@ -4,10 +4,14 @@
 
 ## Changed
 
+## Fixed
+
+# v0.10.0
+
+## Changed
+
 - Updated virtio-bindings from 0.2.5 to 0.2.6.
 - Updated virtio-queue from 0.15.0 to 0.16.0
-
-## Fixed
 
 # v0.9.0
 
