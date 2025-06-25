@@ -466,6 +466,49 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Default)]
+pub struct virtio_net_rss_config_hdr {
+    pub hash_types: __le32,
+    pub indirection_table_mask: __le16,
+    pub unclassified_queue: __le16,
+    pub indirection_table: __IncompleteArrayField<__le16>,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of virtio_net_rss_config_hdr"]
+        [::std::mem::size_of::<virtio_net_rss_config_hdr>() - 8usize];
+    ["Alignment of virtio_net_rss_config_hdr"]
+        [::std::mem::align_of::<virtio_net_rss_config_hdr>() - 4usize];
+    ["Offset of field: virtio_net_rss_config_hdr::hash_types"]
+        [::std::mem::offset_of!(virtio_net_rss_config_hdr, hash_types) - 0usize];
+    ["Offset of field: virtio_net_rss_config_hdr::indirection_table_mask"]
+        [::std::mem::offset_of!(virtio_net_rss_config_hdr, indirection_table_mask) - 4usize];
+    ["Offset of field: virtio_net_rss_config_hdr::unclassified_queue"]
+        [::std::mem::offset_of!(virtio_net_rss_config_hdr, unclassified_queue) - 6usize];
+    ["Offset of field: virtio_net_rss_config_hdr::indirection_table"]
+        [::std::mem::offset_of!(virtio_net_rss_config_hdr, indirection_table) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct virtio_net_rss_config_trailer {
+    pub max_tx_vq: __le16,
+    pub hash_key_length: __u8,
+    pub hash_key_data: __IncompleteArrayField<__u8>,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of virtio_net_rss_config_trailer"]
+        [::std::mem::size_of::<virtio_net_rss_config_trailer>() - 4usize];
+    ["Alignment of virtio_net_rss_config_trailer"]
+        [::std::mem::align_of::<virtio_net_rss_config_trailer>() - 2usize];
+    ["Offset of field: virtio_net_rss_config_trailer::max_tx_vq"]
+        [::std::mem::offset_of!(virtio_net_rss_config_trailer, max_tx_vq) - 0usize];
+    ["Offset of field: virtio_net_rss_config_trailer::hash_key_length"]
+        [::std::mem::offset_of!(virtio_net_rss_config_trailer, hash_key_length) - 2usize];
+    ["Offset of field: virtio_net_rss_config_trailer::hash_key_data"]
+        [::std::mem::offset_of!(virtio_net_rss_config_trailer, hash_key_data) - 3usize];
+};
+#[repr(C)]
+#[derive(Debug, Default)]
 pub struct virtio_net_hash_config {
     pub hash_types: __le32,
     pub reserved: [__le16; 4usize],
