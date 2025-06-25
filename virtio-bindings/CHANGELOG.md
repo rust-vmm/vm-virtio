@@ -1,5 +1,7 @@
 # Upcoming Release
 
+# v0.2.6
+
 ## Changed
 
 - Bindings are now once again distributed with the crate, rather than

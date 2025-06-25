@@ -4,6 +4,8 @@
 
 ## Changed
 
+- Updated virtio-bindings from 0.2.5 to 0.2.6.
+
 ## Added
 
 # v0.15.0
