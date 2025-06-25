@@ -1,7 +1,25 @@
 // Copyright 2022 Unikie
 // SPDX-License-Identifier: BSD-3-Clause OR Apache-2.0
 
-include!(concat!(env!("OUT_DIR"), "/virtio_net.rs"));
+#[cfg_attr(target_arch = "arm", path = "../bindings/arm/virtio_net.rs")]
+#[cfg_attr(target_arch = "aarch64", path = "../bindings/aarch64/virtio_net.rs")]
+#[cfg_attr(target_arch = "hexagon", path = "../bindings/hexagon/virtio_net.rs")]
+#[cfg_attr(
+    target_arch = "loongarch64",
+    path = "../bindings/loongarch64/virtio_net.rs"
+)]
+#[cfg_attr(target_arch = "m68k", path = "../bindings/m68k/virtio_net.rs")]
+#[cfg_attr(target_arch = "mips", path = "../bindings/mipsel/virtio_net.rs")]
+#[cfg_attr(
+    target_arch = "powerpc64",
+    path = "../bindings/powerpc64le/virtio_net.rs"
+)]
+#[cfg_attr(target_arch = "riscv64", path = "../bindings/riscv64/virtio_net.rs")]
+#[cfg_attr(target_arch = "s390x", path = "../bindings/s390x/virtio_net.rs")]
+#[cfg_attr(target_arch = "sparc64", path = "../bindings/sparc64/virtio_net.rs")]
+#[cfg_attr(target_arch = "x86_64", path = "../bindings/x86_64/virtio_net.rs")]
+mod generated;
+pub use generated::*;
 
 use std::fmt::{Debug, Formatter, Result};
 use std::mem::{size_of, transmute};

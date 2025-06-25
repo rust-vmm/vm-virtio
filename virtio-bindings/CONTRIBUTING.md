@@ -1,15 +1,15 @@
 # Contributing to virtio-bindings
 
-## Overview
+## Dependencies
 
-virtio-bindings is periodically updated with imported virtio headers from the
-Linux kernel. The Linux header files have kernel header dependencies that are
-removed during import so that bindgen can process them in isolation without a
-full set of kernel headers. This is also necessary because the licenses of
-individual kernel header files varies and we only want to distribute
-BSD-licensed virtio headers.
+### Bindgen
+The bindings are currently generated using
+[bindgen](https://rust-lang.github.io/rust-bindgen/) version 0.71.1:
+```bash
+cargo install bindgen-cli --vers 0.71.1
+```
 
-## Importing kernel headers
+### Linux Kernel
 Generating bindings depends on the Linux kernel, so you need to have the
 repository on your machine:
 
@@ -17,31 +17,12 @@ repository on your machine:
 git clone https://github.com/torvalds/linux.git
 ```
 
-Install the headers so they can be used for import:
-```bash
-cd linux
-git checkout <linux-version>
-make headers_install INSTALL_HDR_PATH=headers-<linux-version>
-```
+## Example for updating to a new kernel version
 
-Import kernel headers into `include/`:
+For this example we assume that you have both linux and virtio-bindings
+repositories in your home directory.
+
 ```bash
 cd ~/vm-virtio/virtio-bindings
-./import-linux-headers.sh path/to/headers-<linux-version>
+scripts/generate-bindings.sh ~/linux
 ```
-
-Test that the build still works:
-```bash
-cargo build
-```
-
-## Adding bindings for new header files
-New kernel headers can be added as follows:
-1. Add the new file to import-linux-headers.sh so it is imported from the Linux
-   kernel header directory into include/.
-2. Add the new file to build.rs so bindgen generates bindings.
-3. Add the new module to src/lib.rs so the generated bindings are exposed in
-   the crate.
-4. Check if `cargo build` still succeeds. If the header has new kernel header
-   dependencies then you need to add them (if they are BSD licensed) or stub
-   them out (if they are not BSD licensed).
