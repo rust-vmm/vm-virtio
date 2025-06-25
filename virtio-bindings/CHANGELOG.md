@@ -5,6 +5,7 @@
 - Bindings are now once again distributed with the crate, rather than
   generated at build time.
 - Regenerate bindings with Linux 6.15.
+- Remove unused feature flags and build dependencies.
 
 # v0.2.5
 
