@@ -1,5 +1,10 @@
 # Upcoming Release
 
+## Changed
+
+- Bindings are now once again distributed with the crate, rather than
+  generated at build time.
+
 # v0.2.5
 
 ## Changed
