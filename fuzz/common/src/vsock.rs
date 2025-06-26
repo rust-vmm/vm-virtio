@@ -337,7 +337,7 @@ mod tests {
         let mut chain = vq.build_multiple_desc_chains(&q_descriptors).unwrap();
 
         let mut packet =
-            VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
+            VsockPacket::<()>::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions);
         let vsock_fuzz_input = VsockInput {
             functions,
@@ -387,7 +387,7 @@ mod tests {
         let mut chain = vq.build_multiple_desc_chains(&q_descriptors).unwrap();
 
         let mut packet =
-            VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
+            VsockPacket::<()>::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         let mut functions = Vec::new();
         create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions);
         let vsock_fuzz_input = VsockInput {
