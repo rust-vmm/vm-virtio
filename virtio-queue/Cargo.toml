@@ -23,6 +23,18 @@ criterion = "0.6.0"
 vm-memory = { workspace = true, features = ["backend-mmap", "backend-atomic"] }
 memoffset = "0.9.0"
 
+[target.'cfg(kani)'.dependencies]
+libc = "0.2.161"
+vm-memory = { workspace = true, features = ["backend-mmap"] }
+
 [[bench]]
 name = "main"
 harness = false
+
+# From https://model-checking.github.io/kani/usage.html#configuration-in-cargotoml
+#
+# Starting with Rust 1.80 (or nightly-2024-05-05), every reachable #[cfg] will be automatically
+# checked that they match the expected config names and values. To avoid warnings on
+# cfg(kani), we recommend adding the check-cfg lint config in your crate's Cargo.toml
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
