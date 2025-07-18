@@ -129,22 +129,22 @@ impl Display for Error {
 
         match self {
             DiscardWriteZeroes(ref err) => {
-                write!(f, "discard/write zeroes execution failed: {}", err)
+                write!(f, "discard/write zeroes execution failed: {err}")
             }
-            Flush(ref err) => write!(f, "flush execution failed: {}", err),
-            GuestMemory(ref err) => write!(f, "error accessing guest memory: {}", err),
+            Flush(ref err) => write!(f, "flush execution failed: {err}"),
+            GuestMemory(ref err) => write!(f, "error accessing guest memory: {err}"),
             InvalidAccess => write!(f, "invalid file access"),
             InvalidDataLength => write!(f, "invalid data length of request"),
             InvalidFlags => write!(f, "invalid flags for discard/write zeroes request"),
             Overflow => write!(f, "overflow when computing memory address"),
-            Read(ref err, _) => write!(f, "error during read request execution: {}", err),
+            Read(ref err, _) => write!(f, "error during read request execution: {err}"),
             ReadOnly => write!(
                 f,
                 "can't execute an operation other than `read` on a read-only device"
             ),
-            Write(ref err) => write!(f, "error during write request execution: {}", err),
-            Seek(ref err) => write!(f, "file seek execution failed: {}", err),
-            Unsupported(t) => write!(f, "can't execute unsupported request {}", t),
+            Write(ref err) => write!(f, "error during write request execution: {err}"),
+            Seek(ref err) => write!(f, "file seek execution failed: {err}"),
+            Unsupported(t) => write!(f, "can't execute unsupported request {t}"),
         }
     }
 }
@@ -224,8 +224,8 @@ impl<B: Backend> StdIoBackend<B> {
     /// Sets the `device_id`.
     ///
     /// # Arguments
-    /// * `device_id` - The block device id. On Linux guests, this information can be read from
-    ///                 `/sys/block/<device>/serial`.
+    ///
+    /// * `device_id` - The block device id. On Linux guests, this information can be read from `/sys/block/<device>/serial`.
     pub fn with_device_id(mut self, device_id: [u8; VIRTIO_BLK_ID_BYTES as usize]) -> Self {
         self.device_id = Some(device_id);
         self
@@ -244,6 +244,7 @@ impl<B: Backend> StdIoBackend<B> {
     /// byte).
     ///
     /// # Arguments
+    ///
     /// * `mem` - A reference to the guest memory.
     /// * `request` - The request to execute.
     pub fn process_request<M: GuestMemory>(
@@ -506,22 +507,22 @@ mod tests {
             use self::Error::*;
             match (self, other) {
                 (DiscardWriteZeroes(ref e), DiscardWriteZeroes(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
-                (Flush(ref e), Flush(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
+                (Flush(ref e), Flush(ref other_e)) => format!("{e}").eq(&format!("{other_e}")),
                 (GuestMemory(ref e), GuestMemory(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (InvalidAccess, InvalidAccess) => true,
                 (InvalidDataLength, InvalidDataLength) => true,
                 (InvalidFlags, InvalidFlags) => true,
                 (Overflow, Overflow) => true,
                 (Read(ref e, bytes), Read(ref other_e, other_bytes)) => {
-                    format!("{}", e).eq(&format!("{}", other_e)) && bytes == other_bytes
+                    format!("{e}").eq(&format!("{other_e}")) && bytes == other_bytes
                 }
                 (ReadOnly, ReadOnly) => true,
-                (Write(ref e), Write(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
-                (Seek(ref e), Seek(ref other_e)) => format!("{}", e).eq(&format!("{}", other_e)),
+                (Write(ref e), Write(ref other_e)) => format!("{e}").eq(&format!("{other_e}")),
+                (Seek(ref e), Seek(ref other_e)) => format!("{e}").eq(&format!("{other_e}")),
                 (Unsupported(val), Unsupported(other_val)) => val == other_val,
                 _ => false,
             }

@@ -58,7 +58,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
     for indirect in [false, true].iter().copied() {
         bench_queue(
             c,
-            &format!("single chain (indirect={})", indirect),
+            &format!("single chain (indirect={indirect})"),
             || queue_with_chains(1, 128, indirect),
             |mut q| {
                 let (num_chains, num_descriptors) = walk_queue(&mut q, &mem);
@@ -69,7 +69,7 @@ pub fn benchmark_queue(c: &mut Criterion) {
 
         bench_queue(
             c,
-            &format!("multiple chains (indirect={})", indirect),
+            &format!("multiple chains (indirect={indirect})"),
             || queue_with_chains(128, 1, indirect),
             |mut q| {
                 let (num_chains, num_descriptors) = walk_queue(&mut q, &mem);
