@@ -49,7 +49,7 @@ impl Display for MockError {
                 f,
                 "invalid next available descriptor chain head in the queue"
             ),
-            GuestMem(e) => write!(f, "guest memory error: {}", e),
+            GuestMem(e) => write!(f, "guest memory error: {e}"),
         }
     }
 }

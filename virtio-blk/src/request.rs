@@ -62,7 +62,7 @@ impl Display for Error {
         match self {
             DescriptorChainTooShort => write!(f, "descriptor chain too short"),
             DescriptorLengthTooSmall => write!(f, "descriptor length too small"),
-            GuestMemory(ref err) => write!(f, "error accessing guest memory: {}", err),
+            GuestMemory(ref err) => write!(f, "error accessing guest memory: {err}"),
             InvalidFlushSector => write!(f, "invalid sector in flush request, it should be 0"),
             UnexpectedReadOnlyDescriptor => write!(f, "unexpected read only descriptor"),
             UnexpectedWriteOnlyDescriptor => write!(f, "unexpected write only descriptor"),
@@ -207,8 +207,8 @@ impl Request {
     /// descriptor (the chain tail) is device-writable.
     ///
     /// # Arguments
-    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the
-    ///                  buffers of a virtio block request.
+    ///
+    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the buffers of a virtio block request.
     pub fn parse<M>(desc_chain: &mut DescriptorChain<M>) -> Result<Request>
     where
         M: Deref,
@@ -269,7 +269,7 @@ mod tests {
                 (DescriptorChainTooShort, DescriptorChainTooShort) => true,
                 (DescriptorLengthTooSmall, DescriptorLengthTooSmall) => true,
                 (GuestMemory(ref e), GuestMemory(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (InvalidFlushSector, InvalidFlushSector) => true,
                 (UnexpectedReadOnlyDescriptor, UnexpectedReadOnlyDescriptor) => true,

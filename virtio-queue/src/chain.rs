@@ -60,11 +60,10 @@ where
     /// Create a new `DescriptorChain` instance.
     ///
     /// # Arguments
-    /// * `mem` - the `GuestMemory` object that can be used to access the buffers pointed to by the
-    ///           descriptor chain.
+    ///
+    /// * `mem` - the `GuestMemory` object that can be used to access the buffers pointed to by the descriptor chain.
     /// * `desc_table` - the address of the descriptor table.
-    /// * `queue_size` - the size of the queue, which is also the maximum size of a descriptor
-    ///                  chain.
+    /// * `queue_size` - the size of the queue, which is also the maximum size of a descriptor chain.
     /// * `head_index` - the descriptor index of the chain head.
     pub(crate) fn new(mem: M, desc_table: GuestAddress, queue_size: u16, head_index: u16) -> Self {
         Self::with_ttl(mem, desc_table, queue_size, queue_size, head_index)

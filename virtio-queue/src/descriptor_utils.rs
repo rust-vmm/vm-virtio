@@ -482,14 +482,14 @@ mod tests {
 
         let mut buffer = [0_u8; 64];
         if let Err(e) = reader.read_exact(&mut buffer) {
-            panic!("read_exact should not fail here: {:?}", e);
+            panic!("read_exact should not fail here: {e:?}");
         }
 
         assert_eq!(reader.available_bytes(), 42);
         assert_eq!(reader.bytes_read(), 64);
 
         match reader.read(&mut buffer) {
-            Err(e) => panic!("read should not fail here: {:?}", e),
+            Err(e) => panic!("read should not fail here: {e:?}"),
             Ok(length) => assert_eq!(length, 42),
         }
 
@@ -522,14 +522,14 @@ mod tests {
 
         let buffer = [0_u8; 64];
         if let Err(e) = writer.write_all(&buffer) {
-            panic!("write_all should not fail here: {:?}", e);
+            panic!("write_all should not fail here: {e:?}");
         }
 
         assert_eq!(writer.available_bytes(), 42);
         assert_eq!(writer.bytes_written(), 64);
 
         match writer.write(&buffer) {
-            Err(e) => panic!("write should not fail here {:?}", e),
+            Err(e) => panic!("write should not fail here {e:?}"),
             Ok(length) => assert_eq!(length, 42),
         }
 
@@ -641,7 +641,7 @@ mod tests {
         .expect("create_descriptor_chain failed");
         let mut writer = Writer::new(&memory, chain_writer).expect("failed to create Writer");
         if let Err(e) = writer.write_obj(secret) {
-            panic!("write_obj should not fail here: {:?}", e);
+            panic!("write_obj should not fail here: {e:?}");
         }
 
         // Now create new descriptor chain pointing to the same memory and try to read it.
@@ -654,7 +654,7 @@ mod tests {
         .expect("create_descriptor_chain failed");
         let mut reader = Reader::new(&memory, chain_reader).expect("failed to create Reader");
         match reader.read_obj::<Le32>() {
-            Err(e) => panic!("read_obj should not fail here: {:?}", e),
+            Err(e) => panic!("read_obj should not fail here: {e:?}"),
             Ok(read_secret) => assert_eq!(read_secret, secret),
         }
     }
