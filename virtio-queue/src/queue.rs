@@ -690,11 +690,10 @@ where
     /// Create a new instance of `AvailInter`.
     ///
     /// # Arguments
+    ///
     /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
-    /// * `idx` - the index of the available ring entry where the driver would put the next
-    ///           available descriptor chain.
-    /// * `queue` - the `Queue` object from which the needed data to create the `AvailIter` can
-    ///             be retrieved.
+    /// * `idx` - the index of the available ring entry where the driver would put the next available descriptor chain.
+    /// * `queue` - the `Queue` object from which the needed data to create the `AvailIter` can be retrieved.
     pub(crate) fn new(mem: M, idx: Wrapping<u16>, queue: &'b mut Queue) -> Result<Self, Error> {
         // The number of descriptor chain heads to process should always
         // be smaller or equal to the queue size, as the driver should
@@ -770,7 +769,7 @@ where
 // proper implementation as `GuestMemory` errors cannot implement `PartialEq`.
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
-        format!("{}", &self) == format!("{}", other)
+        format!("{}", &self) == format!("{other}")
     }
 }
 

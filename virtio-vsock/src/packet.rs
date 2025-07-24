@@ -82,16 +82,16 @@ impl Display for Error {
                 "The descriptor is pointing to a buffer that has a longer length than expected."
             ),
             Error::InvalidHeaderInputSize(size) => {
-                write!(f, "Invalid header input size: {}", size)
+                write!(f, "Invalid header input size: {size}")
             }
             Error::InvalidHeaderLen(size) => {
-                write!(f, "Invalid header `len` field value: {}", size)
+                write!(f, "Invalid header `len` field value: {size}")
             }
             Error::InvalidMemoryAccess(error) => {
-                write!(f, "Invalid guest memory access: {}", error)
+                write!(f, "Invalid guest memory access: {error}")
             }
             Error::InvalidVolatileAccess(error) => {
-                write!(f, "Invalid volatile memory access: {}", error)
+                write!(f, "Invalid volatile memory access: {error}")
             }
             Error::UnexpectedReadOnlyDescriptor => {
                 write!(f, "Unexpected read-only descriptor.")
@@ -363,12 +363,10 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// descriptor can optionally end the chain.
     ///
     /// # Arguments
+    ///
     /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
     /// * `desc_chain` - the descriptor chain corresponding to a packet.
-    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated
-    ///                     between the device and the driver. Tracking issue for defining this
-    ///                     feature in virtio-spec
-    ///                     [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
+    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated between the device and the driver. Tracking issue for defining this feature in virtio-spec [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
     ///
     /// # Example
     ///
@@ -504,12 +502,10 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// descriptor.
     ///
     /// # Arguments
+    ///
     /// * `mem` - the `GuestMemory` object that can be used to access the queue buffers.
     /// * `desc_chain` - the descriptor chain corresponding to a packet.
-    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated
-    ///                     between the device and the driver. Tracking issue for defining this
-    ///                     feature in virtio-spec
-    ///                     [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
+    /// * `max_data_size` - the maximum size allowed for the packet payload, that was negotiated between the device and the driver. Tracking issue for defining this feature in virtio-spec [here](https://github.com/oasis-tcs/virtio-spec/issues/140).
     ///
     /// # Example
     ///
@@ -699,10 +695,10 @@ mod tests {
                 }
                 (InvalidHeaderLen(size), InvalidHeaderLen(other_size)) => size == other_size,
                 (InvalidMemoryAccess(ref e), InvalidMemoryAccess(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (InvalidVolatileAccess(ref e), InvalidVolatileAccess(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (UnexpectedReadOnlyDescriptor, UnexpectedReadOnlyDescriptor) => true,
                 (UnexpectedWriteOnlyDescriptor, UnexpectedWriteOnlyDescriptor) => true,

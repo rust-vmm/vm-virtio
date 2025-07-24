@@ -46,10 +46,10 @@ impl Display for Error {
 
         match self {
             WriteToGuestFailed(ref err) => {
-                write!(f, "Console failed to write slice to guest memory: {}", err)
+                write!(f, "Console failed to write slice to guest memory: {err}")
             }
             WriteToOutputFailed(ref err) => {
-                write!(f, "Console failed to write data to output sink: {}", err)
+                write!(f, "Console failed to write data to output sink: {err}")
             }
             ChainLengthOverflow => {
                 write!(f, "Console transmitq chain length has overflown usize.")
@@ -73,7 +73,7 @@ impl Display for Error {
                 )
             }
             OutputSinkFlushFailed(ref err) => {
-                write!(f, "Output sink flush has not written all bytes: {}", err)
+                write!(f, "Output sink flush has not written all bytes: {err}")
             }
         }
     }
@@ -115,9 +115,11 @@ where
     /// Create new console object with the default `capacity`.
     ///
     /// # Arguments
-    /// * `output` - The output sink where all the data received from
-    ///              the transmitq will be written.
+    ///
+    /// * `output` - The output sink where all the data received from the transmitq will be written.
+    ///
     /// # Returns
+    ///
     /// The console object.
     pub fn new(output: T) -> Self {
         Self::new_with_capacity(DEFAULT_CAPACITY, output).unwrap()
@@ -126,10 +128,12 @@ where
     /// Create new console object with specified `capacity`.
     ///
     /// # Arguments
+    ///
     /// * `capacity` - The capacity of the input buffer.
-    /// * `output` - The output sink where all the data received from
-    ///              the transmitq will be written.
+    /// * `output` - The output sink where all the data received from the transmitq will be written.
+    ///
     /// # Returns
+    ///
     /// The console object or an `Error` if the capacity is 0 or higher than [`MAX_CAPACITY`].
     pub fn new_with_capacity(capacity: usize, output: T) -> Result<Self, Error> {
         // There is no use case for 0 capacity
@@ -150,8 +154,8 @@ where
     /// returned.
     ///
     /// # Arguments
-    /// * `data` - A mutable reference to a `Vec<u8>` containing the raw bytes that will be
-    ///            sent to the driver when the `process_receiveq_chain` method is called.
+    ///
+    /// * `data` - A mutable reference to a `Vec<u8>` containing the raw bytes that will be sent to the driver when the `process_receiveq_chain` method is called.
     pub fn enqueue_data(&self, data: &mut Vec<u8>) -> Result<(), Error> {
         let mut input_buffer = self.input_buffer.lock().unwrap();
         let total_length = input_buffer
@@ -189,8 +193,8 @@ where
     /// Read data from a `desc_chain` of the transmit queue and write it to the output sink.
     ///
     /// # Arguments
-    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the
-    ///                  buffers that the virtio console driver has sent to the device.
+    ///
+    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the buffers that the virtio console driver has sent to the device.
     pub fn process_transmitq_chain<M>(
         &mut self,
         desc_chain: &mut DescriptorChain<M>,
@@ -224,9 +228,11 @@ where
     /// add more.
     ///
     /// # Arguments
-    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the
-    ///                  empty buffers that the virtio driver has offered the device.
+    ///
+    /// * `desc_chain` - A mutable reference to the descriptor chain that should point to the empty buffers that the virtio driver has offered the device.
+    ///
     /// # Returns
+    ///
     /// The number of raw bytes written to guest memory.
     pub fn process_receiveq_chain<M>(
         &self,
@@ -291,10 +297,10 @@ mod tests {
             use self::Error::*;
             match (self, other) {
                 (WriteToGuestFailed(ref e), WriteToGuestFailed(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (WriteToOutputFailed(ref e), WriteToOutputFailed(ref other_e)) => {
-                    format!("{}", e).eq(&format!("{}", other_e))
+                    format!("{e}").eq(&format!("{other_e}"))
                 }
                 (ChainLengthOverflow, ChainLengthOverflow) => true,
                 (BufferCapacityExceeded, BufferCapacityExceeded) => true,
