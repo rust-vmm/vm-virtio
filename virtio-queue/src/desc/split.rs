@@ -37,8 +37,8 @@ use virtio_bindings::bindings::virtio_ring::{
 /// #    let desc = RawDescriptor::from(SplitDescriptor::new(0x2000, 0x1000, VRING_DESC_F_WRITE as u16, 0));
 /// #    vq.desc_table().store(1, desc);
 /// #
-/// #    vq.avail().ring().ref_at(0).unwrap().store(u16::to_le(0));
-/// #    vq.avail().idx().store(u16::to_le(1));
+/// #    vq.avail().store_ring_entry(0, 0).unwrap();
+/// #    vq.avail().store_idx(1);
 /// #    q
 /// # }
 /// let m = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
