@@ -151,6 +151,17 @@ following ones:
 * `AvailIter` - is a consuming iterator over all available descriptor chain
   heads in the queue.
 
+### Queue helper methods
+
+To help with directly manipulating the memory backing a queue, the test utilities expose a set of convenience methods:
+
+* `load_idx` / `store_idx` – read or write the ring `idx` field.
+* `load_ring_entry` / `store_ring_entry` – read or write individual ring entries.
+* `load_flags` / `store_flags` and `load_event` / `store_event` – access the auxiliary fields of the rings.
+* `start` / `end` – get the guest address range covered by the ring.
+
+These helpers are available on the objects returned by the `avail()` and `used()` accessors provided by `MockSplitQueue` and make it easy to set up a queue in tests or simple examples.
+
 ## Save/Restore Queue
 
 The `Queue` allows saving the state through the `state` function which returns

@@ -871,19 +871,19 @@ mod tests {
         let mut q: Queue = vq.create_queue().unwrap();
 
         assert_eq!(q.used_idx(mem, Ordering::Acquire).unwrap(), Wrapping(0));
-        assert_eq!(u16::from_le(vq.used().idx().load()), 0);
+        assert_eq!(vq.used().load_idx(), 0);
 
         // index too large
         assert!(q.add_used(mem, 16, 0x1000).is_err());
-        assert_eq!(u16::from_le(vq.used().idx().load()), 0);
+        assert_eq!(vq.used().load_idx(), 0);
 
         // should be ok
         q.add_used(mem, 1, 0x1000).unwrap();
         assert_eq!(q.next_used, Wrapping(1));
         assert_eq!(q.used_idx(mem, Ordering::Acquire).unwrap(), Wrapping(1));
-        assert_eq!(u16::from_le(vq.used().idx().load()), 1);
+        assert_eq!(vq.used().load_idx(), 1);
 
-        let x = vq.used().ring().ref_at(0).unwrap().load();
+        let x = vq.used().load_ring_entry(0).unwrap();
         assert_eq!(x.id(), 1);
         assert_eq!(x.len(), 0x1000);
     }
@@ -1075,7 +1075,7 @@ mod tests {
         // Update the index of the chain that can be consumed to not be the last one.
         // This enables us to consume chains in multiple iterations as opposed to consuming
         // all the driver written chains at once.
-        vq.avail().idx().store(u16::to_le(2));
+        vq.avail().store_idx(2);
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
 
@@ -1108,7 +1108,7 @@ mod tests {
         assert_eq!(q.next_avail(), 2);
         assert_eq!(q.next_used(), 2);
         // Let the device know it can consume one more chain.
-        vq.avail().idx().store(u16::to_le(3));
+        vq.avail().store_idx(3);
         i = 0;
 
         loop {
@@ -1132,7 +1132,7 @@ mod tests {
             // ring. Ideally this should be done on a separate thread.
             // Because of this update, the loop should be iterated again to consume the new
             // available descriptor chains.
-            vq.avail().idx().store(u16::to_le(4));
+            vq.avail().store_idx(4);
             if !q.enable_notification(mem).unwrap() {
                 break;
             }
@@ -1144,7 +1144,7 @@ mod tests {
 
         // Set an `idx` that is bigger than the number of entries added in the ring.
         // This is an allowed scenario, but the indexes of the chain will have unexpected values.
-        vq.avail().idx().store(u16::to_le(7));
+        vq.avail().store_idx(7);
         loop {
             q.disable_notification(mem).unwrap();
 
@@ -1199,7 +1199,7 @@ mod tests {
 
         vq.add_desc_chains(&descs, 0).unwrap();
         // Let the device know it can consume chains with the index < 2.
-        vq.avail().idx().store(u16::to_le(3));
+        vq.avail().store_idx(3);
         // No descriptor chains are consumed at this point.
         assert_eq!(q.next_avail(), 0);
         assert_eq!(q.next_used(), 0);
@@ -1232,7 +1232,7 @@ mod tests {
 
         // Decrement `idx` which should be forbidden. We don't enforce this thing, but we should
         // test that we don't panic in case the driver decrements it.
-        vq.avail().idx().store(u16::to_le(1));
+        vq.avail().store_idx(1);
         // Invalid available ring index
         assert!(q.iter(mem).is_err());
     }
@@ -1269,16 +1269,16 @@ mod tests {
         // When the number of chains exposed by the driver is equal to or less than the queue
         // size, the available ring index is valid and constructs an iterator successfully.
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size);
-        vq.avail().idx().store(u16::to_le(avail_idx.0));
+        vq.avail().store_idx(avail_idx.0);
         assert!(q.iter(mem).is_ok());
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size - 1);
-        vq.avail().idx().store(u16::to_le(avail_idx.0));
+        vq.avail().store_idx(avail_idx.0);
         assert!(q.iter(mem).is_ok());
 
         // When the number of chains exposed by the driver is larger than the queue size, the
         // available ring index is invalid and produces an error from constructing an iterator.
         let avail_idx = Wrapping(q.next_avail()) + Wrapping(queue_size + 1);
-        vq.avail().idx().store(u16::to_le(avail_idx.0));
+        vq.avail().store_idx(avail_idx.0);
         assert!(q.iter(mem).is_err());
     }
 

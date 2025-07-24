@@ -117,9 +117,37 @@ impl<'a, M: GuestMemory, T: ByteValued> ArrayRef<'a, M, T> {
     }
 }
 
+/// Trait for converting queue values to and from little-endian representation.
+pub trait RingAccess: ByteValued + Copy {
+    /// Convert from host to little-endian.
+    fn to_le(self) -> Self;
+    /// Convert from little-endian to host.
+    fn from_le(val: Self) -> Self;
+}
+
+impl RingAccess for u16 {
+    fn to_le(self) -> Self {
+        u16::to_le(self)
+    }
+
+    fn from_le(val: Self) -> Self {
+        u16::from_le(val)
+    }
+}
+
+impl RingAccess for VirtqUsedElem {
+    fn to_le(self) -> Self {
+        self
+    }
+
+    fn from_le(val: Self) -> Self {
+        val
+    }
+}
+
 /// Represents a virtio queue ring. The only difference between the used and available rings,
 /// is the ring element type.
-pub struct SplitQueueRing<'a, M, T: ByteValued> {
+pub struct SplitQueueRing<'a, M, T: RingAccess> {
     flags: Ref<'a, M, u16>,
     // The value stored here should more precisely be a `Wrapping<u16>`, but that would require a
     // `ByteValued` impl for this type, which is not provided in vm-memory. Implementing the trait
@@ -131,7 +159,7 @@ pub struct SplitQueueRing<'a, M, T: ByteValued> {
     event: Ref<'a, M, u16>,
 }
 
-impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
+impl<'a, M: GuestMemory, T: RingAccess> SplitQueueRing<'a, M, T> {
     /// Create a new `SplitQueueRing` instance
     pub fn new(mem: &'a M, base: GuestAddress, len: u16) -> Self {
         let event_addr = base
@@ -165,14 +193,44 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
             .unwrap()
     }
 
-    /// Return a reference to the idx field.
-    pub fn idx(&self) -> &Ref<'a, M, u16> {
-        &self.idx
+    /// Load the value of the `flags` field.
+    pub fn load_flags(&self) -> u16 {
+        u16::from_le(self.flags.load())
     }
 
-    /// Return a reference to the ring field.
-    pub fn ring(&self) -> &ArrayRef<'a, M, T> {
-        &self.ring
+    /// Store the `flags` field.
+    pub fn store_flags(&self, val: u16) {
+        self.flags.store(u16::to_le(val))
+    }
+
+    /// Load the value of the `idx` field.
+    pub fn load_idx(&self) -> u16 {
+        u16::from_le(self.idx.load())
+    }
+
+    /// Store the `idx` field.
+    pub fn store_idx(&self, val: u16) {
+        self.idx.store(u16::to_le(val))
+    }
+
+    /// Load a ring entry at `index`.
+    pub fn load_ring_entry(&self, index: usize) -> Result<T, MockError> {
+        self.ring.ref_at(index).map(|r| T::from_le(r.load()))
+    }
+
+    /// Store a ring entry at `index`.
+    pub fn store_ring_entry(&self, index: usize, val: T) -> Result<(), MockError> {
+        self.ring.ref_at(index).map(|r| r.store(val.to_le()))
+    }
+
+    /// Load the value of the event field.
+    pub fn load_event(&self) -> u16 {
+        u16::from_le(self.event.load())
+    }
+
+    /// Store the event field.
+    pub fn store_event(&self, val: u16) {
+        self.event.store(u16::to_le(val))
     }
 }
 
@@ -521,5 +579,70 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             .map_err(MockError::GuestMem)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    // SplitQueueRing load/store API coverage for AvailRing (u16)
+    #[test]
+    fn test_avail_ring_load_store() {
+        let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let len = 8u16;
+        let base = GuestAddress(0x1000);
+        let ring: AvailRing<_> = AvailRing::new(mem, base, len);
+
+        // flags
+        ring.store_flags(0x55aa);
+        assert_eq!(ring.load_flags(), 0x55aa);
+
+        // idx
+        ring.store_idx(7);
+        assert_eq!(ring.load_idx(), 7);
+
+        // ring entry
+        ring.store_ring_entry(3, 0xbeef).unwrap();
+        assert_eq!(ring.load_ring_entry(3).unwrap(), 0xbeef);
+
+        // event field
+        ring.store_event(0x1234);
+        assert_eq!(ring.load_event(), 0x1234);
+
+        // out-of-bounds must error
+        assert!(matches!(
+            ring.store_ring_entry(len as usize, 0).unwrap_err(),
+            MockError::InvalidIndex
+        ));
+    }
+
+    // SplitQueueRing load/store API coverage for UsedRing (VirtqUsedElem)
+    #[test]
+    fn test_used_ring_load_store() {
+        let mem = &GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(0), 0x20000)]).unwrap();
+        let len = 8u16;
+        let base = GuestAddress(0x3000);
+        let ring: UsedRing<_> = UsedRing::new(mem, base, len);
+
+        // flags
+        ring.store_flags(0xccdd);
+        assert_eq!(ring.load_flags(), 0xccdd);
+
+        // idx
+        ring.store_idx(2);
+        assert_eq!(ring.load_idx(), 2);
+
+        // ring entry
+        let elem = VirtqUsedElem::new(42, 0x1000);
+        ring.store_ring_entry(0, elem).unwrap();
+        let read = ring.load_ring_entry(0).unwrap();
+        assert_eq!(read.id(), 42);
+        assert_eq!(read.len(), 0x1000);
+
+        // event field
+        ring.store_event(0xdead);
+        assert_eq!(ring.load_event(), 0xdead);
     }
 }
