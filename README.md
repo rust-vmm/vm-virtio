@@ -107,6 +107,32 @@ need to unblock the pipeline by following the Buildkite run link in the PR and
 click on the corresponding
 [unblock pipeline button](https://buildkite.com/docs/pipelines/block-step).
 
+## Kani proofs
+We run Kani proofs for each PR and on merges to the main branch. The proofs
+check conformance of the virtio-queue implementation to requirements from the
+virtio specification. Different than a unit test, a proof is checked for every
+possible input thus enforcing conformance. To run Kani locally, please first
+follow this
+[link](https://model-checking.github.io/kani/install-guide.html#installing-the-latest-version)
+to install it. Then, to run all the proofs in all packages, use the following
+command:
+
+```bash
+cargo kani
+```
+
+To run the proofs in a single package, run:
+
+```bash
+cargo kani --package virtio-queue
+```
+
+To run a single proof, run:
+
+```bash
+cargo kani --exact --harness queue::verification::verify_spec_2_7_7_2
+```
+
 ## License
 
 This project is licensed under either of
