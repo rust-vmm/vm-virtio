@@ -471,18 +471,15 @@ impl QueueT for Queue {
             .ok_or(Error::AddressOverflow)?;
         mem.write_obj(VirtqUsedElem::new(head_index.into(), len), addr)
             .map_err(Error::GuestMemory)?;
-
         self.next_used += Wrapping(1);
         self.num_added += Wrapping(1);
 
-        mem.store(
-            u16::to_le(self.next_used.0),
-            self.used_ring
-                .checked_add(2)
-                .ok_or(Error::AddressOverflow)?,
-            Ordering::Release,
-        )
-        .map_err(Error::GuestMemory)
+        let addr: GuestAddress = self
+            .used_ring
+            .checked_add(2)
+            .ok_or(Error::AddressOverflow)?;
+        mem.store(u16::to_le(self.next_used.0), addr, Ordering::Release)
+            .map_err(Error::GuestMemory)
     }
 
     fn enable_notification<M: GuestMemory>(&mut self, mem: &M) -> Result<bool, Error> {
