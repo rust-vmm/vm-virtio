@@ -2,7 +2,13 @@
 
 ## Added
 
+- Introduced `RingAccess` trait to handle endianness conversion of ring elements in mock tests.
+- Added typed accessor methods to `SplitQueueRing` for safer and more readable load/store of ring fields (e.g., `load_idx`, `store_ring_entry`).
+
 ## Changed
+
+- Refactored tests and mock infrastructure to use typed accessors instead of raw `Ref`/`ArrayRef` and manual endianness conversion.
+- Made `SplitQueueRing` generic over `RingAccess` types.
 
 ## Fixed
 
