@@ -2,9 +2,293 @@
 use std::mem::ManuallyDrop;
 use std::num::Wrapping;
 
-use vm_memory::{FileOffset, GuestMemoryRegion, MemoryRegionAddress, MmapRegion};
+use vm_memory::{AtomicAccess, GuestMemoryError, GuestMemoryRegion, MemoryRegionAddress};
+
+use std::io::{Read, Write};
+use std::mem::MaybeUninit;
+use vm_memory::ByteValued;
 
 use super::*;
+
+struct StubRegion {
+    buffer: *mut u8,
+    region_len: usize,
+    region_start: GuestAddress,
+}
+
+// A stub region that implements the GuestMemoryRegion and Bytes traits. This is
+// used to create a single memory region for testing purposes in Kani. It allows
+// us to simulate a memory region without needing a full memory management
+// implementation. The region is backed by a raw pointer to a buffer, which is
+// allocated and leaked to ensure a stable address. The region supports reading
+// and writing bytes, objects, and slices. It also provides methods to convert
+// between guest addresses and memory region addresses, and to check offsets
+// within the region.
+impl StubRegion {
+    fn new(buf_ptr: *mut u8, buf_len: usize, start_offset: u64) -> Self {
+        Self {
+            buffer: buf_ptr,
+            region_len: buf_len,
+            region_start: GuestAddress(start_offset),
+        }
+    }
+
+    fn to_region_addr(&self, addr: GuestAddress) -> Option<MemoryRegionAddress> {
+        let offset = addr
+            .raw_value()
+            .checked_sub(self.region_start.raw_value())?;
+        if offset < self.region_len as u64 {
+            Some(MemoryRegionAddress(offset))
+        } else {
+            None
+        }
+    }
+
+    fn checked_offset(
+        &self,
+        addr: MemoryRegionAddress,
+        count: usize,
+    ) -> Option<MemoryRegionAddress> {
+        let end = addr.0.checked_add(count as u64)?;
+        if end <= self.region_len as u64 {
+            Some(MemoryRegionAddress(end))
+        } else {
+            None
+        }
+    }
+}
+
+impl GuestMemoryRegion for StubRegion {
+    type B = ();
+
+    fn len(&self) -> <GuestAddress as vm_memory::AddressValue>::V {
+        self.region_len.try_into().unwrap()
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.region_start
+    }
+
+    fn bitmap(&self) -> &Self::B {
+        // For Kani, we do not need a bitmap, so we return an empty tuple.
+        &()
+    }
+}
+
+// Implements the Bytes trait for StubRegion, allowing it to read and write
+// bytes and objects. This is used to simulate memory operations in Kani proofs.
+impl Bytes<MemoryRegionAddress> for StubRegion {
+    type E = GuestMemoryError;
+
+    fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<usize, Self::E> {
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(buf.len())
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(buf.as_ptr(), self.buffer.add(offset), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<usize, Self::E> {
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(buf.len())
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.buffer.add(offset), buf.as_mut_ptr(), buf.len());
+        }
+        Ok(buf.len())
+    }
+
+    fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> Result<(), Self::E> {
+        self.write(buf, addr)?;
+        Ok(())
+    }
+
+    fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> Result<(), Self::E> {
+        self.read(buf, addr)?;
+        Ok(())
+    }
+
+    fn read_from<F: Read>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<usize, Self::E> {
+        let mut temp = vec![0u8; count];
+        src.read_exact(&mut temp)
+            .map_err(|_| GuestMemoryError::PartialBuffer {
+                expected: count,
+                completed: 0,
+            })?;
+        self.write(&temp, addr)
+    }
+
+    fn read_exact_from<F: Read>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E> {
+        let mut temp = vec![0u8; count];
+        src.read_exact(&mut temp)
+            .map_err(|_| GuestMemoryError::PartialBuffer {
+                expected: count,
+                completed: 0,
+            })?;
+        self.write_slice(&temp, addr)
+    }
+
+    fn read_obj<T: ByteValued>(&self, addr: MemoryRegionAddress) -> Result<T, Self::E> {
+        let size = std::mem::size_of::<T>();
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(size)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        let mut result: T = unsafe { MaybeUninit::<T>::zeroed().assume_init() };
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.buffer.add(offset),
+                result.as_mut_slice().as_mut_ptr(),
+                size,
+            );
+        }
+        Ok(result)
+    }
+
+    fn write_to<F: Write>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<usize, Self::E> {
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(count)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts(self.buffer.add(offset), count);
+            dst.write_all(slice)
+                .map_err(|_| GuestMemoryError::PartialBuffer {
+                    expected: count,
+                    completed: 0,
+                })?;
+        }
+        Ok(count)
+    }
+
+    fn write_obj<T: ByteValued>(&self, val: T, addr: MemoryRegionAddress) -> Result<(), Self::E> {
+        let size = std::mem::size_of::<T>();
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(size)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        let bytes = val.as_slice();
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.buffer.add(offset), size);
+        }
+        Ok(())
+    }
+
+    fn write_all_to<F: Write>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E> {
+        self.write_to(addr, dst, count)?;
+        Ok(())
+    }
+
+    fn store<T: AtomicAccess>(
+        &self,
+        val: T,
+        addr: MemoryRegionAddress,
+        _order: Ordering,
+    ) -> Result<(), Self::E> {
+        let size = std::mem::size_of::<T>();
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(size)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        let bytes = val.as_slice();
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.buffer.add(offset), size);
+        }
+        Ok(())
+    }
+
+    fn load<T: AtomicAccess>(
+        &self,
+        addr: MemoryRegionAddress,
+        _order: Ordering,
+    ) -> Result<T, Self::E> {
+        let size = std::mem::size_of::<T>();
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(size)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts(self.buffer.add(offset), size);
+            T::from_slice(slice)
+                .ok_or_else(|| GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))
+                .copied()
+        }
+    }
+}
+
+//  A proof that write to StubRegion and read back gives the same bytes.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_stubregion_write_read() {
+    // Prepare a buffer and a StubRegion
+    let mut buffer = kani::vec::exact_vec::<u8, 16>();
+    let region = StubRegion::new(buffer.as_mut_ptr(), buffer.len(), 0);
+
+    // Arbitrary bytes to write
+    let bytes: [u8; 16] = kani::any();
+    // Write bytes to region at offset 0
+    let write_offset: usize = kani::any();
+    kani::assume(write_offset <= buffer.len() - 16);
+    assert!(region
+        .write(&bytes, MemoryRegionAddress(write_offset as u64))
+        .is_ok());
+
+    // Read back into a new buffer
+    let mut readback = kani::vec::exact_vec::<u8, 16>();
+    assert!(region
+        .read(&mut readback, MemoryRegionAddress(write_offset as u64))
+        .is_ok());
+
+    // Choose a nondet index and check both match
+    let idx: usize = kani::any();
+    kani::assume(idx < 16);
+    assert_eq!(bytes[idx], readback[idx]);
+}
 
 /// A made-for-kani version of `vm_memory::GuestMemoryMmap`. Unlike the real
 /// `GuestMemoryMmap`, which manages a list of regions and then does a binary
@@ -13,12 +297,12 @@ use super::*;
 /// speeds up all queue proofs, because it eliminates the only loop contained herein,
 /// meaning we can use `kani::unwind(0)` instead of `kani::unwind(2)`. Functionally,
 /// it works identically to `GuestMemoryMmap` with only a single contained region.
-pub struct SingleRegionGuestMemory {
-    the_region: vm_memory::GuestRegionMmap,
+struct SingleRegionGuestMemory {
+    the_region: StubRegion,
 }
 
 impl GuestMemory for SingleRegionGuestMemory {
-    type R = vm_memory::GuestRegionMmap;
+    type R = StubRegion;
 
     fn num_regions(&self) -> usize {
         1
@@ -64,25 +348,16 @@ impl GuestMemory for SingleRegionGuestMemory {
 
 impl kani::Arbitrary for SingleRegionGuestMemory {
     fn any() -> Self {
-        guest_memory(
-            ManuallyDrop::new(kani::vec::exact_vec::<u8, GUEST_MEMORY_SIZE>()).as_mut_ptr(),
-        )
+        let memory =
+            ManuallyDrop::new(kani::vec::exact_vec::<u8, GUEST_MEMORY_SIZE>()).as_mut_ptr();
+        Self {
+            the_region: StubRegion::new(memory, GUEST_MEMORY_SIZE, GUEST_MEMORY_BASE),
+        }
     }
 }
-pub struct ProofContext {
-    pub queue: Queue,
-    pub memory: SingleRegionGuestMemory,
-}
-
-pub struct MmapRegionStub {
-    _addr: *mut u8,
-    _size: usize,
-    _bitmap: (),
-    _file_offset: Option<FileOffset>,
-    _prot: i32,
-    _flags: i32,
-    _owned: bool,
-    _hugetlbfs: Option<bool>,
+struct ProofContext {
+    queue: Queue,
+    memory: SingleRegionGuestMemory,
 }
 
 /// We start the first guest memory region at an offset so that harnesses using
@@ -96,43 +371,6 @@ const GUEST_MEMORY_BASE: u64 = 0;
 // We need to give at least 16 bytes of buffer space for the descriptor table to be
 // able to change its address, as it is 16-byte aligned.
 const GUEST_MEMORY_SIZE: usize = QUEUE_END as usize + 30;
-
-fn guest_memory(memory: *mut u8) -> SingleRegionGuestMemory {
-    // Ideally, we'd want to do
-    // let region = unsafe {MmapRegionBuilder::new(GUEST_MEMORY_SIZE)
-    //    .with_raw_mmap_pointer(bytes.as_mut_ptr())
-    //    .build()
-    //    .unwrap()};
-    // However, .build() calls to .build_raw(), which contains a call to libc::sysconf.
-    // Since kani 0.34.0, stubbing out foreign functions is supported, but due to the rust
-    // standard library using a special version of the libc crate, it runs into some problems
-    // [1] Even if we work around those problems, we run into performance problems [2].
-    // Therefore, for now we stick to this ugly transmute hack (which only works because
-    // the kani compiler will never re-order fields, so we can treat repr(Rust) as repr(C)).
-    //
-    // [1]: https://github.com/model-checking/kani/issues/2673
-    // [2]: https://github.com/model-checking/kani/issues/2538
-    let region_stub = MmapRegionStub {
-        _addr: memory,
-        _size: GUEST_MEMORY_SIZE,
-        _bitmap: Default::default(),
-        _file_offset: None,
-        _prot: 0,
-        _flags: libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
-        _owned: false,
-        _hugetlbfs: None,
-    };
-
-    let region: MmapRegion<()> = unsafe { std::mem::transmute(region_stub) };
-
-    let guest_region =
-        vm_memory::GuestRegionMmap::new(region, GuestAddress(GUEST_MEMORY_BASE)).unwrap();
-
-    // Use a single memory region for guests of size < 2GB
-    SingleRegionGuestMemory {
-        the_region: guest_region,
-    }
-}
 
 const MAX_QUEUE_SIZE: u16 = 4;
 
