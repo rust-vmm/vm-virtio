@@ -459,19 +459,22 @@ impl kani::Arbitrary for ProofContext {
     }
 }
 
+/// # Specification (VirtIO 1.3, Section 2.7.7.2: "Device Requirements: Used Buffer Notification Suppression")
+///
+/// Section 2.7.7.2 deals with device-to-driver notification suppression. It
+/// describes a mechanism by which the driver can tell the device that it does
+/// not want notifications (IRQs) about the device finishing processing
+/// individual buffers (descriptor chain heads) from the avail ring until a
+/// specific number of descriptors has been processed. This is done by the
+/// driver defining a "used_event" index, which tells the device "please do not
+/// notify me until used.ring[used_event] has been written to by you".
 #[kani::proof]
-// There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
-// This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
-// recursively calls itself. Kani will generally unwind this recursion infinitely.
+// There are no loops anywhere, but kani really enjoys getting stuck in
+// std::ptr::drop_in_place. This is a compiler intrinsic that has a "dummy"
+// implementation in stdlib that just recursively calls itself. Kani will
+// generally unwind this recursion infinitely.
 #[kani::unwind(0)]
-fn verify_spec_2_7_7_2() {
-    // Section 2.7.7.2 deals with device-to-driver notification suppression.
-    // It describes a mechanism by which the driver can tell the device that it does not
-    // want notifications (IRQs) about the device finishing processing individual buffers
-    // (descriptor chain heads) from the avail ring until a specific number of descriptors
-    // has been processed. This is done by the driver
-    // defining a "used_event" index, which tells the device "please do not notify me until
-    // used.ring[used_event] has been written to by you".
+fn verify_device_notification_suppression() {
     let ProofContext {
         mut queue,
         memory: mem,
