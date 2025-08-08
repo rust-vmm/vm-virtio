@@ -458,6 +458,7 @@ impl kani::Arbitrary for ProofContext {
     }
 }
 
+/// Kani proof harness for VirtIO 1.2 Section 2.7.7.2: Device-to-driver notification suppression.
 #[kani::proof]
 // There are no loops anywhere, but kani really enjoys getting stuck in std::ptr::drop_in_place.
 // This is a compiler intrinsic that has a "dummy" implementation in stdlib that just
