@@ -507,3 +507,58 @@ fn verify_spec_2_7_7_2() {
         // So we do not care
     }
 }
+
+/// Reads the idx field from the used ring in guest memory, as stored by Queue::add_used.
+/// Returns the value as u16.
+fn get_used_idx(
+    queue: &Queue,
+    mem: &SingleRegionGuestMemory,
+) -> Result<u16, vm_memory::GuestMemoryError> {
+    let addr =
+        queue
+            .used_ring
+            .checked_add(2)
+            .ok_or(vm_memory::GuestMemoryError::InvalidGuestAddress(
+                queue.used_ring,
+            ))?;
+    let val = mem.load(addr, Ordering::Acquire)?;
+    Ok(u16::from_le(val))
+}
+
+/// Kani proof harness for verifying the behavior of the `add_used` method of the `Queue`.
+///
+/// # Specification (VirtIO 1.3, Section 2.7.14: "Receiving Used Buffers From The Device")
+///
+/// When the device has finished processing a buffer, it must add an element to the used ring,
+/// indicating which descriptor chain was used and how many bytes were written. The device must
+/// increment the used index after writing the element.
+/// Additionally, for this implementation, we verify that if the descriptor index is out of bounds,
+/// the operation must fail and the used index must not be incremented.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_add_used() {
+    let ProofContext { mut queue, memory } = kani::any();
+    let used_idx = queue.next_used;
+    let used_desc_table_index = kani::any();
+    let old_val = get_used_idx(&queue, &memory).unwrap();
+    let old_num_added = queue.num_added;
+    if queue
+        .add_used(&memory, used_desc_table_index, kani::any())
+        .is_ok()
+    {
+        assert_eq!(queue.next_used, used_idx + Wrapping(1));
+        assert_eq!(queue.next_used.0, get_used_idx(&queue, &memory).unwrap());
+        assert_eq!(old_num_added + Wrapping(1), queue.num_added);
+        kani::cover!();
+    } else {
+        // On failure, we expect the next_used to remain unchanged
+        // and the used_desc_table_index to be out of bounds.
+        assert_eq!(queue.next_used, used_idx);
+        assert!(used_desc_table_index >= queue.size());
+        // The old value should still be the same as before the add_used call.
+        assert_eq!(old_val, get_used_idx(&queue, &memory).unwrap());
+        // No change in num_added field.
+        assert_eq!(old_num_added, queue.num_added);
+        kani::cover!();
+    }
+}
