@@ -38,8 +38,8 @@ use std::ops::Deref;
 use virtio_queue::DescriptorChain;
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
 use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion,
-    Le16, Le32, Le64, VolatileMemoryError, VolatileSlice,
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Le16, Le32, Le64,
+    Permissions, VolatileMemoryError, VolatileSlice,
 };
 
 /// Vsock packet parsing errors.
@@ -195,16 +195,18 @@ fn get_single_slice<'a, M: GuestMemory, B: BitmapSlice>(
     mem: &'a M,
     addr: GuestAddress,
     count: usize,
+    access: Permissions,
 ) -> Result<Option<VolatileSlice<'a, B>>>
 where
-    <M::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+    M::Bitmap: WithBitmapSlice<'a, S = B>,
 {
     if count == 0 {
         return Ok(None);
     }
 
     let slice = mem
-        .get_slices(addr, count)
+        .get_slices(addr, count, access)
+        .map_err(Error::InvalidMemoryAccess)?
         .next()
         .expect("Expecting some result for a non-empty memory region")
         .map_err(Error::InvalidMemoryAccess)?;
@@ -459,7 +461,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ) -> Result<Self>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory,
     {
@@ -474,8 +476,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        let header_slice = get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE)?
-            .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
+        let header_slice =
+            get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE, Permissions::Read)?
+                .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
 
         let header = mem
             .read_obj(chain_head.addr())
@@ -508,6 +511,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                         .checked_add(PKT_HEADER_SIZE as u64)
                         .ok_or(Error::DescriptorLengthTooSmall)?,
                     pkt.len() as usize,
+                    Permissions::Read,
                 )?
                 .expect("Received empty mapping for non-empty packet")
             } else {
@@ -527,7 +531,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                     return Err(Error::DescriptorLengthTooSmall);
                 }
 
-                get_single_slice(mem, data_desc.addr(), pkt.len() as usize)?
+                get_single_slice(mem, data_desc.addr(), pkt.len() as usize, Permissions::Read)?
                     .expect("Received empty mapping for non-empty packet")
             };
 
@@ -620,7 +624,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ) -> Result<Self>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory,
     {
@@ -635,8 +639,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        let header_slice = get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE)?
-            .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
+        let header_slice =
+            get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE, Permissions::Write)?
+                .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
 
         // Starting from Linux 6.2 the virtio-vsock driver can use a single descriptor for both
         // header and data.
@@ -648,6 +653,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                     .checked_add(PKT_HEADER_SIZE as u64)
                     .ok_or(Error::DescriptorLengthTooSmall)?,
                 chain_head.len() as usize - PKT_HEADER_SIZE,
+                Permissions::Write,
             )?
         } else {
             if !chain_head.has_next() {
@@ -664,7 +670,12 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                 return Err(Error::DescriptorLengthTooLong);
             }
 
-            get_single_slice(mem, data_desc.addr(), data_desc.len() as usize)?
+            get_single_slice(
+                mem,
+                data_desc.addr(),
+                data_desc.len() as usize,
+                Permissions::Write,
+            )?
         };
 
         Ok(Self {
@@ -776,10 +787,15 @@ mod tests {
         mem: &M,
         addr: GuestAddress,
         length: usize,
-        _rx_tx: RxTx,
+        rx_tx: RxTx,
     ) -> Result<*const u8> {
+        let access = match rx_tx {
+            RxTx::Rx => Permissions::Write,
+            RxTx::Tx => Permissions::Read,
+        };
+
         assert!(length > 0);
-        Ok(get_single_slice(mem, addr, length)?
+        Ok(get_single_slice(mem, addr, length, access)?
             .unwrap()
             .ptr_guard()
             .as_ptr())

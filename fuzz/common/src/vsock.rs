@@ -177,7 +177,7 @@ mod tests {
     use virtio_queue::desc::RawDescriptor;
     use virtio_queue::mock::MockSplitQueue;
     use virtio_vsock::packet::VsockPacket;
-    use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+    use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, Permissions};
 
     // Random values to be used by the tests for the header fields.
     const SRC_CID: u64 = 1;
@@ -214,11 +214,17 @@ mod tests {
         mem: &M,
         addr: GuestAddress,
         length: usize,
-        _rx_tx: RxTx,
+        rx_tx: RxTx,
     ) -> *const u8 {
+        let access = match rx_tx {
+            RxTx::Rx => Permissions::Write,
+            RxTx::Tx => Permissions::Read,
+        };
+
         assert!(length > 0);
         let slice = mem
-            .get_slices(addr, length)
+            .get_slices(addr, length, access)
+            .unwrap()
             .next()
             .unwrap()
             .unwrap();
