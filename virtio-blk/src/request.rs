@@ -37,7 +37,7 @@ use virtio_queue::{
     desc::{split::Descriptor as SplitDescriptor, RawDescriptor},
     DescriptorChain,
 };
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Permissions};
 
 /// Block request parsing errors.
 #[derive(Debug)]
@@ -180,7 +180,7 @@ impl Request {
 
         // Check that the address of the status is valid in guest memory.
         // We will write an u8 status here after executing the request.
-        if !mem.check_range(desc.addr(), size_of::<u8>()) {
+        if !mem.check_range(desc.addr(), size_of::<u8>(), Permissions::Write) {
             return Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
                 desc.addr(),
             )));

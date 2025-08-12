@@ -15,7 +15,7 @@ use std::{cmp, result};
 
 use crate::{DescriptorChain, Error};
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{ByteValued, GuestMemory, GuestMemoryRegion, VolatileSlice};
+use vm_memory::{ByteValued, GuestMemory, Permissions, VolatileSlice};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -158,7 +158,7 @@ impl<'a, B: BitmapSlice> Reader<'a, B> {
     pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Reader<'a, B>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
@@ -173,7 +173,9 @@ impl<'a, B: BitmapSlice> Reader<'a, B> {
                 .checked_add(desc.len() as usize)
                 .ok_or(Error::DescriptorChainOverflow)?;
 
-            let slices = mem.get_slices(desc.addr(), desc.len() as usize);
+            let slices = mem
+                .get_slices(desc.addr(), desc.len() as usize, Permissions::Read)
+                .map_err(Error::GuestMemoryError)?;
             for slice in slices {
                 buffers.push_back(slice.map_err(Error::GuestMemoryError)?);
             }
@@ -264,7 +266,7 @@ impl<'a, B: BitmapSlice> Writer<'a, B> {
     pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Writer<'a, B>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
@@ -279,7 +281,9 @@ impl<'a, B: BitmapSlice> Writer<'a, B> {
                 .checked_add(desc.len() as usize)
                 .ok_or(Error::DescriptorChainOverflow)?;
 
-            let slices = mem.get_slices(desc.addr(), desc.len() as usize);
+            let slices = mem
+                .get_slices(desc.addr(), desc.len() as usize, Permissions::Write)
+                .map_err(Error::GuestMemoryError)?;
             for slice in slices {
                 buffers.push_back(slice.map_err(Error::GuestMemoryError)?);
             }

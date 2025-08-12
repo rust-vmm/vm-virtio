@@ -4,6 +4,8 @@
 
 ## Changed
 
+- Updated vm-memory from 0.17.1 to 0.18.0
+
 ## Fixed
 
 # v0.11.0
