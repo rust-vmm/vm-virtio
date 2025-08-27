@@ -16,4 +16,4 @@ codegen-units = 1
 
 [workspace.dependencies]
 vm-memory = "0.16.0"
-vmm-sys-util = "0.14.0"
+vmm-sys-util = "0.15.0"
