@@ -132,12 +132,12 @@ pub struct vring {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of vring"][::std::mem::size_of::<vring>() - 16usize];
-    ["Alignment of vring"][::std::mem::align_of::<vring>() - 4usize];
+    ["Size of vring"][::std::mem::size_of::<vring>() - 32usize];
+    ["Alignment of vring"][::std::mem::align_of::<vring>() - 8usize];
     ["Offset of field: vring::num"][::std::mem::offset_of!(vring, num) - 0usize];
-    ["Offset of field: vring::desc"][::std::mem::offset_of!(vring, desc) - 4usize];
-    ["Offset of field: vring::avail"][::std::mem::offset_of!(vring, avail) - 8usize];
-    ["Offset of field: vring::used"][::std::mem::offset_of!(vring, used) - 12usize];
+    ["Offset of field: vring::desc"][::std::mem::offset_of!(vring, desc) - 8usize];
+    ["Offset of field: vring::avail"][::std::mem::offset_of!(vring, avail) - 16usize];
+    ["Offset of field: vring::used"][::std::mem::offset_of!(vring, used) - 24usize];
 };
 impl Default for vring {
     fn default() -> Self {

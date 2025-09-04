@@ -3,6 +3,11 @@
 ## Changed
 
 - Regenerate bindings with Linux 6.16.
+- Drop powerpc (32-bit) bindings.
+
+## Fixed
+
+- Fix powerpc64 little-endian bindings.
 
 # v0.2.6
 
