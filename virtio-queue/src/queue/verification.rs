@@ -565,3 +565,139 @@ fn verify_add_used() {
         kani::cover!();
     }
 }
+
+/// This proof checks that after setting the `next_used` field of the queue
+/// using `set_next_used(x)`, reading back the value of `next_used` returns the
+/// same value `x`.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_used_ring_avail_event() {
+    let ProofContext {
+        mut queue,
+        memory: _,
+    } = kani::any();
+    let x = kani::any();
+    queue.set_next_used(x);
+    assert_eq!(x, queue.next_used.0);
+}
+
+/// # Specification (VirtIO 1.3, Section 2.7.6.1: "Driver Requirements: The Virtqueue Available Ring")
+///
+/// This proof checks that:
+/// - If there are pending entries in the avail ring (avail_idx != next_avail),
+///   `enable_notification` returns true.
+/// - If there are no pending entries (avail_idx == next_avail), it returns false.
+/// This matches the monotonicity property of the avail ring in VirtIO 1.3 Section 2.7.6.1.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_enable_driver_to_device_notification() {
+    let ProofContext { mut queue, memory } = kani::any();
+
+    // The enable_notification method sets notification to true and returns
+    //   - true, if there are pending entries in the `idx` field of the
+    //     avail ring
+    //   - false, if there are no pending entries in the `idx` field of the
+    // avail ring The check for pending entries is done by comparing the
+    // current `avail_idx` with the `next_avail` field of the queue. If they
+    // are different, there are pending entries, otherwise there are no
+    // pending entries. The equality check is a consequence of the
+    // monotonicity property of `idx` (2.7.6.1) that it cannot be decreased
+    // by the driver.
+    if queue.enable_notification(&memory).unwrap() {
+        assert_ne!(
+            queue.avail_idx(&memory, Ordering::Relaxed).unwrap(),
+            queue.next_avail
+        );
+    } else {
+        assert_eq!(
+            queue.avail_idx(&memory, Ordering::Relaxed).unwrap(),
+            queue.next_avail
+        );
+    }
+}
+
+// Helper method that reads `val` from the `avail_event` field of the used ring, using
+// the provided ordering. Takes used_ring address and queue size directly.
+fn get_avail_event<M: GuestMemory>(
+    used_ring_addr: GuestAddress,
+    queue_size: u16,
+    mem: &M,
+    order: Ordering,
+) -> Result<u16, Error> {
+    // This can not overflow an u64 since it is working with relatively small numbers compar
+    // to u64::MAX.
+    let avail_event_offset =
+        VIRTQ_USED_RING_HEADER_SIZE + VIRTQ_USED_ELEMENT_SIZE * u64::from(queue_size);
+    let addr = used_ring_addr
+        .checked_add(avail_event_offset)
+        .ok_or(Error::AddressOverflow)?;
+
+    mem.load::<u16>(addr, order).map_err(Error::GuestMemory)
+}
+
+// Get the value of the `flags` field of the used ring, applying the specified ordering.
+fn get_used_flags<M: GuestMemory>(queue: &Queue, mem: &M, order: Ordering) -> Result<u16, Error> {
+    mem.load::<u16>(queue.used_ring, order)
+        .map(u16::from_le)
+        .map_err(Error::GuestMemory)
+}
+/// # Specification (VirtIO 1.3, Section 2.7.7: "Used Buffer Notification Suppression")
+///
+/// This proof checks:
+/// - If event_idx is not enabled, `set_notification(false)` sets used.flags to 1 (NO_NOTIFY).
+/// - If event_idx is enabled, the call is a no-op.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_set_notification_true() {
+    let ProofContext { mut queue, memory } = kani::any();
+    if queue
+        .set_notification(&memory, true /* enable notification */)
+        .is_ok()
+    {
+        if queue.event_idx_enabled {
+            // Since VIRTIO_F_EVENT_IDX is negotiated, we make sure that set_notification
+            // has updated the used.avail_event field with the tail position of
+            // the avail ring.
+            let used_ring_addr = queue.used_ring;
+            let queue_size = queue.size();
+            kani::cover!();
+            assert_eq!(
+                get_avail_event(used_ring_addr, queue_size, &memory, Ordering::Relaxed).unwrap(),
+                queue.next_avail.0
+            );
+        } else {
+            // If VIRTIO_F_EVENT_IDX is not negotiated, we make sure that the
+            // used.flags field is set to 0, meaning that the driver should not
+            // send notifications to the device.
+            kani::cover!();
+            assert_eq!(
+                get_used_flags(&queue, &memory, Ordering::Relaxed).unwrap(),
+                0
+            );
+        }
+    }
+}
+
+/// # Specification (VirtIO 1.3, Section 2.7.7: "Used Buffer Notification Suppression")
+///
+/// This proof checks:
+/// - If event_idx is not enabled, `set_notification(false)` sets used.flags to 1 (NO_NOTIFY).
+/// - If event_idx is enabled, the call is a no-op.
+#[kani::proof]
+#[kani::unwind(0)]
+fn verify_set_notification_false() {
+    let ProofContext { mut queue, memory } = kani::any();
+    let result = queue.set_notification(&memory, false /* disable notification */);
+    if !queue.event_idx_enabled {
+        // Check for Sec 2.7.10
+        assert_eq!(
+            get_used_flags(&queue, &memory, Ordering::Relaxed).unwrap(),
+            1
+        );
+        // don't check Ok() result since that is a property of the
+        // underlying mem system and out of scope. E.g., it is stubbed for
+        // this proof and we always expect it to succeed.
+    } else {
+        assert!(result.is_ok());
+    }
+}
