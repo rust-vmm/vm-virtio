@@ -459,6 +459,17 @@ impl kani::Arbitrary for ProofContext {
     }
 }
 
+/// Helper function to determine if `point` is in the wrapping range `[start, stop)`.
+fn pred_in_wrapping_range(start: Wrapping<u16>, stop: Wrapping<u16>, point: Wrapping<u16>) -> bool {
+    // Check if point is in the range [start, stop) in a wrapping manner.
+    if start <= stop {
+        start <= point && point < stop
+    } else {
+        // If start > stop, we wrap around the maximum value of u16.
+        point >= start || point < stop
+    }
+}
+
 /// # Specification (VirtIO 1.3, Section 2.7.7.2: "Device Requirements: Used Buffer Notification Suppression")
 ///
 /// Section 2.7.7.2 deals with device-to-driver notification suppression. It
@@ -468,46 +479,35 @@ impl kani::Arbitrary for ProofContext {
 /// specific number of descriptors has been processed. This is done by the
 /// driver defining a "used_event" index, which tells the device "please do not
 /// notify me until used.ring[used_event] has been written to by you".
+///
+/// This proof checks:
+//  - If event_idx is not enabled, a notification is always needed.
+//  - If event_idx is enabled, a notification is needed if the used_event index
+//    is in the wrapping range [next_used - num_added, next_used).
 #[kani::proof]
 // There are no loops anywhere, but kani really enjoys getting stuck in
 // std::ptr::drop_in_place. This is a compiler intrinsic that has a "dummy"
 // implementation in stdlib that just recursively calls itself. Kani will
 // generally unwind this recursion infinitely.
 #[kani::unwind(0)]
-fn verify_device_notification_suppression() {
-    let ProofContext {
-        mut queue,
-        memory: mem,
-    } = kani::any();
+fn verify_device_to_driver_notification() {
+    let ProofContext { mut queue, memory } = kani::any();
 
-    let num_added_old = queue.num_added.0;
-    let needs_notification = queue.needs_notification(&mem);
-
-    // event_idx_enabled equivalent to VIRTIO_F_EVENT_IDX negotiated
+    // If the event_idx_enabled is false, we always need a notification
     if !queue.event_idx_enabled {
-        // The specification here says
-        // After the device writes a descriptor index into the used ring:
-        // – If flags is 1, the device SHOULD NOT send a notification.
-        // – If flags is 0, the device MUST send a notification
-        // flags is the first field in the avail_ring_address, which we completely ignore. We
-        // always send a notification, and as there only is a SHOULD NOT, that is okay
-        assert!(needs_notification.unwrap());
+        assert!(queue.needs_notification(&memory).unwrap());
     } else {
-        // next_used - 1 is where the previous descriptor was placed
-        if Wrapping(queue.used_event(&mem, Ordering::Relaxed).unwrap())
-            == std::num::Wrapping(queue.next_used - Wrapping(1))
-            && num_added_old > 0
-        {
-            // If the idx field in the used ring (which determined where that descriptor index
-            // was placed) was equal to used_event, the device MUST send a
-            // notification.
-            assert!(needs_notification.unwrap());
-
-            kani::cover!();
-        }
-
-        // The other case is handled by a "SHOULD NOT send a notification" in the spec.
-        // So we do not care
+        // If the event_idx_enabled is true, we only need a notification if
+        // the used_event is in the range of [next_used - num_added, next_used)
+        let used_event = queue.used_event(&memory, Ordering::Relaxed).unwrap();
+        let current_used = queue.next_used;
+        let old = current_used - queue.num_added;
+        let should_notify = pred_in_wrapping_range(old, current_used, used_event);
+        assert_eq!(
+            queue.needs_notification(&memory).unwrap(), /* actual */
+            should_notify,                              /* expected */
+        );
+        assert_eq!(queue.num_added.0, 0);
     }
 }
 
