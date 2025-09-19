@@ -1,5 +1,6 @@
 # virtio-bindings
-Rust FFI bindings to virtio generated using [bindgen](https://crates.io/crates/bindgen).
+Rust FFI bindings to [virtio](https://wiki.libvirt.org/Virtio.html)
+generated using [bindgen](https://crates.io/crates/bindgen).
 
 ## Usage
 Add this to your `Cargo.toml`:
