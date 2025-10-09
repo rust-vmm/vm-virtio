@@ -13,7 +13,7 @@ pub type Descriptor = RawDescriptor;
 /// This is a unified representation of the memory layout order
 /// for packed descriptors and split descriptors.
 /// This type corresponds to struct virtq_desc, see:
-/// https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-720008
+/// <https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-720008>
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RawDescriptor(Le64, Le32, Le16, Le16);
