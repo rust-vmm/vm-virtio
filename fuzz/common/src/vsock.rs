@@ -213,7 +213,7 @@ mod tests {
         let header_slice = packet.header_slice();
         functions.push(VsockFunction::HeaderSlice);
         assert_eq!(
-            header_slice.as_ptr(),
+            header_slice.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(HEADER_WRITE_ADDR))
                 .unwrap()
         );
@@ -221,7 +221,7 @@ mod tests {
         let data_slice = packet.data_slice().unwrap();
         functions.push(VsockFunction::DataSlice);
         assert_eq!(
-            data_slice.as_ptr(),
+            data_slice.ptr_guard().as_ptr(),
             mem.get_host_address(GuestAddress(DATA_WRITE_ADDR)).unwrap()
         );
 
