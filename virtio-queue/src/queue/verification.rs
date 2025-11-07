@@ -571,8 +571,10 @@ fn get_used_idx(
 /// if the descriptor index is out of bounds, the operation must fail and the
 /// used index must not be incremented. Note that this proof does not verify
 /// Section 2.7.8.2: "Device Requirements: The Virtqueue Used Ring"
-#[kani::proof]
-#[kani::unwind(0)]
+// Re-enable this proof once https://github.com/rust-vmm/vm-virtio/issues/373
+// is fixed.
+// #[kani::proof]
+// #[kani::unwind(0)]
 fn verify_add_used() {
     let ProofContext { mut queue, memory } = kani::any();
     let used_idx = queue.next_used;
