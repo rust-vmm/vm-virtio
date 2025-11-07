@@ -2,9 +2,11 @@
 use std::mem::ManuallyDrop;
 use std::num::Wrapping;
 
-use vm_memory::{AtomicAccess, GuestMemoryError, GuestMemoryRegion, MemoryRegionAddress};
+use vm_memory::{
+    AtomicAccess, GuestMemoryError, GuestMemoryRegion, GuestMemoryResult, MemoryRegionAddress,
+    VolatileSlice,
+};
 
-use std::io::{Read, Write};
 use std::mem::MaybeUninit;
 use vm_memory::ByteValued;
 
@@ -69,9 +71,24 @@ impl GuestMemoryRegion for StubRegion {
         self.region_start
     }
 
-    fn bitmap(&self) -> &Self::B {
+    fn bitmap(&self) -> Self::B {
         // For Kani, we do not need a bitmap, so we return an empty tuple.
-        &()
+        ()
+    }
+
+    fn get_slice(
+        &self,
+        offset: MemoryRegionAddress,
+        count: usize,
+    ) -> GuestMemoryResult<VolatileSlice<()>> {
+        Ok(unsafe {
+            VolatileSlice::with_bitmap(
+                self.buffer.add(offset.raw_value() as usize),
+                count,
+                (),
+                None,
+            )
+        })
     }
 }
 
@@ -118,36 +135,6 @@ impl Bytes<MemoryRegionAddress> for StubRegion {
         Ok(())
     }
 
-    fn read_from<F: Read>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E> {
-        let mut temp = vec![0u8; count];
-        src.read_exact(&mut temp)
-            .map_err(|_| GuestMemoryError::PartialBuffer {
-                expected: count,
-                completed: 0,
-            })?;
-        self.write(&temp, addr)
-    }
-
-    fn read_exact_from<F: Read>(
-        &self,
-        addr: MemoryRegionAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<(), Self::E> {
-        let mut temp = vec![0u8; count];
-        src.read_exact(&mut temp)
-            .map_err(|_| GuestMemoryError::PartialBuffer {
-                expected: count,
-                completed: 0,
-            })?;
-        self.write_slice(&temp, addr)
-    }
-
     fn read_obj<T: ByteValued>(&self, addr: MemoryRegionAddress) -> Result<T, Self::E> {
         let size = std::mem::size_of::<T>();
         let offset = addr.0 as usize;
@@ -168,30 +155,6 @@ impl Bytes<MemoryRegionAddress> for StubRegion {
         Ok(result)
     }
 
-    fn write_to<F: Write>(
-        &self,
-        addr: MemoryRegionAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<usize, Self::E> {
-        let offset = addr.0 as usize;
-        let end = offset
-            .checked_add(count)
-            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
-        if end > self.region_len as usize {
-            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
-        }
-        unsafe {
-            let slice = std::slice::from_raw_parts(self.buffer.add(offset), count);
-            dst.write_all(slice)
-                .map_err(|_| GuestMemoryError::PartialBuffer {
-                    expected: count,
-                    completed: 0,
-                })?;
-        }
-        Ok(count)
-    }
-
     fn write_obj<T: ByteValued>(&self, val: T, addr: MemoryRegionAddress) -> Result<(), Self::E> {
         let size = std::mem::size_of::<T>();
         let offset = addr.0 as usize;
@@ -208,13 +171,84 @@ impl Bytes<MemoryRegionAddress> for StubRegion {
         Ok(())
     }
 
-    fn write_all_to<F: Write>(
+    // The non-volatile Read/Write helpers are not part of the current
+    // `vm_memory::Bytes` trait in this workspace. Implement the volatile
+    // helpers expected by the trait as simple stubs that return an error
+    // when invoked. These are sufficient for the Kani proofs here which
+    // don't exercise volatile stream IO.
+
+    fn read_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        _src: &mut F,
+        count: usize,
+    ) -> Result<usize, Self::E>
+    where
+        F: vm_memory::ReadVolatile,
+    {
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(count)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(self.buffer.add(offset), count);
+            let v = vm_memory::volatile_memory::VolatileSlice::from(slice);
+            let mut s = v.offset(0).map_err(Into::<Self::E>::into)?;
+            let n = _src.read_volatile(&mut s).map_err(Into::<Self::E>::into)?;
+            return Ok(n);
+        }
+    }
+
+    fn read_exact_volatile_from<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        src: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E>
+    where
+        F: vm_memory::ReadVolatile,
+    {
+        // Reuse read_volatile_from which performs bounds checks and delegates to `ReadVolatile`.
+        let _ = self.read_volatile_from(addr, src, count)?;
+        Ok(())
+    }
+
+    fn write_volatile_to<F>(
         &self,
         addr: MemoryRegionAddress,
         dst: &mut F,
         count: usize,
-    ) -> Result<(), Self::E> {
-        self.write_to(addr, dst, count)?;
+    ) -> Result<usize, Self::E>
+    where
+        F: vm_memory::WriteVolatile,
+    {
+        let offset = addr.0 as usize;
+        let end = offset
+            .checked_add(count)
+            .ok_or(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)))?;
+        if end > self.region_len as usize {
+            return Err(GuestMemoryError::InvalidGuestAddress(GuestAddress(addr.0)));
+        }
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(self.buffer.add(offset), count);
+            let v = vm_memory::volatile_memory::VolatileSlice::from(slice);
+            return dst.write_volatile(&v).map_err(Into::into);
+        }
+    }
+
+    fn write_all_volatile_to<F>(
+        &self,
+        addr: MemoryRegionAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<(), Self::E>
+    where
+        F: vm_memory::WriteVolatile,
+    {
+        let _ = self.write_volatile_to(addr, dst, count)?;
         Ok(())
     }
 
