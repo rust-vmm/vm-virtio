@@ -761,6 +761,30 @@ mod tests {
 
     const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
 
+    /// For `get_mem_ptr()`: Whether we access the RX or TX ring.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    enum RxTx {
+        /// Receive ring
+        Rx,
+        /// Transmission ring
+        Tx,
+    }
+
+    /// Return a host pointer to the slice at `[addr, addr + length)`.  Use this only for
+    /// comparison in `assert_eq!()`.
+    fn get_mem_ptr<M: GuestMemory>(
+        mem: &M,
+        addr: GuestAddress,
+        length: usize,
+        _rx_tx: RxTx,
+    ) -> Result<*const u8> {
+        assert!(length > 0);
+        Ok(get_single_slice(mem, addr, length)?
+            .unwrap()
+            .ptr_guard()
+            .as_ptr())
+    }
+
     #[test]
     fn test_from_rx_virtq_chain() {
         let mem: GuestMemoryMmap =
@@ -984,14 +1008,14 @@ mod tests {
         let header = packet.header_slice();
         assert_eq!(
             header.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x8_0000), data.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(data.len(), 0x100);
 
@@ -1017,15 +1041,20 @@ mod tests {
         let header = packet.header_slice();
         assert_eq!(
             header.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
-                .unwrap()
+            get_mem_ptr(
+                &mem,
+                GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64),
+                data.len(),
+                RxTx::Rx
+            )
+            .unwrap()
         );
         assert_eq!(data.len(), 0x100);
     }
@@ -1097,7 +1126,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x10_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x10_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         assert!(packet.data_slice().is_none());
@@ -1242,7 +1271,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         // The `len` field of the header was set to 16.
@@ -1251,7 +1280,7 @@ mod tests {
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x8_0000), data.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(data.len(), LEN as usize);
 
@@ -1277,7 +1306,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         // The `len` field of the header was set to 16.
@@ -1286,8 +1315,13 @@ mod tests {
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
-                .unwrap()
+            get_mem_ptr(
+                &mem,
+                GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64),
+                data.len(),
+                RxTx::Tx
+            )
+            .unwrap()
         );
         assert_eq!(data.len(), LEN as usize);
     }
