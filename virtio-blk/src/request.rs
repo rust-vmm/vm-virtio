@@ -24,6 +24,7 @@
 //! approach.
 
 use std::fmt::{self, Display};
+use std::mem::size_of;
 use std::ops::Deref;
 use std::result;
 
@@ -179,9 +180,12 @@ impl Request {
 
         // Check that the address of the status is valid in guest memory.
         // We will write an u8 status here after executing the request.
-        let _ = mem.check_address(desc.addr()).ok_or_else(|| {
-            Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(desc.addr()))
-        })?;
+        if !mem.check_range(desc.addr(), size_of::<u8>()) {
+            return Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
+                desc.addr(),
+            )));
+        }
+
         Ok(())
     }
 

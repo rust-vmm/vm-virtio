@@ -313,32 +313,23 @@ impl QueueT for Queue {
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
-        } else if desc_table
-            .checked_add(desc_table_size)
-            .is_none_or(|v| !mem.address_in_range(v))
-        {
+        } else if !mem.check_range(desc_table, desc_table_size as usize) {
             error!(
-                "virtio queue descriptor table goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                "virtio queue descriptor table is not accessible: start:0x{:08x} size:0x{:08x}",
                 desc_table.raw_value(),
                 desc_table_size
             );
             false
-        } else if avail_ring
-            .checked_add(avail_ring_size)
-            .is_none_or(|v| !mem.address_in_range(v))
-        {
+        } else if !mem.check_range(avail_ring, avail_ring_size as usize) {
             error!(
-                "virtio queue available ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                "virtio queue available ring is not accessible: start:0x{:08x} size:0x{:08x}",
                 avail_ring.raw_value(),
                 avail_ring_size
             );
             false
-        } else if used_ring
-            .checked_add(used_ring_size)
-            .is_none_or(|v| !mem.address_in_range(v))
-        {
+        } else if !mem.check_range(used_ring, used_ring_size as usize) {
             error!(
-                "virtio queue used ring goes out of bounds: start:0x{:08x} size:0x{:08x}",
+                "virtio queue used ring is not accessible: start:0x{:08x} size:0x{:08x}",
                 used_ring.raw_value(),
                 used_ring_size
             );
