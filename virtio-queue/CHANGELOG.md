@@ -6,6 +6,12 @@
 
 ## Fixed
 
+# v0.17.0
+
+## Changed
+
+- Updated vm-memory from 0.16.0 to 0.17.1
+
 # v0.16.0
 
 ## Changed

@@ -4,6 +4,8 @@
 
 ## Changed
 
+- Updated virtio-queue from 0.16.0 to 0.17.0
+
 ## Fixed
 
 # v0.10.0
