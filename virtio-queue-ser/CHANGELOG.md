@@ -4,9 +4,13 @@
 
 ## Changed
 
-- Updated virtio-queue from 0.16.0 to 0.17.0
-
 ## Fixed
+
+# v0.14.0
+
+## Changed
+
+- Updated virtio-queue from 0.16.0 to 0.17.0
 
 # v0.13.0
 
