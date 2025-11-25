@@ -319,7 +319,7 @@ impl<B: Backend> StdIoBackend<B> {
         let total_len = request.total_data_len();
 
         if (request_type == RequestType::In || request_type == RequestType::Out)
-            && (total_len % SECTOR_SIZE != 0)
+            && !total_len.is_multiple_of(SECTOR_SIZE)
         {
             return Err(Error::InvalidDataLength);
         }
@@ -400,7 +400,7 @@ impl<B: Backend> StdIoBackend<B> {
                     // divided between several descriptors). Once we switch to a more general
                     // approach regarding how we store and parse the device buffers, we'll fix this
                     // too.
-                    if *data_len as u64 % DiscardWriteZeroes::LEN != 0 {
+                    if !(*data_len as u64).is_multiple_of(DiscardWriteZeroes::LEN) {
                         return Err(Error::InvalidDataLength);
                     }
                     let mut available_bytes = *data_len as u64;
