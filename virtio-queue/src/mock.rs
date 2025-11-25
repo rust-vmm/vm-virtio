@@ -366,7 +366,7 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
         // no longer the case, we should make sure the starting address of the descriptor table
         // we're  creating below is properly aligned.
 
-        let table_len = if len % 16 == 0 {
+        let table_len = if len.is_multiple_of(16) {
             len
         } else {
             16 * (len / 16 + 1)
