@@ -14,8 +14,8 @@ use std::fmt::{self, Debug};
 use std::mem::size_of;
 use std::ops::Deref;
 
-use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion};
+use vm_memory::bitmap::MS;
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 use crate::{desc::split::Descriptor, Error, Reader, Writer};
 use virtio_bindings::bindings::virtio_ring::VRING_DESC_ALIGN_SIZE;
@@ -89,21 +89,19 @@ where
     }
 
     /// Return a new instance of Writer
-    pub fn writer<'a, B: BitmapSlice>(self, mem: &'a M::Target) -> Result<Writer<'a, B>, Error>
+    pub fn writer(self, mem: &M::Target) -> Result<Writer<MS<M::Target>>, Error>
     where
         M::Target: Sized,
-        <<M::Target as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
     {
-        Writer::new(mem, self).map_err(|_| Error::InvalidChain)
+        Writer::<MS<M::Target>>::new(mem, self).map_err(|_| Error::InvalidChain)
     }
 
     /// Return a new instance of Reader
-    pub fn reader<'a, B: BitmapSlice>(self, mem: &'a M::Target) -> Result<Reader<'a, B>, Error>
+    pub fn reader(self, mem: &M::Target) -> Result<Reader<MS<M::Target>>, Error>
     where
         M::Target: Sized,
-        <<M::Target as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
     {
-        Reader::new(mem, self).map_err(|_| Error::InvalidChain)
+        Reader::<MS<M::Target>>::new(mem, self).map_err(|_| Error::InvalidChain)
     }
 
     /// Return an iterator that only yields the writable descriptors in the chain.
