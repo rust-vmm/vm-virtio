@@ -15,7 +15,7 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 use crate::{desc::split::Descriptor, Error, Reader, Writer};
 use virtio_bindings::bindings::virtio_ring::VRING_DESC_ALIGN_SIZE;
@@ -92,7 +92,7 @@ where
     pub fn writer<'a, B: BitmapSlice>(self, mem: &'a M::Target) -> Result<Writer<'a, B>, Error>
     where
         M::Target: Sized,
-        <<M::Target as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M::Target as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
     {
         Writer::new(mem, self).map_err(|_| Error::InvalidChain)
     }
@@ -101,7 +101,7 @@ where
     pub fn reader<'a, B: BitmapSlice>(self, mem: &'a M::Target) -> Result<Reader<'a, B>, Error>
     where
         M::Target: Sized,
-        <<M::Target as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M::Target as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
     {
         Reader::new(mem, self).map_err(|_| Error::InvalidChain)
     }

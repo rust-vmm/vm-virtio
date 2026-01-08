@@ -38,8 +38,8 @@ use std::ops::Deref;
 use virtio_queue::DescriptorChain;
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
 use vm_memory::{
-    Address, ByteValued, Bytes, GuestMemory, GuestMemoryError, GuestMemoryRegion, Le16, Le32, Le64,
-    VolatileMemoryError, VolatileSlice,
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Le16, Le32, Le64,
+    Permissions, VolatileMemoryError, VolatileSlice,
 };
 
 /// Vsock packet parsing errors.
@@ -51,6 +51,8 @@ pub enum Error {
     DescriptorLengthTooSmall,
     /// Descriptor that was too long to use.
     DescriptorLengthTooLong,
+    /// Data stretches over multiple memory fragments
+    FragmentedMemory,
     /// The slice for creating a header has an invalid length.
     InvalidHeaderInputSize(usize),
     /// The `len` header field value exceeds the maximum allowed data size.
@@ -81,6 +83,9 @@ impl Display for Error {
                 f,
                 "The descriptor is pointing to a buffer that has a longer length than expected."
             ),
+            Error::FragmentedMemory => {
+                write!(f, "Data stretches over multiple memory fragments.")
+            }
             Error::InvalidHeaderInputSize(size) => {
                 write!(f, "Invalid header input size: {size}")
             }
@@ -175,6 +180,42 @@ macro_rules! set_header_field {
             // This unwrap is safe only if `$offset` is a valid offset in the `header_slice`.
             .unwrap();
     };
+}
+
+/// Get a single slice for `[addr, addr + count)`.
+///
+/// This is a replacement for the deprecated `GuestMemory::get_slice()` function: It calls
+/// `mem.get_slices()` and will return the first slice from the iterator, if any.  If that slice
+/// does not cover the request length (i.e. the requested region would translate into multiple
+/// slices), return `Err(Error::FragmentedMemory)`.
+///
+/// If `count == 0`, this function will always return `Ok(None)`.  Otherwise, it will always return
+/// an error or `Ok(Some(slice))`.
+fn get_single_slice<'a, M: GuestMemory, B: BitmapSlice>(
+    mem: &'a M,
+    addr: GuestAddress,
+    count: usize,
+    access: Permissions,
+) -> Result<Option<VolatileSlice<'a, B>>>
+where
+    M::Bitmap: WithBitmapSlice<'a, S = B>,
+{
+    if count == 0 {
+        return Ok(None);
+    }
+
+    let slice = mem
+        .get_slices(addr, count, access)
+        .map_err(Error::InvalidMemoryAccess)?
+        .next()
+        .expect("Expecting some result for a non-empty memory region")
+        .map_err(Error::InvalidMemoryAccess)?;
+
+    if slice.len() == count {
+        Ok(Some(slice))
+    } else {
+        Err(Error::FragmentedMemory)
+    }
 }
 
 impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
@@ -420,7 +461,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ) -> Result<Self>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory,
     {
@@ -435,9 +476,9 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        let header_slice = mem
-            .get_slice(chain_head.addr(), PKT_HEADER_SIZE)
-            .map_err(Error::InvalidMemoryAccess)?;
+        let header_slice =
+            get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE, Permissions::Read)?
+                .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
 
         let header = mem
             .read_obj(chain_head.addr())
@@ -463,14 +504,16 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
         // header and data.
         let data_slice =
             if !chain_head.has_next() && chain_head.len() - PKT_HEADER_SIZE as u32 >= pkt.len() {
-                mem.get_slice(
+                get_single_slice(
+                    mem,
                     chain_head
                         .addr()
                         .checked_add(PKT_HEADER_SIZE as u64)
                         .ok_or(Error::DescriptorLengthTooSmall)?,
                     pkt.len() as usize,
-                )
-                .map_err(Error::InvalidMemoryAccess)?
+                    Permissions::Read,
+                )?
+                .expect("Received empty mapping for non-empty packet")
             } else {
                 if !chain_head.has_next() {
                     return Err(Error::DescriptorChainTooShort);
@@ -488,8 +531,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                     return Err(Error::DescriptorLengthTooSmall);
                 }
 
-                mem.get_slice(data_desc.addr(), pkt.len() as usize)
-                    .map_err(Error::InvalidMemoryAccess)?
+                get_single_slice(mem, data_desc.addr(), pkt.len() as usize, Permissions::Read)?
+                    .expect("Received empty mapping for non-empty packet")
             };
 
         pkt.data_slice = Some(data_slice);
@@ -581,7 +624,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     ) -> Result<Self>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory,
     {
@@ -596,21 +639,22 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
             return Err(Error::DescriptorLengthTooSmall);
         }
 
-        let header_slice = mem
-            .get_slice(chain_head.addr(), PKT_HEADER_SIZE)
-            .map_err(Error::InvalidMemoryAccess)?;
+        let header_slice =
+            get_single_slice(mem, chain_head.addr(), PKT_HEADER_SIZE, Permissions::Write)?
+                .expect("Received empty mapping for non-zero PKT_HEADER_SIZE");
 
         // Starting from Linux 6.2 the virtio-vsock driver can use a single descriptor for both
         // header and data.
         let data_slice = if !chain_head.has_next() && chain_head.len() as usize > PKT_HEADER_SIZE {
-            mem.get_slice(
+            get_single_slice(
+                mem,
                 chain_head
                     .addr()
                     .checked_add(PKT_HEADER_SIZE as u64)
                     .ok_or(Error::DescriptorLengthTooSmall)?,
                 chain_head.len() as usize - PKT_HEADER_SIZE,
-            )
-            .map_err(Error::InvalidMemoryAccess)?
+                Permissions::Write,
+            )?
         } else {
             if !chain_head.has_next() {
                 return Err(Error::DescriptorChainTooShort);
@@ -626,14 +670,19 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
                 return Err(Error::DescriptorLengthTooLong);
             }
 
-            mem.get_slice(data_desc.addr(), data_desc.len() as usize)
-                .map_err(Error::InvalidMemoryAccess)?
+            get_single_slice(
+                mem,
+                data_desc.addr(),
+                data_desc.len() as usize,
+                Permissions::Write,
+            )?
         };
 
         Ok(Self {
             header_slice,
             header: Default::default(),
-            data_slice: Some(data_slice),
+            // `None` if and only if the length is 0
+            data_slice,
         })
     }
 }
@@ -690,6 +739,7 @@ mod tests {
                 (DescriptorChainTooShort, DescriptorChainTooShort) => true,
                 (DescriptorLengthTooSmall, DescriptorLengthTooSmall) => true,
                 (DescriptorLengthTooLong, DescriptorLengthTooLong) => true,
+                (FragmentedMemory, FragmentedMemory) => true,
                 (InvalidHeaderInputSize(size), InvalidHeaderInputSize(other_size)) => {
                     size == other_size
                 }
@@ -721,6 +771,35 @@ mod tests {
     const FWD_CNT: u32 = 9;
 
     const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
+
+    /// For `get_mem_ptr()`: Whether we access the RX or TX ring.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    enum RxTx {
+        /// Receive ring
+        Rx,
+        /// Transmission ring
+        Tx,
+    }
+
+    /// Return a host pointer to the slice at `[addr, addr + length)`.  Use this only for
+    /// comparison in `assert_eq!()`.
+    fn get_mem_ptr<M: GuestMemory>(
+        mem: &M,
+        addr: GuestAddress,
+        length: usize,
+        rx_tx: RxTx,
+    ) -> Result<*const u8> {
+        let access = match rx_tx {
+            RxTx::Rx => Permissions::Write,
+            RxTx::Tx => Permissions::Read,
+        };
+
+        assert!(length > 0);
+        Ok(get_single_slice(mem, addr, length, access)?
+            .unwrap()
+            .ptr_guard()
+            .as_ptr())
+    }
 
     #[test]
     fn test_from_rx_virtq_chain() {
@@ -838,7 +917,7 @@ mod tests {
         let mut chain = queue.build_desc_chain(&v).unwrap();
         assert_eq!(
             VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
-            Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
+            Error::FragmentedMemory
         );
 
         let v = vec![
@@ -897,7 +976,7 @@ mod tests {
         let mut chain = queue.build_desc_chain(&v).unwrap();
         assert_eq!(
             VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
-            Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
+            Error::FragmentedMemory
         );
 
         let v = vec![
@@ -945,14 +1024,14 @@ mod tests {
         let header = packet.header_slice();
         assert_eq!(
             header.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x8_0000), data.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(data.len(), 0x100);
 
@@ -978,15 +1057,20 @@ mod tests {
         let header = packet.header_slice();
         assert_eq!(
             header.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header.len(), RxTx::Rx).unwrap()
         );
         assert_eq!(header.len(), PKT_HEADER_SIZE);
 
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
-                .unwrap()
+            get_mem_ptr(
+                &mem,
+                GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64),
+                data.len(),
+                RxTx::Rx
+            )
+            .unwrap()
         );
         assert_eq!(data.len(), 0x100);
     }
@@ -1058,7 +1142,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x10_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x10_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         assert!(packet.data_slice().is_none());
@@ -1075,7 +1159,7 @@ mod tests {
         let mut chain = queue.build_desc_chain(&v).unwrap();
         assert_eq!(
             VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
-            Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
+            Error::FragmentedMemory
         );
 
         let v = vec![
@@ -1148,7 +1232,7 @@ mod tests {
         let mut chain = queue.build_desc_chain(&v).unwrap();
         assert_eq!(
             VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap_err(),
-            Error::InvalidMemoryAccess(GuestMemoryError::InvalidBackendAddress)
+            Error::FragmentedMemory
         );
 
         let v = vec![
@@ -1203,7 +1287,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         // The `len` field of the header was set to 16.
@@ -1212,7 +1296,7 @@ mod tests {
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x8_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x8_0000), data.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(data.len(), LEN as usize);
 
@@ -1238,7 +1322,7 @@ mod tests {
         let header_slice = packet.header_slice();
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000)).unwrap()
+            get_mem_ptr(&mem, GuestAddress(0x5_0000), header_slice.len(), RxTx::Tx).unwrap()
         );
         assert_eq!(header_slice.len(), PKT_HEADER_SIZE);
         // The `len` field of the header was set to 16.
@@ -1247,8 +1331,13 @@ mod tests {
         let data = packet.data_slice().unwrap();
         assert_eq!(
             data.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64))
-                .unwrap()
+            get_mem_ptr(
+                &mem,
+                GuestAddress(0x5_0000 + PKT_HEADER_SIZE as u64),
+                data.len(),
+                RxTx::Tx
+            )
+            .unwrap()
         );
         assert_eq!(data.len(), LEN as usize);
     }
