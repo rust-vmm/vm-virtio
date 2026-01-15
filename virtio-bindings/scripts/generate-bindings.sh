@@ -40,7 +40,6 @@ mips32r6 mipsisa32r6-linux-gnu
 mips64 mips64-linux-gnu
 mips64r6 mipsisa64r6-linux-gnu
 powerpc64 powerpc64-linux-gnu
-powerpc64le powerpc64le-linux-gnu
 riscv32 riscv32-linux-gnu
 riscv64 riscv64-linux-gnu
 s390x s390x-linux-gnu
