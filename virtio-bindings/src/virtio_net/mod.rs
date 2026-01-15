@@ -12,7 +12,7 @@
 #[cfg_attr(target_arch = "mips", path = "../bindings/mipsel/virtio_net.rs")]
 #[cfg_attr(
     target_arch = "powerpc64",
-    path = "../bindings/powerpc64le/virtio_net.rs"
+    path = "../bindings/powerpc64/virtio_net.rs"
 )]
 #[cfg_attr(target_arch = "riscv64", path = "../bindings/riscv64/virtio_net.rs")]
 #[cfg_attr(target_arch = "s390x", path = "../bindings/s390x/virtio_net.rs")]
