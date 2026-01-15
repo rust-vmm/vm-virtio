@@ -15,11 +15,17 @@
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_blk.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_blk.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_blk.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_blk.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_blk.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_blk.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_blk.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_blk.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_blk.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_blk.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_blk.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_blk.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_blk.rs")]
 pub mod virtio_blk;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_config.rs")]
@@ -31,14 +37,20 @@ pub mod virtio_blk;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_config.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_config.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_config.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_config.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_config.rs")]
 #[cfg_attr(
     target_arch = "powerpc64",
     path = "bindings/powerpc64/virtio_config.rs"
 )]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_config.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_config.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_config.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_config.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_config.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_config.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_config.rs")]
 pub mod virtio_config;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_gpu.rs")]
@@ -50,11 +62,17 @@ pub mod virtio_config;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_gpu.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_gpu.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_gpu.rs")]
 pub mod virtio_gpu;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_ids.rs")]
@@ -66,11 +84,17 @@ pub mod virtio_gpu;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_ids.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_ids.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_ids.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_ids.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_ids.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_ids.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_ids.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_ids.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_ids.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_ids.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_ids.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_ids.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_ids.rs")]
 pub mod virtio_ids;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_input.rs")]
@@ -82,11 +106,17 @@ pub mod virtio_ids;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_input.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_input.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_input.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_input.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_input.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_input.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_input.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_input.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_input.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_input.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_input.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_input.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_input.rs")]
 pub mod virtio_input;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_mmio.rs")]
@@ -98,11 +128,17 @@ pub mod virtio_input;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_mmio.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_mmio.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_mmio.rs")]
 pub mod virtio_mmio;
 
 pub mod virtio_net;
@@ -116,11 +152,17 @@ pub mod virtio_net;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_ring.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_ring.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_ring.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_ring.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_ring.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_ring.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_ring.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_ring.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_ring.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_ring.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_ring.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_ring.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_ring.rs")]
 pub mod virtio_ring;
 
 #[cfg_attr(target_arch = "arm", path = "bindings/arm/virtio_scsi.rs")]
@@ -132,11 +174,17 @@ pub mod virtio_ring;
 )]
 #[cfg_attr(target_arch = "m68k", path = "bindings/m68k/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "mips", path = "bindings/mips/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "bindings/mips32r6/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "mips64", path = "bindings/mips64/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "bindings/mips64r6/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "powerpc64", path = "bindings/powerpc64/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "riscv32", path = "bindings/riscv32/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "bindings/riscv64/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "s390x", path = "bindings/s390x/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "sparc", path = "bindings/sparc/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "bindings/sparc64/virtio_scsi.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "bindings/x86_64/virtio_scsi.rs")]
+#[cfg_attr(target_arch = "x86", path = "bindings/x86/virtio_scsi.rs")]
 pub mod virtio_scsi;
 
 pub mod bindings {

@@ -10,14 +10,20 @@
 )]
 #[cfg_attr(target_arch = "m68k", path = "../bindings/m68k/virtio_net.rs")]
 #[cfg_attr(target_arch = "mips", path = "../bindings/mips/virtio_net.rs")]
+#[cfg_attr(target_arch = "mips32r6", path = "../bindings/mips32r6/virtio_net.rs")]
+#[cfg_attr(target_arch = "mips64", path = "../bindings/mips64/virtio_net.rs")]
+#[cfg_attr(target_arch = "mips64r6", path = "../bindings/mips64r6/virtio_net.rs")]
 #[cfg_attr(
     target_arch = "powerpc64",
     path = "../bindings/powerpc64/virtio_net.rs"
 )]
+#[cfg_attr(target_arch = "riscv32", path = "../bindings/riscv32/virtio_net.rs")]
 #[cfg_attr(target_arch = "riscv64", path = "../bindings/riscv64/virtio_net.rs")]
 #[cfg_attr(target_arch = "s390x", path = "../bindings/s390x/virtio_net.rs")]
+#[cfg_attr(target_arch = "sparc", path = "../bindings/sparc/virtio_net.rs")]
 #[cfg_attr(target_arch = "sparc64", path = "../bindings/sparc64/virtio_net.rs")]
 #[cfg_attr(target_arch = "x86_64", path = "../bindings/x86_64/virtio_net.rs")]
+#[cfg_attr(target_arch = "x86", path = "../bindings/x86/virtio_net.rs")]
 mod generated;
 pub use generated::*;
 
