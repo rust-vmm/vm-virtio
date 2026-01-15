@@ -9,7 +9,7 @@
     path = "../bindings/loongarch64/virtio_net.rs"
 )]
 #[cfg_attr(target_arch = "m68k", path = "../bindings/m68k/virtio_net.rs")]
-#[cfg_attr(target_arch = "mips", path = "../bindings/mipsel/virtio_net.rs")]
+#[cfg_attr(target_arch = "mips", path = "../bindings/mips/virtio_net.rs")]
 #[cfg_attr(
     target_arch = "powerpc64",
     path = "../bindings/powerpc64/virtio_net.rs"
