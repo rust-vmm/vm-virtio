@@ -146,7 +146,7 @@ pub struct virtio_gpu_cursor_pos {
 const _: () = {
     ["Size of virtio_gpu_cursor_pos"][::std::mem::size_of::<virtio_gpu_cursor_pos>() - 16usize];
     ["Alignment of virtio_gpu_cursor_pos"]
-        [::std::mem::align_of::<virtio_gpu_cursor_pos>() - 4usize];
+        [::std::mem::align_of::<virtio_gpu_cursor_pos>() - 2usize];
     ["Offset of field: virtio_gpu_cursor_pos::scanout_id"]
         [::std::mem::offset_of!(virtio_gpu_cursor_pos, scanout_id) - 0usize];
     ["Offset of field: virtio_gpu_cursor_pos::x"]
@@ -196,7 +196,7 @@ pub struct virtio_gpu_rect {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_gpu_rect"][::std::mem::size_of::<virtio_gpu_rect>() - 16usize];
-    ["Alignment of virtio_gpu_rect"][::std::mem::align_of::<virtio_gpu_rect>() - 4usize];
+    ["Alignment of virtio_gpu_rect"][::std::mem::align_of::<virtio_gpu_rect>() - 2usize];
     ["Offset of field: virtio_gpu_rect::x"][::std::mem::offset_of!(virtio_gpu_rect, x) - 0usize];
     ["Offset of field: virtio_gpu_rect::y"][::std::mem::offset_of!(virtio_gpu_rect, y) - 4usize];
     ["Offset of field: virtio_gpu_rect::width"]
@@ -397,7 +397,7 @@ const _: () = {
     ["Size of virtio_gpu_resp_display_info_virtio_gpu_display_one"]
         [::std::mem::size_of::<virtio_gpu_resp_display_info_virtio_gpu_display_one>() - 24usize];
     ["Alignment of virtio_gpu_resp_display_info_virtio_gpu_display_one"]
-        [::std::mem::align_of::<virtio_gpu_resp_display_info_virtio_gpu_display_one>() - 4usize];
+        [::std::mem::align_of::<virtio_gpu_resp_display_info_virtio_gpu_display_one>() - 2usize];
     ["Offset of field: virtio_gpu_resp_display_info_virtio_gpu_display_one::r"]
         [::std::mem::offset_of!(virtio_gpu_resp_display_info_virtio_gpu_display_one, r) - 0usize];
     ["Offset of field: virtio_gpu_resp_display_info_virtio_gpu_display_one::enabled"][::std::mem::offset_of!(
@@ -433,7 +433,7 @@ pub struct virtio_gpu_box {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_gpu_box"][::std::mem::size_of::<virtio_gpu_box>() - 24usize];
-    ["Alignment of virtio_gpu_box"][::std::mem::align_of::<virtio_gpu_box>() - 4usize];
+    ["Alignment of virtio_gpu_box"][::std::mem::align_of::<virtio_gpu_box>() - 2usize];
     ["Offset of field: virtio_gpu_box::x"][::std::mem::offset_of!(virtio_gpu_box, x) - 0usize];
     ["Offset of field: virtio_gpu_box::y"][::std::mem::offset_of!(virtio_gpu_box, y) - 4usize];
     ["Offset of field: virtio_gpu_box::z"][::std::mem::offset_of!(virtio_gpu_box, z) - 8usize];
@@ -746,7 +746,7 @@ pub struct virtio_gpu_config {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_gpu_config"][::std::mem::size_of::<virtio_gpu_config>() - 16usize];
-    ["Alignment of virtio_gpu_config"][::std::mem::align_of::<virtio_gpu_config>() - 4usize];
+    ["Alignment of virtio_gpu_config"][::std::mem::align_of::<virtio_gpu_config>() - 2usize];
     ["Offset of field: virtio_gpu_config::events_read"]
         [::std::mem::offset_of!(virtio_gpu_config, events_read) - 0usize];
     ["Offset of field: virtio_gpu_config::events_clear"]

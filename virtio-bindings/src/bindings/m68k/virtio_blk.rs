@@ -157,7 +157,7 @@ const _: () = {
     ["Size of virtio_blk_config_virtio_blk_zoned_characteristics"]
         [::std::mem::size_of::<virtio_blk_config_virtio_blk_zoned_characteristics>() - 24usize];
     ["Alignment of virtio_blk_config_virtio_blk_zoned_characteristics"]
-        [::std::mem::align_of::<virtio_blk_config_virtio_blk_zoned_characteristics>() - 4usize];
+        [::std::mem::align_of::<virtio_blk_config_virtio_blk_zoned_characteristics>() - 2usize];
     ["Offset of field: virtio_blk_config_virtio_blk_zoned_characteristics::zone_sectors"][::std::mem::offset_of!(
         virtio_blk_config_virtio_blk_zoned_characteristics,
         zone_sectors
@@ -358,7 +358,7 @@ pub struct virtio_scsi_inhdr {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_scsi_inhdr"][::std::mem::size_of::<virtio_scsi_inhdr>() - 16usize];
-    ["Alignment of virtio_scsi_inhdr"][::std::mem::align_of::<virtio_scsi_inhdr>() - 4usize];
+    ["Alignment of virtio_scsi_inhdr"][::std::mem::align_of::<virtio_scsi_inhdr>() - 2usize];
     ["Offset of field: virtio_scsi_inhdr::errors"]
         [::std::mem::offset_of!(virtio_scsi_inhdr, errors) - 0usize];
     ["Offset of field: virtio_scsi_inhdr::data_len"]

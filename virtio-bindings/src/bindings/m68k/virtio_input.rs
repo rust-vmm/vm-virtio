@@ -25,7 +25,7 @@ pub struct virtio_input_absinfo {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_input_absinfo"][::std::mem::size_of::<virtio_input_absinfo>() - 20usize];
-    ["Alignment of virtio_input_absinfo"][::std::mem::align_of::<virtio_input_absinfo>() - 4usize];
+    ["Alignment of virtio_input_absinfo"][::std::mem::align_of::<virtio_input_absinfo>() - 2usize];
     ["Offset of field: virtio_input_absinfo::min"]
         [::std::mem::offset_of!(virtio_input_absinfo, min) - 0usize];
     ["Offset of field: virtio_input_absinfo::max"]
@@ -80,7 +80,7 @@ const _: () = {
     ["Size of virtio_input_config__bindgen_ty_1"]
         [::std::mem::size_of::<virtio_input_config__bindgen_ty_1>() - 128usize];
     ["Alignment of virtio_input_config__bindgen_ty_1"]
-        [::std::mem::align_of::<virtio_input_config__bindgen_ty_1>() - 4usize];
+        [::std::mem::align_of::<virtio_input_config__bindgen_ty_1>() - 2usize];
     ["Offset of field: virtio_input_config__bindgen_ty_1::string"]
         [::std::mem::offset_of!(virtio_input_config__bindgen_ty_1, string) - 0usize];
     ["Offset of field: virtio_input_config__bindgen_ty_1::bitmap"]
@@ -102,7 +102,7 @@ impl Default for virtio_input_config__bindgen_ty_1 {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_input_config"][::std::mem::size_of::<virtio_input_config>() - 136usize];
-    ["Alignment of virtio_input_config"][::std::mem::align_of::<virtio_input_config>() - 4usize];
+    ["Alignment of virtio_input_config"][::std::mem::align_of::<virtio_input_config>() - 2usize];
     ["Offset of field: virtio_input_config::select"]
         [::std::mem::offset_of!(virtio_input_config, select) - 0usize];
     ["Offset of field: virtio_input_config::subsel"]
@@ -133,7 +133,7 @@ pub struct virtio_input_event {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of virtio_input_event"][::std::mem::size_of::<virtio_input_event>() - 8usize];
-    ["Alignment of virtio_input_event"][::std::mem::align_of::<virtio_input_event>() - 4usize];
+    ["Alignment of virtio_input_event"][::std::mem::align_of::<virtio_input_event>() - 2usize];
     ["Offset of field: virtio_input_event::type_"]
         [::std::mem::offset_of!(virtio_input_event, type_) - 0usize];
     ["Offset of field: virtio_input_event::code"]
