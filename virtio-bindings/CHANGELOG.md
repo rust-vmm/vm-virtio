@@ -1,5 +1,9 @@
 # Upcoming Release
 
+## Changed
+
+- Regenerate bindings with Linux 6.17.
+
 # v0.2.7
 
 ## Changed
