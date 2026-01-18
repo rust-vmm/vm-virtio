@@ -64,6 +64,12 @@ pub const VIRTIO_NET_F_RSS: u32 = 60;
 pub const VIRTIO_NET_F_RSC_EXT: u32 = 61;
 pub const VIRTIO_NET_F_STANDBY: u32 = 62;
 pub const VIRTIO_NET_F_SPEED_DUPLEX: u32 = 63;
+pub const VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO: u32 = 65;
+pub const VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO_CSUM: u32 = 66;
+pub const VIRTIO_NET_F_HOST_UDP_TUNNEL_GSO: u32 = 67;
+pub const VIRTIO_NET_F_HOST_UDP_TUNNEL_GSO_CSUM: u32 = 68;
+pub const VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO_MAPPED: u32 = 46;
+pub const VIRTIO_NET_F_GUEST_UDP_TUNNEL_GSO_CSUM_MAPPED: u32 = 47;
 pub const VIRTIO_NET_F_GSO: u32 = 6;
 pub const VIRTIO_NET_S_LINK_UP: u32 = 1;
 pub const VIRTIO_NET_S_ANNOUNCE: u32 = 2;
@@ -79,11 +85,15 @@ pub const VIRTIO_NET_RSS_HASH_TYPE_UDP_EX: u32 = 256;
 pub const VIRTIO_NET_HDR_F_NEEDS_CSUM: u32 = 1;
 pub const VIRTIO_NET_HDR_F_DATA_VALID: u32 = 2;
 pub const VIRTIO_NET_HDR_F_RSC_INFO: u32 = 4;
+pub const VIRTIO_NET_HDR_F_UDP_TUNNEL_CSUM: u32 = 8;
 pub const VIRTIO_NET_HDR_GSO_NONE: u32 = 0;
 pub const VIRTIO_NET_HDR_GSO_TCPV4: u32 = 1;
 pub const VIRTIO_NET_HDR_GSO_UDP: u32 = 3;
 pub const VIRTIO_NET_HDR_GSO_TCPV6: u32 = 4;
 pub const VIRTIO_NET_HDR_GSO_UDP_L4: u32 = 5;
+pub const VIRTIO_NET_HDR_GSO_UDP_TUNNEL_IPV4: u32 = 32;
+pub const VIRTIO_NET_HDR_GSO_UDP_TUNNEL_IPV6: u32 = 64;
+pub const VIRTIO_NET_HDR_GSO_UDP_TUNNEL: u32 = 96;
 pub const VIRTIO_NET_HDR_GSO_ECN: u32 = 128;
 pub const VIRTIO_NET_HASH_REPORT_NONE: u32 = 0;
 pub const VIRTIO_NET_HASH_REPORT_IPv4: u32 = 1;
@@ -330,6 +340,35 @@ const _: () = {
         [::std::mem::offset_of!(virtio_net_hdr_v1_hash, padding) - 18usize];
 };
 impl Default for virtio_net_hdr_v1_hash {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct virtio_net_hdr_v1_hash_tunnel {
+    pub hash_hdr: virtio_net_hdr_v1_hash,
+    pub outer_th_offset: __le16,
+    pub inner_nh_offset: __le16,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of virtio_net_hdr_v1_hash_tunnel"]
+        [::std::mem::size_of::<virtio_net_hdr_v1_hash_tunnel>() - 24usize];
+    ["Alignment of virtio_net_hdr_v1_hash_tunnel"]
+        [::std::mem::align_of::<virtio_net_hdr_v1_hash_tunnel>() - 4usize];
+    ["Offset of field: virtio_net_hdr_v1_hash_tunnel::hash_hdr"]
+        [::std::mem::offset_of!(virtio_net_hdr_v1_hash_tunnel, hash_hdr) - 0usize];
+    ["Offset of field: virtio_net_hdr_v1_hash_tunnel::outer_th_offset"]
+        [::std::mem::offset_of!(virtio_net_hdr_v1_hash_tunnel, outer_th_offset) - 20usize];
+    ["Offset of field: virtio_net_hdr_v1_hash_tunnel::inner_nh_offset"]
+        [::std::mem::offset_of!(virtio_net_hdr_v1_hash_tunnel, inner_nh_offset) - 22usize];
+};
+impl Default for virtio_net_hdr_v1_hash_tunnel {
     fn default() -> Self {
         let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
         unsafe {

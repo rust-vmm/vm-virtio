@@ -97,7 +97,7 @@ pub struct vring_used_elem {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of vring_used_elem"][::std::mem::size_of::<vring_used_elem>() - 8usize];
-    ["Alignment of vring_used_elem"][::std::mem::align_of::<vring_used_elem>() - 4usize];
+    ["Alignment of vring_used_elem"][::std::mem::align_of::<vring_used_elem>() - 2usize];
     ["Offset of field: vring_used_elem::id"][::std::mem::offset_of!(vring_used_elem, id) - 0usize];
     ["Offset of field: vring_used_elem::len"]
         [::std::mem::offset_of!(vring_used_elem, len) - 4usize];
@@ -133,7 +133,7 @@ pub struct vring {
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of vring"][::std::mem::size_of::<vring>() - 16usize];
-    ["Alignment of vring"][::std::mem::align_of::<vring>() - 4usize];
+    ["Alignment of vring"][::std::mem::align_of::<vring>() - 2usize];
     ["Offset of field: vring::num"][::std::mem::offset_of!(vring, num) - 0usize];
     ["Offset of field: vring::desc"][::std::mem::offset_of!(vring, desc) - 4usize];
     ["Offset of field: vring::avail"][::std::mem::offset_of!(vring, avail) - 8usize];
