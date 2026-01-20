@@ -1,5 +1,7 @@
 # Upcoming Release
 
+# v0.2.7
+
 ## Changed
 
 - Regenerate bindings with Linux 6.16.
@@ -8,6 +10,7 @@
 ## Fixed
 
 - Fix powerpc64 little-endian bindings.
+- Fix several architecture-specific issues introduced in the previous release
 
 # v0.2.6
 
