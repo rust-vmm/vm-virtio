@@ -321,7 +321,8 @@ impl Default for virtio_net_hdr_v1 {
 #[derive(Copy, Clone)]
 pub struct virtio_net_hdr_v1_hash {
     pub hdr: virtio_net_hdr_v1,
-    pub hash_value: __le32,
+    pub hash_value_lo: __le16,
+    pub hash_value_hi: __le16,
     pub hash_report: __le16,
     pub padding: __le16,
 }
@@ -332,8 +333,10 @@ const _: () = {
         [::std::mem::align_of::<virtio_net_hdr_v1_hash>() - 2usize];
     ["Offset of field: virtio_net_hdr_v1_hash::hdr"]
         [::std::mem::offset_of!(virtio_net_hdr_v1_hash, hdr) - 0usize];
-    ["Offset of field: virtio_net_hdr_v1_hash::hash_value"]
-        [::std::mem::offset_of!(virtio_net_hdr_v1_hash, hash_value) - 12usize];
+    ["Offset of field: virtio_net_hdr_v1_hash::hash_value_lo"]
+        [::std::mem::offset_of!(virtio_net_hdr_v1_hash, hash_value_lo) - 12usize];
+    ["Offset of field: virtio_net_hdr_v1_hash::hash_value_hi"]
+        [::std::mem::offset_of!(virtio_net_hdr_v1_hash, hash_value_hi) - 14usize];
     ["Offset of field: virtio_net_hdr_v1_hash::hash_report"]
         [::std::mem::offset_of!(virtio_net_hdr_v1_hash, hash_report) - 16usize];
     ["Offset of field: virtio_net_hdr_v1_hash::padding"]

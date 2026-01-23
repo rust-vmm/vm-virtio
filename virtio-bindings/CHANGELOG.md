@@ -2,7 +2,11 @@
 
 ## Changed
 
-- Regenerate bindings with Linux 6.17.
+- Regenerate bindings with Linux 6.18.  [This replaces the
+  `hash_value` member of `virtio_net_hdr_v1_hash` with `hash_value_lo`
+  and `hash_value_hi`.][hash_value]
+  
+[hash_value]: (https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=c3838262b824c71c145cd3668722e99a69bc9cd9)
 
 # v0.2.7
 
