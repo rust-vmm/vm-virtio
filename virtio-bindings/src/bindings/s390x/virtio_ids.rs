@@ -39,6 +39,7 @@ pub const VIRTIO_ID_PARAM_SERV: u32 = 38;
 pub const VIRTIO_ID_AUDIO_POLICY: u32 = 39;
 pub const VIRTIO_ID_BT: u32 = 40;
 pub const VIRTIO_ID_GPIO: u32 = 41;
+pub const VIRTIO_ID_SPI: u32 = 45;
 pub const VIRTIO_TRANS_ID_NET: u32 = 4096;
 pub const VIRTIO_TRANS_ID_BLOCK: u32 = 4097;
 pub const VIRTIO_TRANS_ID_BALLOON: u32 = 4098;
