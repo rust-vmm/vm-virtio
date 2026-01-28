@@ -15,9 +15,7 @@ use std::{cmp, result};
 
 use crate::{DescriptorChain, Error};
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{
-    Address, ByteValued, GuestMemory, GuestMemoryRegion, MemoryRegionAddress, VolatileSlice,
-};
+use vm_memory::{ByteValued, GuestMemory, Permissions, VolatileSlice};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -160,33 +158,29 @@ impl<'a, B: BitmapSlice> Reader<'a, B> {
     pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Reader<'a, B>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
         let mut total_len: usize = 0;
-        let buffers = desc_chain
-            .readable()
-            .map(|desc| {
-                // Verify that summing the descriptor sizes does not overflow.
-                // This can happen if a driver tricks a device into reading more data than
-                // fits in a `usize`.
-                total_len = total_len
-                    .checked_add(desc.len() as usize)
-                    .ok_or(Error::DescriptorChainOverflow)?;
+        let mut buffers = VecDeque::<VolatileSlice<'a, B>>::new();
 
-                let region = mem
-                    .find_region(desc.addr())
-                    .ok_or(Error::FindMemoryRegion)?;
-                let offset = desc
-                    .addr()
-                    .checked_sub(region.start_addr().raw_value())
-                    .unwrap();
-                region
-                    .get_slice(MemoryRegionAddress(offset.raw_value()), desc.len() as usize)
-                    .map_err(Error::GuestMemoryError)
-            })
-            .collect::<Result<VecDeque<VolatileSlice<'a, B>>>>()?;
+        for desc in desc_chain.readable() {
+            // Verify that summing the descriptor sizes does not overflow.
+            // This can happen if a driver tricks a device into reading more data than
+            // fits in a `usize`.
+            total_len = total_len
+                .checked_add(desc.len() as usize)
+                .ok_or(Error::DescriptorChainOverflow)?;
+
+            let slices = mem
+                .get_slices(desc.addr(), desc.len() as usize, Permissions::Read)
+                .map_err(Error::GuestMemoryError)?;
+            for slice in slices {
+                buffers.push_back(slice.map_err(Error::GuestMemoryError)?);
+            }
+        }
+
         Ok(Reader {
             buffer: DescriptorChainConsumer {
                 buffers,
@@ -272,33 +266,28 @@ impl<'a, B: BitmapSlice> Writer<'a, B> {
     pub fn new<M, T>(mem: &'a M, desc_chain: DescriptorChain<T>) -> Result<Writer<'a, B>>
     where
         M: GuestMemory,
-        <<M as GuestMemory>::R as GuestMemoryRegion>::B: WithBitmapSlice<'a, S = B>,
+        <M as GuestMemory>::Bitmap: WithBitmapSlice<'a, S = B>,
         T: Deref,
         T::Target: GuestMemory + Sized,
     {
         let mut total_len: usize = 0;
-        let buffers = desc_chain
-            .writable()
-            .map(|desc| {
-                // Verify that summing the descriptor sizes does not overflow.
-                // This can happen if a driver tricks a device into writing more data than
-                // fits in a `usize`.
-                total_len = total_len
-                    .checked_add(desc.len() as usize)
-                    .ok_or(Error::DescriptorChainOverflow)?;
+        let mut buffers = VecDeque::<VolatileSlice<'a, B>>::new();
 
-                let region = mem
-                    .find_region(desc.addr())
-                    .ok_or(Error::FindMemoryRegion)?;
-                let offset = desc
-                    .addr()
-                    .checked_sub(region.start_addr().raw_value())
-                    .unwrap();
-                region
-                    .get_slice(MemoryRegionAddress(offset.raw_value()), desc.len() as usize)
-                    .map_err(Error::GuestMemoryError)
-            })
-            .collect::<Result<VecDeque<VolatileSlice<'a, B>>>>()?;
+        for desc in desc_chain.writable() {
+            // Verify that summing the descriptor sizes does not overflow.
+            // This can happen if a driver tricks a device into writing more data than
+            // fits in a `usize`.
+            total_len = total_len
+                .checked_add(desc.len() as usize)
+                .ok_or(Error::DescriptorChainOverflow)?;
+
+            let slices = mem
+                .get_slices(desc.addr(), desc.len() as usize, Permissions::Write)
+                .map_err(Error::GuestMemoryError)?;
+            for slice in slices {
+                buffers.push_back(slice.map_err(Error::GuestMemoryError)?);
+            }
+        }
 
         Ok(Writer {
             buffer: DescriptorChainConsumer {
@@ -369,7 +358,7 @@ mod tests {
         desc::{split::Descriptor as SplitDescriptor, RawDescriptor},
         Queue, QueueOwnedT, QueueT,
     };
-    use vm_memory::{GuestAddress, GuestMemoryMmap, Le32};
+    use vm_memory::{Address, GuestAddress, GuestMemoryMmap, Le32};
 
     use crate::mock::MockSplitQueue;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};

@@ -3,8 +3,8 @@ use std::mem::ManuallyDrop;
 use std::num::Wrapping;
 
 use vm_memory::{
-    AtomicAccess, GuestMemoryError, GuestMemoryRegion, GuestMemoryResult, MemoryRegionAddress,
-    VolatileSlice,
+    AtomicAccess, GuestMemoryBackend, GuestMemoryError, GuestMemoryRegion, GuestMemoryResult,
+    MemoryRegionAddress, VolatileSlice,
 };
 
 use std::mem::MaybeUninit;
@@ -335,7 +335,7 @@ struct SingleRegionGuestMemory {
     the_region: StubRegion,
 }
 
-impl GuestMemory for SingleRegionGuestMemory {
+impl GuestMemoryBackend for SingleRegionGuestMemory {
     type R = StubRegion;
 
     fn num_regions(&self) -> usize {
@@ -350,6 +350,20 @@ impl GuestMemory for SingleRegionGuestMemory {
 
     fn iter(&self) -> impl Iterator<Item = &Self::R> {
         std::iter::once(&self.the_region)
+    }
+
+    /// Override `check_range()` because the trait-provided method cannot be proven.
+    ///
+    /// Specifically, the trait-provided `check_range()` iterates over all slices returned by
+    /// `get_slices()`, and kani does not accept iterating.  In our case, we know there will only
+    /// be a single slice, so we can assert that here and check that single one, keeping kani
+    /// content.
+    fn check_range(&self, base: GuestAddress, len: usize) -> bool {
+        let mut slices = GuestMemoryBackend::get_slices(self, base, len);
+        let result = slices.next().map_or(true, |r| r.is_ok());
+        // We only have a single region, so `get_slices()` must never return more than one slice
+        assert!(slices.next().is_none());
+        result
     }
 
     fn try_access<F>(

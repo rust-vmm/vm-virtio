@@ -177,7 +177,7 @@ mod tests {
     use virtio_queue::desc::RawDescriptor;
     use virtio_queue::mock::MockSplitQueue;
     use virtio_vsock::packet::VsockPacket;
-    use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+    use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, Permissions};
 
     // Random values to be used by the tests for the header fields.
     const SRC_CID: u64 = 1;
@@ -199,6 +199,39 @@ mod tests {
     const HEADER_WRITE_ADDR: u64 = 0x100;
     const DATA_WRITE_ADDR: u64 = 0x1000;
 
+    /// For `get_mem_ptr()`: Whether we access the RX or TX ring.
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    enum RxTx {
+        /// Receive ring
+        Rx,
+        /// Transmission ring
+        Tx,
+    }
+
+    /// Return a host pointer to the slice at `[addr, addr + length)`.  Use this only for
+    /// comparison in `assert_eq!()`.
+    fn get_mem_ptr<M: GuestMemory>(
+        mem: &M,
+        addr: GuestAddress,
+        length: usize,
+        rx_tx: RxTx,
+    ) -> *const u8 {
+        let access = match rx_tx {
+            RxTx::Rx => Permissions::Write,
+            RxTx::Tx => Permissions::Read,
+        };
+
+        assert!(length > 0);
+        let slice = mem
+            .get_slices(addr, length, access)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        assert_eq!(slice.len(), length, "Fragmented guest memory area");
+        slice.ptr_guard().as_ptr()
+    }
+
     // We are generating the same operations for packets created from either RX or TX.
     // Because we need as a first function the write to memory, we are passing the functions as
     // both an input & output parameter even though this is typically an anti-pattern.
@@ -206,6 +239,7 @@ mod tests {
         packet: &mut VsockPacket<B>,
         mem: &GuestMemoryMmap,
         functions: &mut Vec<VsockFunction>,
+        rx_tx: RxTx,
     ) {
         // We are actually calling the functions that we want the fuzzer to call to validate
         // the test case. To easily track the functions and their order, we just add them to
@@ -214,15 +248,19 @@ mod tests {
         functions.push(VsockFunction::HeaderSlice);
         assert_eq!(
             header_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(HEADER_WRITE_ADDR))
-                .unwrap()
+            get_mem_ptr(
+                mem,
+                GuestAddress(HEADER_WRITE_ADDR),
+                header_slice.len(),
+                rx_tx
+            )
         );
 
         let data_slice = packet.data_slice().unwrap();
         functions.push(VsockFunction::DataSlice);
         assert_eq!(
             data_slice.ptr_guard().as_ptr(),
-            mem.get_host_address(GuestAddress(DATA_WRITE_ADDR)).unwrap()
+            get_mem_ptr(mem, GuestAddress(DATA_WRITE_ADDR), data_slice.len(), rx_tx)
         );
 
         packet.set_src_cid(SRC_CID);
@@ -338,7 +376,7 @@ mod tests {
 
         let mut packet =
             VsockPacket::from_tx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
-        create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions);
+        create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions, RxTx::Tx);
         let vsock_fuzz_input = VsockInput {
             functions,
             descriptors,
@@ -389,7 +427,7 @@ mod tests {
         let mut packet =
             VsockPacket::from_rx_virtq_chain(&mem, &mut chain, MAX_PKT_BUF_SIZE).unwrap();
         let mut functions = Vec::new();
-        create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions);
+        create_basic_vsock_packet_ops(&mut packet, &mem, &mut functions, RxTx::Rx);
         let vsock_fuzz_input = VsockInput {
             functions,
             descriptors,
