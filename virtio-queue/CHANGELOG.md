@@ -4,9 +4,13 @@
 
 ## Changed
 
-- Relaxed vm-memory requirements to support using 0.17.2
-
 ## Fixed
+
+# v0.17.1
+
+## Changed
+
+- Relaxed vm-memory requirements to support using 0.17.2
 
 # v0.17.0
 
