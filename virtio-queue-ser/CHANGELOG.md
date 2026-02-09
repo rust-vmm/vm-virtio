@@ -4,6 +4,8 @@
 
 ## Changed
 
+- Relax the dependency on `virtio-queue` to use API compatible version rather than exact version.
+
 ## Fixed
 
 # v0.14.0
