@@ -2,12 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 use serde::{Deserialize, Serialize};
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
 use virtio_queue::QueueState;
 
 /// Wrapper over a `QueueState` that has serialization capabilities.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, Versionize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct QueueStateSer {
     /// The maximum size in elements offered by the device.
     pub max_size: u16,

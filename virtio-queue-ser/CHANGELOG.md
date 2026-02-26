@@ -6,6 +6,10 @@
 
 - Updated vm-memory from 0.17.1 to 0.18.0
 
+## Removed
+
+- Remove versionize support
+
 ## Fixed
 
 # v0.14.0

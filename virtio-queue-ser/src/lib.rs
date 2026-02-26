@@ -5,7 +5,7 @@
 //! Adds serialization capabilities to the state objects from `virtio-queue`.
 //!
 //! Provides wrappers over the state objects from `virtio-queue` crate that
-//! implement the `Serialize`, `Deserialize` and `Versionize` traits.
+//! implement the `serde::Serialize/Deserialize` traits.
 
 #![deny(missing_docs)]
 
