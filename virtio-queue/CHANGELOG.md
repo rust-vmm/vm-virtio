@@ -2,6 +2,8 @@
 
 ## Added
 
+- Implement `From<Queue>` and `From<Arc<Mutex<Queue>>>` for `QueueSync`
+
 ## Changed
 
 - Updated vm-memory from 0.17.1 to 0.18.0

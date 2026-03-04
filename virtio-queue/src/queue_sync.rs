@@ -181,6 +181,20 @@ impl QueueT for QueueSync {
     }
 }
 
+impl From<Queue> for QueueSync {
+    fn from(queue: Queue) -> Self {
+        QueueSync {
+            state: Arc::new(Mutex::new(queue)),
+        }
+    }
+}
+
+impl From<Arc<Mutex<Queue>>> for QueueSync {
+    fn from(state: Arc<Mutex<Queue>>) -> Self {
+        QueueSync { state }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +368,17 @@ mod tests {
         assert!(q.enable_notification(mem).unwrap());
         q.lock_state().set_next_avail(8);
         assert!(!q.enable_notification(mem).unwrap());
+    }
+
+    #[test]
+    fn test_queue_sync_from() {
+        let q = Queue::new(0x100).unwrap();
+        let q_sync = QueueSync::from(q);
+        assert_eq!(q_sync.max_size(), 0x100);
+
+        let q2 = Queue::new(0x200).unwrap();
+        let state = Arc::new(Mutex::new(q2));
+        let q_sync2 = QueueSync::from(state);
+        assert_eq!(q_sync2.max_size(), 0x200);
     }
 }
