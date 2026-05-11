@@ -1,4 +1,5 @@
 #![no_main]
+#![allow(deprecated)]
 use common::virtio_queue::DEFAULT_QUEUE_SIZE;
 use common::vsock::{InitFunction, VsockInput};
 use libfuzzer_sys::fuzz_target;

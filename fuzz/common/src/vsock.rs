@@ -1,4 +1,5 @@
 use crate::FuzzingDescriptor;
+#[allow(deprecated)]
 use virtio_vsock::packet::VsockPacket;
 
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,7 @@ pub enum VsockFunction {
     _WriteToMem { addr: u64, bytes: Vec<u8> },
 }
 
+#[allow(deprecated)]
 impl VsockFunction {
     pub fn call<B: vm_memory::bitmap::BitmapSlice>(
         &self,
@@ -168,6 +170,7 @@ pub struct VsockInput {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::create_corpus_file;

@@ -4,34 +4,10 @@
 
 //! Vsock packet abstraction.
 //!
-//! This module provides the following abstraction for parsing a vsock packet, and working with it:
-//!
-//! - [`VsockPacket`](struct.VsockPacket.html) which handles the parsing of the vsock packet from
-//! either a TX descriptor chain via
-//! [`VsockPacket::from_tx_virtq_chain`](struct.VsockPacket.html#method.from_tx_virtq_chain), or an
-//! RX descriptor chain via
-//! [`VsockPacket::from_rx_virtq_chain`](struct.VsockPacket.html#method.from_rx_virtq_chain).
-//! The virtio vsock packet is defined in the standard as having a header of type `virtio_vsock_hdr`
-//! and an optional `data` array of bytes. The methods mentioned above assume that both packet
-//! elements are on the same descriptor, or each of the packet elements occupies exactly one
-//! descriptor. For the usual drivers, this assumption stands,
-//! but in the future we might make the implementation more generic by removing any constraint
-//! regarding the number of descriptors that correspond to the header/data. The buffers associated
-//! to the TX virtio queue are device-readable, and the ones associated to the RX virtio queue are
-//! device-writable.
-///
-/// The `VsockPacket` abstraction is using vm-memory's `VolatileSlice` for representing the header
-/// and the data. `VolatileSlice` is a safe wrapper over a raw pointer, which also handles the dirty
-/// page tracking behind the scenes. A limitation of the current implementation is that it does not
-/// cover the scenario where the header or data buffer doesn't fit in a single `VolatileSlice`
-/// because the guest memory regions of the buffer are contiguous in the guest physical address
-/// space, but not in the host virtual one as well. If this becomes an use case, we can extend this
-/// solution to use an array of `VolatileSlice`s for the header and data.
-/// The `VsockPacket` abstraction is also storing a `virtio_vsock_hdr` instance (which is defined
-/// here as `PacketHeader`). This is needed so that we always access the same data that was read the
-/// first time from the descriptor chain. We avoid this way potential time-of-check time-of-use
-/// problems that may occur when reading later a header field from the underlying memory itself
-/// (i.e. from the header's `VolatileSlice` object).
+//! [`VsockPacket`](crate::packet::VsockPacket) is deprecated in favor of
+//! [`VsockPacketTx`](crate::packet_rw::VsockPacketTx)/[`VsockPacketRx`](crate::packet_rw::VsockPacketRx)
+//! API.
+
 use std::ops::Deref;
 
 use virtio_queue::DescriptorChain;
@@ -74,6 +50,7 @@ const FWD_CNT_OFFSET: usize = 40;
 /// - the chain head, holding the packet header;
 /// - an optional data/buffer descriptor, only present for data packets (for VSOCK_OP_RW requests).
 #[derive(Debug)]
+#[deprecated(note = "Use VsockPacketTx/VsockPacketRx from the packet_rw module instead")]
 pub struct VsockPacket<'a, B: BitmapSlice> {
     // When writing to the header slice, we are using the `write` method of `VolatileSlice`s Bytes
     // implementation. Because that can only return an error if we pass an invalid offset, we can
@@ -135,6 +112,7 @@ where
     }
 }
 
+#[allow(deprecated)]
 impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// Return a reference to the `header_slice` of the packet.
     pub fn header_slice(&self) -> &VolatileSlice<'a, B> {
@@ -607,6 +585,7 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     }
 }
 
+#[allow(deprecated)]
 impl<'a> VsockPacket<'a, ()> {
     /// Create a packet based on one pointer for the header, and an optional one for data.
     ///
@@ -644,6 +623,7 @@ impl<'a> VsockPacket<'a, ()> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 
