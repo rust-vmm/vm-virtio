@@ -128,6 +128,130 @@ pub struct PacketHeader {
 // and all accesses through safe `vm-memory` API will validate any garbage that could
 // be included in there.
 unsafe impl ByteValued for PacketHeader {}
+
+impl PacketHeader {
+    /// Set the `src_cid` field.
+    pub fn set_src_cid(&mut self, src_cid: u64) -> &mut Self {
+        self.src_cid = src_cid.into();
+        self
+    }
+
+    /// Set the `dst_cid` field.
+    pub fn set_dst_cid(&mut self, dst_cid: u64) -> &mut Self {
+        self.dst_cid = dst_cid.into();
+        self
+    }
+
+    /// Set the `src_port` field.
+    pub fn set_src_port(&mut self, src_port: u32) -> &mut Self {
+        self.src_port = src_port.into();
+        self
+    }
+
+    /// Set the `dst_port` field.
+    pub fn set_dst_port(&mut self, dst_port: u32) -> &mut Self {
+        self.dst_port = dst_port.into();
+        self
+    }
+
+    /// Set the `len` field.
+    pub fn set_len(&mut self, len: u32) -> &mut Self {
+        self.len = len.into();
+        self
+    }
+
+    /// Set the `type_` field.
+    pub fn set_type(&mut self, type_: u16) -> &mut Self {
+        self.type_ = type_.into();
+        self
+    }
+
+    /// Set the `op` field.
+    pub fn set_op(&mut self, op: u16) -> &mut Self {
+        self.op = op.into();
+        self
+    }
+
+    /// Set the `flags` field.
+    pub fn set_flags(&mut self, flags: u32) -> &mut Self {
+        self.flags = flags.into();
+        self
+    }
+
+    /// Set a single flag (bitwise OR with existing flags).
+    pub fn set_flag(&mut self, flag: u32) -> &mut Self {
+        self.flags = (u32::from(self.flags) | flag).into();
+        self
+    }
+
+    /// Set the `buf_alloc` field.
+    pub fn set_buf_alloc(&mut self, buf_alloc: u32) -> &mut Self {
+        self.buf_alloc = buf_alloc.into();
+        self
+    }
+
+    /// Set the `fwd_cnt` field.
+    pub fn set_fwd_cnt(&mut self, fwd_cnt: u32) -> &mut Self {
+        self.fwd_cnt = fwd_cnt.into();
+        self
+    }
+
+    /// Get the `src_cid` field.
+    pub fn src_cid(&self) -> u64 {
+        self.src_cid.into()
+    }
+
+    /// Get the `dst_cid` field.
+    pub fn dst_cid(&self) -> u64 {
+        self.dst_cid.into()
+    }
+
+    /// Get the `src_port` field.
+    pub fn src_port(&self) -> u32 {
+        self.src_port.into()
+    }
+
+    /// Get the `dst_port` field.
+    pub fn dst_port(&self) -> u32 {
+        self.dst_port.into()
+    }
+
+    /// Get the `len` field.
+    pub fn len(&self) -> u32 {
+        self.len.into()
+    }
+
+    /// Returns true if there is no payload
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get the `type_` field.
+    pub fn type_(&self) -> u16 {
+        self.type_.into()
+    }
+
+    /// Get the `op` field.
+    pub fn op(&self) -> u16 {
+        self.op.into()
+    }
+
+    /// Get the `flags` field.
+    pub fn flags(&self) -> u32 {
+        self.flags.into()
+    }
+
+    /// Get the `buf_alloc` field.
+    pub fn buf_alloc(&self) -> u32 {
+        self.buf_alloc.into()
+    }
+
+    /// Get the `fwd_cnt` field.
+    pub fn fwd_cnt(&self) -> u32 {
+        self.fwd_cnt.into()
+    }
+}
+
 //
 // This structure will occupy the buffer pointed to by the head of the descriptor chain. Below are
 // the offsets for each field, as well as the packed structure size.
