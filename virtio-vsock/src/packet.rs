@@ -32,225 +32,24 @@
 /// first time from the descriptor chain. We avoid this way potential time-of-check time-of-use
 /// problems that may occur when reading later a header field from the underlying memory itself
 /// (i.e. from the header's `VolatileSlice` object).
-use std::fmt::{self, Display};
 use std::ops::Deref;
 
 use virtio_queue::DescriptorChain;
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Le16, Le32, Le64,
-    Permissions, VolatileMemoryError, VolatileSlice,
-};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, Permissions, VolatileSlice};
 
-/// Vsock packet parsing errors.
-#[derive(Debug)]
-pub enum Error {
-    /// Too few descriptors in a descriptor chain.
-    DescriptorChainTooShort,
-    /// Descriptor that was too short to use.
-    DescriptorLengthTooSmall,
-    /// Descriptor that was too long to use.
-    DescriptorLengthTooLong,
-    /// Data stretches over multiple memory fragments
-    FragmentedMemory,
-    /// The slice for creating a header has an invalid length.
-    InvalidHeaderInputSize(usize),
-    /// The `len` header field value exceeds the maximum allowed data size.
-    InvalidHeaderLen(u32),
-    /// Invalid guest memory access.
-    InvalidMemoryAccess(GuestMemoryError),
-    /// Invalid volatile memory access.
-    InvalidVolatileAccess(VolatileMemoryError),
-    /// Read only descriptor that protocol says to write to.
-    UnexpectedReadOnlyDescriptor,
-    /// Write only descriptor that protocol says to read from.
-    UnexpectedWriteOnlyDescriptor,
-}
+// Re-export these consts to maintain backwards compatibility.
+#[deprecated(note = "Use virtio_vsock::PKT_HEADER_SIZE instead")]
+pub use crate::PKT_HEADER_SIZE;
 
-impl std::error::Error for Error {}
+#[deprecated(note = "Use virtio_vsock::Error instead")]
+pub use crate::Error;
 
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::DescriptorChainTooShort => {
-                write!(f, "There are not enough descriptors in the chain.")
-            }
-            Error::DescriptorLengthTooSmall => write!(
-                f,
-                "The descriptor is pointing to a buffer that has a smaller length than expected."
-            ),
-            Error::DescriptorLengthTooLong => write!(
-                f,
-                "The descriptor is pointing to a buffer that has a longer length than expected."
-            ),
-            Error::FragmentedMemory => {
-                write!(f, "Data stretches over multiple memory fragments.")
-            }
-            Error::InvalidHeaderInputSize(size) => {
-                write!(f, "Invalid header input size: {size}")
-            }
-            Error::InvalidHeaderLen(size) => {
-                write!(f, "Invalid header `len` field value: {size}")
-            }
-            Error::InvalidMemoryAccess(error) => {
-                write!(f, "Invalid guest memory access: {error}")
-            }
-            Error::InvalidVolatileAccess(error) => {
-                write!(f, "Invalid volatile memory access: {error}")
-            }
-            Error::UnexpectedReadOnlyDescriptor => {
-                write!(f, "Unexpected read-only descriptor.")
-            }
-            Error::UnexpectedWriteOnlyDescriptor => {
-                write!(f, "Unexpected write-only descriptor.")
-            }
-        }
-    }
-}
+#[deprecated(note = "Use virtio_vsock::PacketHeader instead")]
+pub use crate::PacketHeader;
 
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-/// The vsock packet header structure.
-pub struct PacketHeader {
-    src_cid: Le64,
-    dst_cid: Le64,
-    src_port: Le32,
-    dst_port: Le32,
-    len: Le32,
-    type_: Le16,
-    op: Le16,
-    flags: Le32,
-    buf_alloc: Le32,
-    fwd_cnt: Le32,
-}
-
-// SAFETY: This is safe because `PacketHeader` contains only wrappers over POD types
-// and all accesses through safe `vm-memory` API will validate any garbage that could
-// be included in there.
-unsafe impl ByteValued for PacketHeader {}
-
-impl PacketHeader {
-    /// Set the `src_cid` field.
-    pub fn set_src_cid(&mut self, src_cid: u64) -> &mut Self {
-        self.src_cid = src_cid.into();
-        self
-    }
-
-    /// Set the `dst_cid` field.
-    pub fn set_dst_cid(&mut self, dst_cid: u64) -> &mut Self {
-        self.dst_cid = dst_cid.into();
-        self
-    }
-
-    /// Set the `src_port` field.
-    pub fn set_src_port(&mut self, src_port: u32) -> &mut Self {
-        self.src_port = src_port.into();
-        self
-    }
-
-    /// Set the `dst_port` field.
-    pub fn set_dst_port(&mut self, dst_port: u32) -> &mut Self {
-        self.dst_port = dst_port.into();
-        self
-    }
-
-    /// Set the `len` field.
-    pub fn set_len(&mut self, len: u32) -> &mut Self {
-        self.len = len.into();
-        self
-    }
-
-    /// Set the `type_` field.
-    pub fn set_type(&mut self, type_: u16) -> &mut Self {
-        self.type_ = type_.into();
-        self
-    }
-
-    /// Set the `op` field.
-    pub fn set_op(&mut self, op: u16) -> &mut Self {
-        self.op = op.into();
-        self
-    }
-
-    /// Set the `flags` field.
-    pub fn set_flags(&mut self, flags: u32) -> &mut Self {
-        self.flags = flags.into();
-        self
-    }
-
-    /// Set a single flag (bitwise OR with existing flags).
-    pub fn set_flag(&mut self, flag: u32) -> &mut Self {
-        self.flags = (u32::from(self.flags) | flag).into();
-        self
-    }
-
-    /// Set the `buf_alloc` field.
-    pub fn set_buf_alloc(&mut self, buf_alloc: u32) -> &mut Self {
-        self.buf_alloc = buf_alloc.into();
-        self
-    }
-
-    /// Set the `fwd_cnt` field.
-    pub fn set_fwd_cnt(&mut self, fwd_cnt: u32) -> &mut Self {
-        self.fwd_cnt = fwd_cnt.into();
-        self
-    }
-
-    /// Get the `src_cid` field.
-    pub fn src_cid(&self) -> u64 {
-        self.src_cid.into()
-    }
-
-    /// Get the `dst_cid` field.
-    pub fn dst_cid(&self) -> u64 {
-        self.dst_cid.into()
-    }
-
-    /// Get the `src_port` field.
-    pub fn src_port(&self) -> u32 {
-        self.src_port.into()
-    }
-
-    /// Get the `dst_port` field.
-    pub fn dst_port(&self) -> u32 {
-        self.dst_port.into()
-    }
-
-    /// Get the `len` field.
-    pub fn len(&self) -> u32 {
-        self.len.into()
-    }
-
-    /// Returns true if there is no payload
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Get the `type_` field.
-    pub fn type_(&self) -> u16 {
-        self.type_.into()
-    }
-
-    /// Get the `op` field.
-    pub fn op(&self) -> u16 {
-        self.op.into()
-    }
-
-    /// Get the `flags` field.
-    pub fn flags(&self) -> u32 {
-        self.flags.into()
-    }
-
-    /// Get the `buf_alloc` field.
-    pub fn buf_alloc(&self) -> u32 {
-        self.buf_alloc.into()
-    }
-
-    /// Get the `fwd_cnt` field.
-    pub fn fwd_cnt(&self) -> u32 {
-        self.fwd_cnt.into()
-    }
-}
+#[deprecated(note = "Use virtio_vsock::Result instead")]
+pub use crate::Result;
 
 //
 // This structure will occupy the buffer pointed to by the head of the descriptor chain. Below are
@@ -258,9 +57,6 @@ impl PacketHeader {
 // Note that these offsets are only used privately by the `VsockPacket` struct, the public interface
 // consisting of getter and setter methods, for each struct field, that will also handle the correct
 // endianness.
-
-/// The size of the header structure (when packed).
-pub const PKT_HEADER_SIZE: usize = std::mem::size_of::<PacketHeader>();
 
 // Offsets of the header fields.
 const SRC_CID_OFFSET: usize = 0;
@@ -273,9 +69,6 @@ const OP_OFFSET: usize = 30;
 const FLAGS_OFFSET: usize = 32;
 const BUF_ALLOC_OFFSET: usize = 36;
 const FWD_CNT_OFFSET: usize = 40;
-
-/// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// The vsock packet, implemented as a wrapper over a virtio descriptor chain:
 /// - the chain head, holding the packet header;
@@ -361,7 +154,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
     /// # use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueT};
-    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use virtio_vsock::packet::VsockPacket;
+    /// # use virtio_vsock::PKT_HEADER_SIZE;
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
@@ -538,7 +332,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// ```rust
     /// # use virtio_queue::mock::MockSplitQueue;
     /// # use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueT};
-    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use virtio_vsock::packet::VsockPacket;
+    /// # use virtio_vsock::PKT_HEADER_SIZE;
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
     /// const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
@@ -680,7 +475,8 @@ impl<'a, B: BitmapSlice> VsockPacket<'a, B> {
     /// # use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     /// # use virtio_queue::mock::MockSplitQueue;
     /// # use virtio_queue::{desc::{split::Descriptor as SplitDescriptor, RawDescriptor}, Queue, QueueT};
-    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// # use virtio_vsock::packet::VsockPacket;
+    /// # use virtio_vsock::PKT_HEADER_SIZE;
     /// # use vm_memory::{Bytes, GuestAddress, GuestAddressSpace, GuestMemoryMmap};
     ///
     /// # const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
@@ -824,7 +620,8 @@ impl<'a> VsockPacket<'a, ()> {
     /// # Example
     ///
     /// ```rust
-    /// use virtio_vsock::packet::{VsockPacket, PKT_HEADER_SIZE};
+    /// use virtio_vsock::packet::VsockPacket;
+    /// use virtio_vsock::PKT_HEADER_SIZE;
     ///
     /// const LEN: usize = 16;
     ///
@@ -850,36 +647,11 @@ impl<'a> VsockPacket<'a, ()> {
 mod tests {
     use super::*;
 
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use vm_memory::{GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
     use virtio_bindings::bindings::virtio_ring::VRING_DESC_F_WRITE;
     use virtio_queue::desc::{split::Descriptor as SplitDescriptor, RawDescriptor};
     use virtio_queue::mock::MockSplitQueue;
-
-    impl PartialEq for Error {
-        fn eq(&self, other: &Self) -> bool {
-            use self::Error::*;
-            match (self, other) {
-                (DescriptorChainTooShort, DescriptorChainTooShort) => true,
-                (DescriptorLengthTooSmall, DescriptorLengthTooSmall) => true,
-                (DescriptorLengthTooLong, DescriptorLengthTooLong) => true,
-                (FragmentedMemory, FragmentedMemory) => true,
-                (InvalidHeaderInputSize(size), InvalidHeaderInputSize(other_size)) => {
-                    size == other_size
-                }
-                (InvalidHeaderLen(size), InvalidHeaderLen(other_size)) => size == other_size,
-                (InvalidMemoryAccess(ref e), InvalidMemoryAccess(ref other_e)) => {
-                    format!("{e}").eq(&format!("{other_e}"))
-                }
-                (InvalidVolatileAccess(ref e), InvalidVolatileAccess(ref other_e)) => {
-                    format!("{e}").eq(&format!("{other_e}"))
-                }
-                (UnexpectedReadOnlyDescriptor, UnexpectedReadOnlyDescriptor) => true,
-                (UnexpectedWriteOnlyDescriptor, UnexpectedWriteOnlyDescriptor) => true,
-                _ => false,
-            }
-        }
-    }
 
     // Random values to be used by the tests for the header fields.
     const SRC_CID: u64 = 1;
