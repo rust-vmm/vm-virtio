@@ -2,6 +2,14 @@
 
 ## Added
 
+## Changed
+
+## Fixed
+
+# v0.18.0
+
+## Added
+
 - Implement `From<Queue>` and `From<Arc<Mutex<Queue>>>` for `QueueSync`
 
 ## Changed
