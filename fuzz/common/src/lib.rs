@@ -14,6 +14,7 @@ pub mod virtio_queue;
 pub mod virtio_queue_ser;
 pub mod vsock;
 pub mod vsock_common;
+pub mod vsock_rw;
 
 /// Similar to a Descriptor structure, the only difference is that instead of having fields of types
 /// Le64, Le32, Le16 (the way the Descriptor structure has) it has fields of types u64, u32, u16.

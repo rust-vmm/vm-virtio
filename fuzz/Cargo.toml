@@ -39,3 +39,7 @@ path = "fuzz_targets/virtio_queue_ser.rs"
 [[bin]]
 name = "blk"
 path = "fuzz_targets/blk.rs"
+
+[[bin]]
+name = "vsock_rw"
+path = "fuzz_targets/vsock_rw.rs"
