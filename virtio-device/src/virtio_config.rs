@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use log::error;
 
+use crate::status::{ACKNOWLEDGE, DRIVER, FEATURES_OK};
 use crate::{VirtioDevice, WithDriverSelect};
 use virtio_queue::{Queue, QueueT};
 
@@ -76,7 +77,7 @@ pub trait VirtioDeviceType {
 /// Helper trait that can be implemented for objects which represent virtio devices. Together
 /// with `VirtioDeviceType`, it enables an automatic `VirtioDevice` implementation for objects
 /// that also implement `BorrowMut<VirtioConfig>`.
-pub trait VirtioDeviceActions {
+pub trait VirtioDeviceActions: BorrowMut<VirtioConfig<Queue>> {
     /// Type of the error that can be returned by `activate` and `reset`.
     type E;
 
@@ -85,6 +86,58 @@ pub trait VirtioDeviceActions {
 
     /// Invoke the logic associated with resetting this device.
     fn reset(&mut self) -> result::Result<(), Self::E>;
+
+    /// Invoke the logic associated with reading from the device configuration space.
+    ///
+    /// A default implementation is provided as we cannot expect all backends to implement
+    /// this function.
+    fn read_config(&self, offset: usize, data: &mut [u8]) {
+        let config_space = &self.borrow().config_space;
+        let config_len = config_space.len();
+        if offset >= config_len {
+            error!("Failed to read from config space");
+            return;
+        }
+
+        // TODO: Are partial reads ok?
+        let end = cmp::min(offset.saturating_add(data.len()), config_len);
+        let read_len = end - offset;
+        // Cannot fail because the lengths are identical and we do bounds checking beforehand.
+        data[..read_len].copy_from_slice(&config_space[offset..end])
+    }
+
+    /// Invoke the logic associated with writing to the device configuration space.
+    ///
+    /// A default implementation is provided as we cannot expect all backends to implement
+    /// this function.
+    fn write_config(&mut self, offset: usize, data: &[u8]) {
+        let config_space = &mut self.borrow_mut().config_space;
+        let config_len = config_space.len();
+        if offset >= config_len {
+            error!("Failed to write to config space");
+            return;
+        }
+
+        // TODO: Are partial writes ok?
+        let end = cmp::min(offset.saturating_add(data.len()), config_len);
+        let write_len = end - offset;
+        // Cannot fail because the lengths are identical and we do bounds checking beforehand.
+        config_space[offset..end].copy_from_slice(&data[..write_len]);
+    }
+
+    /// Invoke the logic associated with negotiating the driver features.
+    ///
+    /// A default implementation is provided as we cannot expect all backends to implement
+    /// this function.
+    fn negotiate_driver_features(&mut self) {}
+
+    /// Invoke the logic associated with the device interrupt status.
+    ///
+    /// A default implementation is provided as we cannot expect all backends to implement
+    /// this function.
+    fn interrupt_status(&self) -> &Arc<AtomicU8> {
+        &self.borrow().interrupt_status
+    }
 }
 
 // We can automatically implement the `VirtioDevice` trait for objects that only explicitly
@@ -139,6 +192,9 @@ where
 
     fn set_device_status(&mut self, status: u8) {
         self.borrow_mut().device_status = status;
+        if self.borrow_mut().device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) {
+            <Self as VirtioDeviceActions>::negotiate_driver_features(self);
+        }
     }
 
     fn activate(&mut self) -> Result<(), Self::E> {
@@ -150,7 +206,7 @@ where
     }
 
     fn interrupt_status(&self) -> &Arc<AtomicU8> {
-        &self.borrow().interrupt_status
+        <Self as VirtioDeviceActions>::interrupt_status(self)
     }
 
     fn config_generation(&self) -> u8 {
@@ -158,33 +214,11 @@ where
     }
 
     fn read_config(&self, offset: usize, data: &mut [u8]) {
-        let config_space = &self.borrow().config_space;
-        let config_len = config_space.len();
-        if offset >= config_len {
-            error!("Failed to read from config space");
-            return;
-        }
-
-        // TODO: Are partial reads ok?
-        let end = cmp::min(offset.saturating_add(data.len()), config_len);
-        let read_len = end - offset;
-        // Cannot fail because the lengths are identical and we do bounds checking beforehand.
-        data[..read_len].copy_from_slice(&config_space[offset..end])
+        <Self as VirtioDeviceActions>::read_config(self, offset, data)
     }
 
     fn write_config(&mut self, offset: usize, data: &[u8]) {
-        let config_space = &mut self.borrow_mut().config_space;
-        let config_len = config_space.len();
-        if offset >= config_len {
-            error!("Failed to write to config space");
-            return;
-        }
-
-        // TODO: Are partial writes ok?
-        let end = cmp::min(offset.saturating_add(data.len()), config_len);
-        let write_len = end - offset;
-        // Cannot fail because the lengths are identical and we do bounds checking beforehand.
-        config_space[offset..end].copy_from_slice(&data[..write_len]);
+        <Self as VirtioDeviceActions>::write_config(self, offset, data)
     }
 }
 
@@ -222,6 +256,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::mmio::VirtioMmioDevice;
     use std::borrow::Borrow;
+    use std::sync::atomic::Ordering;
 
     pub struct Dummy {
         pub cfg: VirtioConfig<Queue>,
@@ -320,10 +355,10 @@ pub(crate) mod tests {
         let mut v2 = vec![0u8; len];
 
         // Offset to large to read anything.
-        d.read_config(len, v2.as_mut_slice());
+        VirtioDevice::read_config(&d, len, v2.as_mut_slice());
         assert_eq!(v1, v2);
 
-        d.read_config(len / 2, v2.as_mut_slice());
+        VirtioDevice::read_config(&d, len / 2, v2.as_mut_slice());
         for i in 0..len {
             if i < len / 2 {
                 assert_eq!(v2[i], config_space[len / 2 + i]);
@@ -333,10 +368,10 @@ pub(crate) mod tests {
         }
 
         // Offset too large to overwrite anything.
-        d.write_config(len, v1.as_slice());
+        VirtioDevice::write_config(&mut d, len, v1.as_slice());
         assert_eq!(d.cfg.config_space, config_space);
 
-        d.write_config(len / 2, v1.as_slice());
+        VirtioDevice::write_config(&mut d, len / 2, v1.as_slice());
         for (i, &value) in config_space.iter().enumerate().take(len) {
             if i < len / 2 {
                 assert_eq!(d.cfg.config_space[i], value);
@@ -344,6 +379,9 @@ pub(crate) mod tests {
                 assert_eq!(d.cfg.config_space[i], 0);
             }
         }
+
+        d.cfg.interrupt_status.fetch_or(1, Ordering::SeqCst);
+        assert_eq!(VirtioDevice::interrupt_status(&d).load(Ordering::SeqCst), 1);
 
         // Let's test the `WithDriverSelect` auto impl now.
         assert_eq!(d.queue_select(), 0);
