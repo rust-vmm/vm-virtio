@@ -24,36 +24,32 @@ operations are of the `VIRTIO_VSOCK_OP_RW` type, which means for data transfer,
 and the other ones are used for connection and buffer space management.
 `data` is non-empty only for the `VIRTIO_VSOCK_OP_RW` operations.
 
-The abstraction used for the packet implementation is the `VsockPacket`.
-It is using
-[`VolatileSlice`](https://github.com/rust-vmm/vm-memory/blob/fc7153a4f63c352d1fa9419c4654a6c9aec408cb/src/volatile_memory.rs#L266)s
-for representing the header and the data. We chose to use the `VolatileSlice`
-because it's a safe wrapper over the unsafe Rust's raw pointers, and it is also
-generic enough to allow creating packets from pointers to slices. Going with a
-`GuestMemory` based approach would not make such configuration possible.
-More details (including design
-limitations) in [the `packet`'s module-level documentation](src/packet.rs).
+The abstractions used for the packet implementation are `VsockPacketTx` and
+`VsockPacketRx`. `VsockPacketTx` uses a `Reader` from `virtio_queue` to access
+the device-readable packet data and stores a copy of the `PacketHeader`.
+`VsockPacketRx` uses `Writer`s from `virtio_queue` for the header and data
+portions of the device-writable buffers. More details in
+[the `packet_rw`'s module-level documentation](src/packet_rw.rs).
 
-A `VsockPacket` instance is created by parsing a descriptor chain from either
-the TX or the RX virtqueue. The `VsockPacket` API is also providing methods for
-creating/setting up packets directly from pointers to slices.
-It also offers setters and getters for each `virtio_vsock_hdr` field (e.g.
-*src_cid*, *dst_port*, *op*).
+A `VsockPacketTx` or `VsockPacketRx` instance is created by parsing a
+descriptor chain from the TX or the RX virtqueue respectively. The
+`PacketHeader` struct offers setters and getters for each `virtio_vsock_hdr`
+field (e.g. *src_cid*, *dst_port*, *op*).
 
 ### Usage
 
 The driver queues receive buffers on the RX virtqueue, and outgoing packets on
-the TX virtqueue. The device processes the RX virtqueue using 
-`VsockPacket::from_rx_virtq_chain` and fills the buffers with data from the
+the TX virtqueue. The device processes the RX virtqueue using
+`VsockPacketRx::from_rx_virtq_chain` and fills the buffers with data from the
 vsock backend.
 On the TX side, the device processes the TX queue using
-`VsockPacket::from_tx_virtq_chain`, packages the read buffers as vsock packets,
-and then sends them to the backend.
+`VsockPacketTx::from_tx_virtq_chain`, packages the read buffers as vsock
+packets, and then sends them to the backend.
 
 ### Examples
 
 Examples of usage can be found as documentation tests in
-[the packet module](src/packet.rs).
+[the packet_rw module](src/packet_rw.rs).
 
 ## License
 
