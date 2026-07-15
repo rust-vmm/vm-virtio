@@ -2,6 +2,8 @@
 
 ## Added
 
+- Add `DescriptorChainReader<M>` and `DescriptorChainWriter<M>`; lifetime-free variants of `Reader` and `Writer`
+
 ## Changed
 
 ## Fixed

@@ -209,6 +209,18 @@ pub struct DescriptorChainRwIter<M> {
     writable: bool,
 }
 
+impl<M> DescriptorChainRwIter<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
+    /// Return a `GuestMemory` object that can be used to access the buffers pointed to by the
+    /// descriptor chain.
+    pub fn memory(&self) -> &M::Target {
+        self.chain.memory()
+    }
+}
+
 impl<M> Iterator for DescriptorChainRwIter<M>
 where
     M: Deref,
