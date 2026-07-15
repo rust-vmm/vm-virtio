@@ -13,9 +13,11 @@ use std::ops::Deref;
 use std::ptr::copy_nonoverlapping;
 use std::{cmp, result};
 
-use crate::{DescriptorChain, Error};
+use crate::{DescriptorChain, DescriptorChainRwIter, Error};
 use vm_memory::bitmap::{BitmapSlice, WithBitmapSlice};
-use vm_memory::{ByteValued, GuestMemory, Permissions, VolatileSlice};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, Permissions, VolatileSlice,
+};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -343,6 +345,221 @@ impl<B: BitmapSlice> io::Write for Writer<'_, B> {
             }
             Ok(total)
         })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // Nothing to flush since the writes go straight into the buffer.
+        Ok(())
+    }
+}
+
+/// Provides a lifetime-free interface over the readable region of a descriptor chain.
+///
+/// Unlike [`Reader`], `DescriptorChainReader` stores the guest memory accessor inside the
+/// descriptor chain itself rather than borrowing it from an external reference. This means
+/// `DescriptorChainReader<M>` carries **no lifetime parameter** and can be stored as a concrete
+/// field or type parameter in device handler structs without propagating a lifetime through the
+/// type hierarchy.
+///
+/// `M` must implement `Deref` with a `GuestMemory` target and is typically a cheaply-clonable
+/// handle such as a ref-counted memory map or a ref-counted load guard that keeps a consistent
+/// snapshot of guest memory alive for the duration of a single request.
+///
+/// Note that virtio spec requires driver to place any device-writable
+/// descriptors after any device-readable descriptors (2.6.4.2 in Virtio Spec v1.1).
+/// `DescriptorChainReader` will skip iterating over the descriptor chain when the first writable
+/// descriptor is encountered. This also means it is valid (and common) to create both
+/// a `DescriptorChainReader` and a [`DescriptorChainWriter`] from clones of the same
+/// [`DescriptorChain`] to process both halves of a single request.
+pub struct DescriptorChainReader<M> {
+    iter: DescriptorChainRwIter<M>,
+    /// The portion of the current descriptor that has not yet been read.
+    current: Option<(GuestAddress, u32)>,
+    bytes_read: usize,
+}
+
+impl<M> DescriptorChainReader<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
+    /// Construct a new `DescriptorChainReader` from a descriptor chain.
+    ///
+    /// Unlike [`Reader::new`], this constructor is infallible. Any error caused by an invalid
+    /// descriptor address (e.g. pointing outside the mapped guest memory) will surface as an
+    /// [`io::Error`] on the first [`io::Read::read`] call rather than at construction time.
+    pub fn new(desc_chain: DescriptorChain<M>) -> Self {
+        let mut iter = desc_chain.readable();
+        let current = iter.next().map(|d| (d.addr(), d.len()));
+        DescriptorChainReader {
+            iter,
+            current,
+            bytes_read: 0,
+        }
+    }
+
+    /// Returns number of bytes already read from the descriptor chain buffer.
+    pub fn bytes_read(&self) -> usize {
+        self.bytes_read
+    }
+
+    /// Reads an object from the descriptor chain buffer.
+    pub fn read_obj<T: ByteValued>(&mut self) -> io::Result<T> {
+        let mut obj = MaybeUninit::<T>::uninit();
+
+        // SAFETY: `MaybeUninit` guarantees that the pointer is valid for
+        // `size_of::<T>()` bytes.
+        let buf = unsafe {
+            ::std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8, size_of::<T>())
+        };
+
+        self.read_exact(buf)?;
+
+        // SAFETY: any type that implements `ByteValued` can be considered initialized
+        // even if it is filled with random data.
+        Ok(unsafe { obj.assume_init() })
+    }
+}
+
+impl<M> io::Read for DescriptorChainReader<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut total = 0;
+        let mut rem = buf;
+
+        while !rem.is_empty() {
+            let (addr, avail) = match self.current {
+                Some(c) => c,
+                None => break,
+            };
+
+            let copy_len = cmp::min(rem.len(), avail as usize);
+
+            self.iter
+                .memory()
+                .read_slice(&mut rem[..copy_len], addr)
+                .map_err(io::Error::other)?;
+
+            total += copy_len;
+            rem = &mut rem[copy_len..];
+
+            self.bytes_read = self.bytes_read.checked_add(copy_len).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, Error::DescriptorChainOverflow)
+            })?;
+
+            if copy_len < avail as usize {
+                let next_addr = addr
+                    .checked_add(copy_len as u64)
+                    .ok_or_else(|| io::Error::other(Error::AddressOverflow))?;
+                self.current = Some((next_addr, avail - copy_len as u32));
+            } else {
+                self.current = self.iter.next().map(|d| (d.addr(), d.len()));
+            }
+        }
+
+        Ok(total)
+    }
+}
+
+/// Provides a lifetime-free interface over the writable region of a descriptor chain.
+///
+/// Unlike [`Writer`], `DescriptorChainWriter` stores the guest memory accessor inside the
+/// descriptor chain itself rather than borrowing it from an external reference. This means
+/// `DescriptorChainWriter<M>` carries **no lifetime parameter** and can be stored as a concrete
+/// field or type parameter in device handler structs without propagating a lifetime through the
+/// type hierarchy.
+///
+/// `M` must implement `Deref` with a `GuestMemory` target and is typically a cheaply-clonable
+/// handle such as a ref-counted memory map or a ref-counted load guard that keeps a consistent
+/// snapshot of guest memory alive for the duration of a single request.
+///
+/// Note that virtio spec requires driver to place any device-writable
+/// descriptors after any device-readable descriptors (2.6.4.2 in Virtio Spec v1.1).
+/// `DescriptorChainWriter` will start iterating the descriptors from the first writable one and
+/// will assume that all following descriptors are writable. This also means it is valid (and
+/// common) to create both a [`DescriptorChainReader`] and a `DescriptorChainWriter` from clones
+/// of the same [`DescriptorChain`] to process both halves of a single request.
+pub struct DescriptorChainWriter<M> {
+    iter: DescriptorChainRwIter<M>,
+    /// The portion of the current descriptor that has not yet been written.
+    current: Option<(GuestAddress, u32)>,
+    bytes_written: usize,
+}
+
+impl<M> DescriptorChainWriter<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
+    /// Construct a new `DescriptorChainWriter` from a descriptor chain.
+    ///
+    /// Unlike [`Writer::new`], this constructor is infallible. Any error caused by an invalid
+    /// descriptor address (e.g. pointing outside the mapped guest memory) will surface as an
+    /// [`io::Error`] on the first [`io::Write::write`] call rather than at construction time.
+    pub fn new(desc_chain: DescriptorChain<M>) -> Self {
+        let mut iter = desc_chain.writable();
+        let current = iter.next().map(|d| (d.addr(), d.len()));
+        DescriptorChainWriter {
+            iter,
+            current,
+            bytes_written: 0,
+        }
+    }
+
+    /// Returns number of bytes already written to the descriptor chain buffer.
+    pub fn bytes_written(&self) -> usize {
+        self.bytes_written
+    }
+
+    /// Writes an object to the descriptor chain buffer.
+    pub fn write_obj<T: ByteValued>(&mut self, val: T) -> io::Result<()> {
+        self.write_all(val.as_slice())
+    }
+}
+
+impl<M> io::Write for DescriptorChainWriter<M>
+where
+    M: Deref,
+    M::Target: GuestMemory,
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut total = 0;
+        let mut rem = buf;
+
+        while !rem.is_empty() {
+            let (addr, avail) = match self.current {
+                Some(c) => c,
+                None => break,
+            };
+
+            let copy_len = cmp::min(rem.len(), avail as usize);
+
+            self.iter
+                .memory()
+                .write_slice(&rem[..copy_len], addr)
+                .map_err(io::Error::other)?;
+
+            total += copy_len;
+            rem = &rem[copy_len..];
+
+            self.bytes_written = self.bytes_written.checked_add(copy_len).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, Error::DescriptorChainOverflow)
+            })?;
+
+            if copy_len < avail as usize {
+                let next_addr = addr
+                    .checked_add(copy_len as u64)
+                    .ok_or_else(|| io::Error::other(Error::AddressOverflow))?;
+                self.current = Some((next_addr, avail - copy_len as u32));
+            } else {
+                self.current = self.iter.next().map(|d| (d.addr(), d.len()));
+            }
+        }
+
+        Ok(total)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -867,5 +1084,297 @@ mod tests {
         );
 
         assert!(writer.flush().is_ok());
+    }
+
+    #[test]
+    fn owned_reader_test_simple_chain() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![
+                (Readable, 8),
+                (Readable, 16),
+                (Readable, 18),
+                (Readable, 64),
+            ],
+            0,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut reader = DescriptorChainReader::new(chain);
+        assert_eq!(reader.bytes_read(), 0);
+
+        let mut buffer = [0_u8; 64];
+        if let Err(e) = reader.read_exact(&mut buffer) {
+            panic!("read_exact should not fail here: {e:?}");
+        }
+
+        assert_eq!(reader.bytes_read(), 64);
+
+        match reader.read(&mut buffer) {
+            Err(e) => panic!("read should not fail here: {e:?}"),
+            Ok(length) => assert_eq!(length, 42),
+        }
+        assert_eq!(reader.bytes_read(), 106);
+    }
+
+    #[test]
+    fn owned_writer_test_simple_chain() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![
+                (Writable, 8),
+                (Writable, 16),
+                (Writable, 18),
+                (Writable, 64),
+            ],
+            0,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut writer = DescriptorChainWriter::new(chain);
+        assert_eq!(writer.bytes_written(), 0);
+
+        let buffer = [0_u8; 64];
+        if let Err(e) = writer.write_all(&buffer) {
+            panic!("write_all should not fail here: {e:?}");
+        }
+
+        assert_eq!(writer.bytes_written(), 64);
+
+        match writer.write(&buffer) {
+            Err(e) => panic!("write should not fail here: {e:?}"),
+            Ok(length) => assert_eq!(length, 42),
+        }
+        assert_eq!(writer.bytes_written(), 106);
+    }
+
+    #[test]
+    fn owned_reader_test_incompatible_chain() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(&memory, GuestAddress(0x0), vec![(Writable, 8)], 0)
+            .expect("create_descriptor_chain failed");
+        let mut reader = DescriptorChainReader::new(chain);
+        assert_eq!(reader.bytes_read(), 0);
+
+        assert!(reader.read_obj::<u8>().is_err());
+        assert_eq!(reader.bytes_read(), 0);
+    }
+
+    #[test]
+    fn owned_writer_test_incompatible_chain() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(&memory, GuestAddress(0x0), vec![(Readable, 8)], 0)
+            .expect("create_descriptor_chain failed");
+        let mut writer = DescriptorChainWriter::new(chain);
+        assert_eq!(writer.bytes_written(), 0);
+
+        assert!(writer.write_obj(0u8).is_err());
+        assert_eq!(writer.bytes_written(), 0);
+    }
+
+    #[test]
+    fn owned_reader_writer_shared_chain() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![
+                (Readable, 16),
+                (Readable, 16),
+                (Readable, 96),
+                (Writable, 64),
+                (Writable, 1),
+                (Writable, 3),
+            ],
+            0,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut reader = DescriptorChainReader::new(chain.clone());
+        let mut writer = DescriptorChainWriter::new(chain);
+
+        assert_eq!(reader.bytes_read(), 0);
+        assert_eq!(writer.bytes_written(), 0);
+
+        let mut buffer = Vec::with_capacity(200);
+        assert_eq!(
+            reader
+                .read_to_end(&mut buffer)
+                .expect("read should not fail here"),
+            128
+        );
+
+        // The writable descriptors are only 68 bytes long.
+        writer
+            .write_all(&buffer[..68])
+            .expect("write should not fail here");
+
+        assert_eq!(reader.bytes_read(), 128);
+        assert_eq!(writer.bytes_written(), 68);
+    }
+
+    #[test]
+    fn owned_reader_writer_shattered_object() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let secret: Le32 = 0x1234_5678.into();
+
+        // Create a descriptor chain with memory regions that are properly separated.
+        let chain_writer = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![(Writable, 1), (Writable, 1), (Writable, 1), (Writable, 1)],
+            123,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut writer = DescriptorChainWriter::new(chain_writer);
+        if let Err(e) = writer.write_obj(secret) {
+            panic!("write_obj should not fail here: {e:?}");
+        }
+
+        // Now create new descriptor chain pointing to the same memory and try to read it.
+        let chain_reader = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![(Readable, 1), (Readable, 1), (Readable, 1), (Readable, 1)],
+            123,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut reader = DescriptorChainReader::new(chain_reader);
+        match reader.read_obj::<Le32>() {
+            Err(e) => panic!("read_obj should not fail here: {e:?}"),
+            Ok(read_secret) => assert_eq!(read_secret, secret),
+        }
+    }
+
+    #[test]
+    fn owned_reader_unexpected_eof() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![(Readable, 256), (Readable, 256)],
+            0,
+        )
+        .expect("create_descriptor_chain failed");
+
+        let mut reader = DescriptorChainReader::new(chain);
+        let mut buf = vec![0; 1024];
+
+        assert_eq!(
+            reader
+                .read_exact(&mut buf[..])
+                .expect_err("read more bytes than available")
+                .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[test]
+    fn owned_writer_flush() {
+        use DescriptorType::*;
+
+        let memory_start_addr = GuestAddress(0x0);
+        let memory = GuestMemoryMmap::from_ranges(&[(memory_start_addr, 0x10000)]).unwrap();
+
+        let chain = create_descriptor_chain(
+            &memory,
+            GuestAddress(0x0),
+            vec![(Writable, 16), (Writable, 16), (Writable, 16)],
+            0,
+        )
+        .expect("create_descriptor_chain failed");
+        let mut writer = DescriptorChainWriter::new(chain);
+
+        let buf = [0xdeu8; 64];
+        assert_eq!(
+            writer.write(&buf[..]).expect("failed to write from buffer"),
+            48
+        );
+        assert!(writer.flush().is_ok());
+    }
+
+    #[test]
+    fn descriptor_chain_reader_inv_desc_addr() {
+        let memory: GuestMemoryMmap =
+            GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), 0x1000)]).unwrap();
+
+        let queue = MockSplitQueue::create(&memory, GuestAddress(0x0), MAX_QUEUE_SIZE);
+
+        // set addr out of memory
+        let descriptor = RawDescriptor::from(SplitDescriptor::new(0x1001, 1, 0, 1_u16));
+        queue.build_desc_chain(&[descriptor]).unwrap();
+
+        let avail_ring = queue.avail_addr();
+
+        let mut queue: Queue = Queue::new(MAX_QUEUE_SIZE).unwrap();
+        queue.try_set_desc_table_address(GuestAddress(0x0)).unwrap();
+        queue.try_set_avail_ring_address(avail_ring).unwrap();
+        queue.set_ready(true);
+
+        let chain = queue.iter(&memory).unwrap().next().unwrap();
+
+        // Unlike Reader::new, construction succeeds; the error surfaces on the first read.
+        let mut reader = DescriptorChainReader::new(chain);
+        let mut buf = [0u8; 1];
+        assert!(reader.read(&mut buf).is_err());
+    }
+
+    #[test]
+    fn descriptor_chain_writer_inv_desc_addr() {
+        let memory: GuestMemoryMmap =
+            GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), 0x1000)]).unwrap();
+
+        let queue = MockSplitQueue::create(&memory, GuestAddress(0x0), MAX_QUEUE_SIZE);
+
+        // set addr out of memory
+        let descriptor = RawDescriptor::from(SplitDescriptor::new(
+            0x1001,
+            1,
+            VRING_DESC_F_WRITE as u16,
+            1_u16,
+        ));
+        queue.build_desc_chain(&[descriptor]).unwrap();
+
+        let avail_ring = queue.avail_addr();
+
+        let mut queue: Queue = Queue::new(MAX_QUEUE_SIZE).unwrap();
+        queue.try_set_desc_table_address(GuestAddress(0x0)).unwrap();
+        queue.try_set_avail_ring_address(avail_ring).unwrap();
+        queue.set_ready(true);
+
+        let chain = queue.iter(&memory).unwrap().next().unwrap();
+
+        // Unlike Writer::new, construction succeeds; the error surfaces on the first write.
+        let mut writer = DescriptorChainWriter::new(chain);
+        assert!(writer.write(&[0u8]).is_err());
     }
 }

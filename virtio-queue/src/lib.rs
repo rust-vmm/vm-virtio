@@ -23,7 +23,7 @@ use log::error;
 use vm_memory::{GuestMemory, GuestMemoryError, VolatileMemoryError};
 
 pub use self::chain::{DescriptorChain, DescriptorChainRwIter};
-pub use self::descriptor_utils::{Reader, Writer};
+pub use self::descriptor_utils::{DescriptorChainReader, DescriptorChainWriter, Reader, Writer};
 pub use self::queue::{AvailIter, Queue};
 pub use self::queue_sync::QueueSync;
 pub use self::state::QueueState;
