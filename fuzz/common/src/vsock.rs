@@ -175,32 +175,13 @@ mod tests {
     use super::*;
     use crate::create_corpus_file;
     use crate::virtio_queue::DEFAULT_QUEUE_SIZE;
+    use crate::vsock_common::test_utils::*;
     use std::io::Write;
     use virtio_bindings::bindings::virtio_ring::{VRING_DESC_F_NEXT, VRING_DESC_F_WRITE};
     use virtio_queue::desc::RawDescriptor;
     use virtio_queue::mock::MockSplitQueue;
     use virtio_vsock::packet::VsockPacket;
     use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, Permissions};
-
-    // Random values to be used by the tests for the header fields.
-    const SRC_CID: u64 = 1;
-    const DST_CID: u64 = 2;
-    const SRC_PORT: u32 = 3;
-    const DST_PORT: u32 = 4;
-    const LEN: u32 = 16;
-    const TYPE: u16 = 5;
-    const OP: u16 = 6;
-    const FLAGS: u32 = 7;
-    const FLAG: u32 = 8;
-    const BUF_ALLOC: u32 = 256;
-    const FWD_CNT: u32 = 9;
-
-    const MAX_PKT_BUF_SIZE: u32 = 64 * 1024;
-
-    const DESC_LEN: u32 = 0x100;
-
-    const HEADER_WRITE_ADDR: u64 = 0x100;
-    const DATA_WRITE_ADDR: u64 = 0x1000;
 
     /// For `get_mem_ptr()`: Whether we access the RX or TX ring.
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
