@@ -136,7 +136,7 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
     pub fn new(mem: &'a M, base: GuestAddress, len: u16) -> Self {
         let event_addr = base
             .checked_add(4)
-            .and_then(|a| a.checked_add((size_of::<u16>() * len as usize) as u64))
+            .and_then(|a| a.checked_add((size_of::<T>() * len as usize) as u64))
             .unwrap();
 
         let split_queue_ring = SplitQueueRing {
@@ -161,7 +161,8 @@ impl<'a, M: GuestMemory, T: ByteValued> SplitQueueRing<'a, M, T> {
     /// Return the end address of the `SplitQueueRing`.
     pub fn end(&self) -> GuestAddress {
         self.start()
-            .checked_add(self.ring.len as GuestUsize)
+            .checked_add((self.ring.len * size_of::<T>()) as GuestUsize)
+            .and_then(|a| a.checked_add(size_of::<u16>() as GuestUsize))
             .unwrap()
     }
 
@@ -521,5 +522,75 @@ impl<'a, M: GuestMemory> MockSplitQueue<'a, M> {
             .map_err(MockError::GuestMem)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::defs::{VIRTQ_USED_ELEMENT_SIZE, VIRTQ_USED_RING_HEADER_SIZE};
+    use vm_memory::GuestMemoryMmap;
+
+    /// The minimum queue size, a few small ones, and the sizes device models commonly use.
+    const QUEUE_SIZES: [u16; 6] = [2, 4, 8, 16, 128, 256];
+
+    fn memory() -> GuestMemoryMmap {
+        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10_0000)]).unwrap()
+    }
+
+    // A split ring is laid out as flags (le16), idx (le16), an array of `queue_size`
+    // elements of type T, and finally the event suppression field (le16). Computing any
+    // address past the element array therefore has to account for the size of T.
+
+    #[test]
+    fn event_field_follows_the_ring_elements() {
+        for len in QUEUE_SIZES {
+            let m = memory();
+            let vq = MockSplitQueue::new(&m, len);
+
+            let avail = vq.avail();
+            assert_eq!(
+                avail.event.addr.0 - avail.start().0,
+                u64::from(len) * VIRTQ_AVAIL_ELEMENT_SIZE,
+                "queue size {len}: used_event is not placed after the available ring elements"
+            );
+
+            let used = vq.used();
+            assert_eq!(
+                used.event.addr.0 - used.start().0,
+                u64::from(len) * VIRTQ_USED_ELEMENT_SIZE,
+                "queue size {len}: avail_event is not placed after the used ring elements"
+            );
+        }
+    }
+
+    #[test]
+    fn rings_do_not_overlap() {
+        for len in QUEUE_SIZES {
+            let m = memory();
+            let vq = MockSplitQueue::new(&m, len);
+
+            let avail_end = vq.avail_addr().0
+                + VIRTQ_AVAIL_RING_HEADER_SIZE
+                + u64::from(len) * VIRTQ_AVAIL_ELEMENT_SIZE
+                + size_of::<u16>() as u64;
+            assert!(
+                vq.used_addr().0 >= avail_end,
+                "queue size {len}: used ring at {:#x} starts inside the available ring, \
+                 which ends at {avail_end:#x}",
+                vq.used_addr().0
+            );
+
+            let used_end = vq.used_addr().0
+                + VIRTQ_USED_RING_HEADER_SIZE
+                + u64::from(len) * VIRTQ_USED_ELEMENT_SIZE
+                + size_of::<u16>() as u64;
+            assert!(
+                vq.end().0 >= used_end,
+                "queue size {len}: queue ends at {:#x}, before its own used ring ends at \
+                 {used_end:#x}",
+                vq.end().0
+            );
+        }
     }
 }
